@@ -20,34 +20,34 @@ chmod +x shadowsocks.sh
 <li><p>卸载与其他配置：<br>卸载方式： <code>./shadowsocks.sh uninstall</code>  </p>
 <ul>
 <li><p>单用户配置文件 Sample：<br>配置文件路径：<code>/etc/shadowsocks.json</code>  </p>
-<pre><code>{
-   &quot;server&quot;:&quot;0.0.0.0&quot;,
-   &quot;server_port&quot;:8585,
-   &quot;local_address&quot;:&quot;127.0.0.1&quot;,
-   &quot;local_port&quot;:1080,
-   &quot;password&quot;:&quot;password&quot;,
-   &quot;timeout&quot;:300,
-   &quot;method&quot;:&quot;aes-256-cfb&quot;,
-   &quot;fast_open&quot;: false
-}
-</code></pre></li>
+<p> {</p>
+<pre><code>&quot;server&quot;:&quot;0.0.0.0&quot;,
+&quot;server_port&quot;:8585,
+&quot;local_address&quot;:&quot;127.0.0.1&quot;,
+&quot;local_port&quot;:1080,
+&quot;password&quot;:&quot;password&quot;,
+&quot;timeout&quot;:300,
+&quot;method&quot;:&quot;aes-256-cfb&quot;,
+&quot;fast_open&quot;: false
+</code></pre><p> }</p>
+</li>
 <li><p>多用户多端口配置文件 Sample：<br>配置文件路径：<code>/etc/shadowsocks.json</code></p>
-<pre><code>{
-   &quot;server&quot;:&quot;0.0.0.0&quot;,
-   &quot;local_address&quot;:&quot;127.0.0.1&quot;,
-   &quot;local_port&quot;:1080,
-   &quot;port_password&quot;:{
-   &quot;8585&quot;:&quot;password0&quot;,
-   &quot;9001&quot;:&quot;password1&quot;,
-   &quot;9002&quot;:&quot;password2&quot;,
-   &quot;9003&quot;:&quot;password3&quot;,
-   &quot;9004&quot;:&quot;password4&quot;
-   },
-   &quot;timeout&quot;:300,
-   &quot;method&quot;:&quot;aes-256-cfb&quot;,
-   &quot;fast_open&quot;: false
-}
-</code></pre></li>
+<p> {</p>
+<pre><code>&quot;server&quot;:&quot;0.0.0.0&quot;,
+&quot;local_address&quot;:&quot;127.0.0.1&quot;,
+&quot;local_port&quot;:1080,
+&quot;port_password&quot;:{
+&quot;8585&quot;:&quot;password0&quot;,
+&quot;9001&quot;:&quot;password1&quot;,
+&quot;9002&quot;:&quot;password2&quot;,
+&quot;9003&quot;:&quot;password3&quot;,
+&quot;9004&quot;:&quot;password4&quot;
+},
+&quot;timeout&quot;:300,
+&quot;method&quot;:&quot;aes-256-cfb&quot;,
+&quot;fast_open&quot;: false
+</code></pre><p> }</p>
+</li>
 </ul>
 </li>
 </ol>
@@ -62,18 +62,18 @@ chmod +x shadowsocks-go.sh
 <li><p>卸载与其他配置：<br>卸载方式： <code>./shadowsocks-go.sh uninstall</code></p>
 <ul>
 <li><p>多用户多端口配置文件 Sample：<br>配置文件路径：<code>/etc/shadowsocks.json</code></p>
-<pre><code>{
-   &quot;port_password&quot;:{
-   &quot;8585&quot;:&quot;password0&quot;,
-   &quot;9001&quot;:&quot;password1&quot;,
-   &quot;9002&quot;:&quot;password2&quot;,
-   &quot;9003&quot;:&quot;password3&quot;,
-   &quot;9004&quot;:&quot;password4&quot;
-   },
-   &quot;method&quot;:&quot;aes-256-cfb&quot;,
-   &quot;timeout&quot;:600,
-}
-</code></pre></li>
+<p> {</p>
+<pre><code>&quot;port_password&quot;:{
+&quot;8585&quot;:&quot;password0&quot;,
+&quot;9001&quot;:&quot;password1&quot;,
+&quot;9002&quot;:&quot;password2&quot;,
+&quot;9003&quot;:&quot;password3&quot;,
+&quot;9004&quot;:&quot;password4&quot;
+},
+&quot;method&quot;:&quot;aes-256-cfb&quot;,
+&quot;timeout&quot;:600
+</code></pre><p> }</p>
+</li>
 </ul>
 </li>
 </ol>
@@ -87,10 +87,8 @@ chmod +x shadowsocks-libev.sh
 <li><p>卸载与其他配置：<br>卸载方式： <code>./shadowsocks-libev.sh uninstall</code></p>
 <ul>
 <li><p>修改配置文件 <code>/etc/shadowsocks-libev/config.json</code>,同时启用 IPv4 与 IPv6 支持：</p>
-<pre><code>{
-</code></pre><p> ​      “server”:[“[::0]”,”0.0.0.0”],<br> ​      “server_port”:your_server_port,<br> ​      “local_address”:”127.0.0.1”,<br> ​      “local_port”:1080,<br> ​      “password”:”password”,<br> ​      “timeout”:600,<br> ​      “method”:”aes-256-cfb”</p>
-<pre><code>}
-</code></pre></li>
+ <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">"server"</span>:[<span class="string">"[::0]"</span>,<span class="string">"0.0.0.0"</span>],</span><br><span class="line">    <span class="string">"server_port"</span>:your_server_port,</span><br><span class="line">    <span class="string">"local_address"</span>:<span class="string">"127.0.0.1"</span>,</span><br><span class="line">    <span class="string">"local_port"</span>:1080,</span><br><span class="line">    <span class="string">"password"</span>:<span class="string">"password"</span>,</span><br><span class="line">    <span class="string">"timeout"</span>:600,</span><br><span class="line">    <span class="string">"method"</span>:<span class="string">"aes-256-cfb"</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+</li>
 </ul>
 </li>
 </ol>
