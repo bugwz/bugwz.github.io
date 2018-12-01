@@ -19,22 +19,22 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
     error: 'Copy error',
     noSupport: 'The browser does not support'
   }
-} </script></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://ww1.sinaimg.cn/large/006qpCDTjw1fb81lswh9pj30sg0sg40t.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">28</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">14</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://wx4.sinaimg.cn/large/006qpCDTly1ffyrpaqgeuj31hc0u00yr.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Red Hat课堂学习知识点笔记</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2016-01-01</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2016/01/01/redhat-note/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2016/01/01/redhat-note/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h3 id="0-环境及目录"><a href="#0-环境及目录" class="headerlink" title="0.环境及目录"></a>0.环境及目录</h3><p>课堂讲述及联想所记，便于自己后来查阅同时与他人便利。</p>
+} </script></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://ww1.sinaimg.cn/large/006qpCDTjw1fb81lswh9pj30sg0sg40t.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">28</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">14</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://wx4.sinaimg.cn/large/006qpCDTly1ffyrpaqgeuj31hc0u00yr.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Red Hat课堂学习知识点笔记</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2016-01-01</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2016/01/01/redhat-note/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2016/01/01/redhat-note/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="0-环境及目录"><a href="#0-环境及目录" class="headerlink" title="0.环境及目录"></a>0.环境及目录</h1><p>课堂讲述及联想所记，便于自己后来查阅同时与他人便利。</p>
 <ul>
 <li>两款虚拟机：VMware Workstation 12 Pro、VirtualBox 5.1.22</li>
 <li>Rad Hat镜像：RedHat-Server-6.4-i386</li>
 <li>其他一些工具：XShell 5、Putty</li>
 </ul>
-<h4 id="目录列表"><a href="#目录列表" class="headerlink" title="目录列表"></a>目录列表</h4><blockquote>
-<h4 id="1-VMware的VMware-Tools安装与VirtualBox的增强工具"><a href="#1-VMware的VMware-Tools安装与VirtualBox的增强工具" class="headerlink" title="1.VMware的VMware Tools安装与VirtualBox的增强工具"></a><a href="#redhat_1">1.VMware的VMware Tools安装与VirtualBox的增强工具</a></h4><h4 id="2-RedHat的root用户的密码初始化"><a href="#2-RedHat的root用户的密码初始化" class="headerlink" title="2.RedHat的root用户的密码初始化"></a><a href="#redhat_2">2.RedHat的root用户的密码初始化</a></h4><h4 id="3-RedHat无法使用yum安装软件解决方法"><a href="#3-RedHat无法使用yum安装软件解决方法" class="headerlink" title="3.RedHat无法使用yum安装软件解决方法"></a><a href="#redhat_3">3.RedHat无法使用yum安装软件解决方法</a></h4><h4 id="4-添加KDE桌面-中文支持和VNC设置体验"><a href="#4-添加KDE桌面-中文支持和VNC设置体验" class="headerlink" title="4.添加KDE桌面/中文支持和VNC设置体验"></a><a href="#redhat_4">4.添加KDE桌面/中文支持和VNC设置体验</a></h4><h4 id="5-XShell和X11转发"><a href="#5-XShell和X11转发" class="headerlink" title="5. XShell和X11转发"></a><a href="#redhat_5">5. XShell和X11转发</a></h4></blockquote>
+<h2 id="目录列表"><a href="#目录列表" class="headerlink" title="目录列表"></a>目录列表</h2><blockquote>
+<h2 id="1-VMware的VMware-Tools安装与VirtualBox的增强工具"><a href="#1-VMware的VMware-Tools安装与VirtualBox的增强工具" class="headerlink" title="1.VMware的VMware Tools安装与VirtualBox的增强工具"></a><a href="#redhat_1">1.VMware的VMware Tools安装与VirtualBox的增强工具</a></h2><h2 id="2-RedHat的root用户的密码初始化"><a href="#2-RedHat的root用户的密码初始化" class="headerlink" title="2.RedHat的root用户的密码初始化"></a><a href="#redhat_2">2.RedHat的root用户的密码初始化</a></h2><h2 id="3-RedHat无法使用yum安装软件解决方法"><a href="#3-RedHat无法使用yum安装软件解决方法" class="headerlink" title="3.RedHat无法使用yum安装软件解决方法"></a><a href="#redhat_3">3.RedHat无法使用yum安装软件解决方法</a></h2><h2 id="4-添加KDE桌面-中文支持和VNC设置体验"><a href="#4-添加KDE桌面-中文支持和VNC设置体验" class="headerlink" title="4.添加KDE桌面/中文支持和VNC设置体验"></a><a href="#redhat_4">4.添加KDE桌面/中文支持和VNC设置体验</a></h2><h2 id="5-XShell和X11转发"><a href="#5-XShell和X11转发" class="headerlink" title="5. XShell和X11转发"></a><a href="#redhat_5">5. XShell和X11转发</a></h2></blockquote>
 <p><a id="redhat_1"></a></p>
-<h4 id="1-VMware的VMware-Tools安装与VirtualBox的增强工具-1"><a href="#1-VMware的VMware-Tools安装与VirtualBox的增强工具-1" class="headerlink" title="1. VMware的VMware Tools安装与VirtualBox的增强工具"></a>1. VMware的VMware Tools安装与VirtualBox的增强工具</h4><p>为了加强同时使用虚拟机与主机的用户体验，像是实现虚拟机和主机图形用户界面之间平滑移动鼠标光标等的需求，我们在两款虚拟机软件中安装对应的增强工具。</p>
-<h5 id="1-1-安装VMware的VMware-Tools："><a href="#1-1-安装VMware的VMware-Tools：" class="headerlink" title="1.1 安装VMware的VMware Tools："></a>1.1 安装VMware的VMware Tools：</h5><ul>
+<h2 id="1-VMware的VMware-Tools安装与VirtualBox的增强工具-1"><a href="#1-VMware的VMware-Tools安装与VirtualBox的增强工具-1" class="headerlink" title="1. VMware的VMware Tools安装与VirtualBox的增强工具"></a>1. VMware的VMware Tools安装与VirtualBox的增强工具</h2><p>为了加强同时使用虚拟机与主机的用户体验，像是实现虚拟机和主机图形用户界面之间平滑移动鼠标光标等的需求，我们在两款虚拟机软件中安装对应的增强工具。</p>
+<h3 id="1-1-安装VMware的VMware-Tools："><a href="#1-1-安装VMware的VMware-Tools：" class="headerlink" title="1.1 安装VMware的VMware Tools："></a>1.1 安装VMware的VMware Tools：</h3><ul>
 <li>在虚拟机中进入桌面后，点击VMware菜单栏的”虚拟机”，然后点击”安装VMware Tools”，在RedHat中确定VMware Tools的挂载点位置。</li>
 <li>将VMware Tools中的类似于”VMwareTools-xxxxxx.tar.gz”的文件解压到另一个文件夹(例如tmp)中，解压，并运行安装，一路确定加回车即可。示例代码如下：<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">tar zxvf VMwareTools-xxxxxx.tar.gz -C /tmp/</span><br><span class="line"><span class="built_in">cd</span> vmware-tools-distrib/</span><br><span class="line">./vmware-install.pl</span><br></pre></td></tr></table></figure>
 </li>
 </ul>
-<h5 id="1-2-安装VirtualBox的增强工具："><a href="#1-2-安装VirtualBox的增强工具：" class="headerlink" title="1.2 安装VirtualBox的增强工具："></a>1.2 安装VirtualBox的增强工具：</h5><ul>
+<h3 id="1-2-安装VirtualBox的增强工具："><a href="#1-2-安装VirtualBox的增强工具：" class="headerlink" title="1.2 安装VirtualBox的增强工具："></a>1.2 安装VirtualBox的增强工具：</h3><ul>
 <li><p>首先确保本机已经安装kernel-devel和gcc两个依赖包，如果没有可以使用下面代码进行安装(如果下面代码使用后出错，请参考<a href="#redhat_3">RedHat无法使用yum在线安装软件解决方法</a>)：</p>
 <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">yum install kernel-devel</span><br><span class="line">yum install gcc</span><br></pre></td></tr></table></figure>
 </li>
@@ -43,7 +43,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li>虚拟机系统界面就会弹出安装提示，点击”OK”，然后点击”RUN”继续即可,最后重启生效。类似图如下：<br><img src="http://cdn.bugwz.com/006qpCDTly1ffxq4t0txlj30sa0nawyk.jpg" alt="RedHat"><br><img src="http://cdn.bugwz.com/006qpCDTly1ffxq4thuugj30s30n17p5.jpg" alt="RedHat"></li>
 </ul>
 <p><a id="redhat_2"></a></p>
-<h3 id="2-RedHat的root用户的密码初始化-1"><a href="#2-RedHat的root用户的密码初始化-1" class="headerlink" title="2.RedHat的root用户的密码初始化"></a>2.RedHat的root用户的密码初始化</h3><p>由于在VMware中安装的RedHat并没有提示设置root用户密码，并且系统策略也不和Ubuntu一样：Ubuntu中当root用户未设置密码时，普通用户可以使用 <code>sudo passwd root</code> 初始化root账户密码。所以我们需要如下步骤设置root账户密码：</p>
+<h1 id="2-RedHat的root用户的密码初始化-1"><a href="#2-RedHat的root用户的密码初始化-1" class="headerlink" title="2.RedHat的root用户的密码初始化"></a>2.RedHat的root用户的密码初始化</h1><p>由于在VMware中安装的RedHat并没有提示设置root用户密码，并且系统策略也不和Ubuntu一样：Ubuntu中当root用户未设置密码时，普通用户可以使用 <code>sudo passwd root</code> 初始化root账户密码。所以我们需要如下步骤设置root账户密码：</p>
 <ul>
 <li>重启系统后在引导装载程序菜单上，用上下方向键选择你忘记密码的那个系统键入”e”来进入编辑模式，我的系统是两个选项，不过都是一个系统，区别在于是否有GUI显示；</li>
 <li>接着用上下键选择最新的内核,这里是”kernel /vmlinuz-2.6.32-696.1.1.e16.i686 ro root=UUID=96504b88-d13d-4a”，然后继续按“e”键；</li>
@@ -51,9 +51,9 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li>然后返回了那个内核界面，按下”b”进入单用户模式，在这里修改root的密码，之后重启即可。</li>
 </ul>
 <p><a id="redhat_3"></a></p>
-<h3 id="3-RedHat无法使用yum安装软件解决方法-1"><a href="#3-RedHat无法使用yum安装软件解决方法-1" class="headerlink" title="3.RedHat无法使用yum安装软件解决方法"></a>3.RedHat无法使用yum安装软件解决方法</h3><p>如果我们在虚拟机中使用RedHat去执行 <code>yum install xxx</code> 安装软件的话，系统会给出类似于 “This system is not registered to Red Hat Subscription Management.You can use subscription-manager to register.” 这说明我们是没办法使用yum在线安装RedHat的软件了，这就十分尴尬了。这么好用的yum不能用，尴尬癌都犯了有没有。</p>
+<h1 id="3-RedHat无法使用yum安装软件解决方法-1"><a href="#3-RedHat无法使用yum安装软件解决方法-1" class="headerlink" title="3.RedHat无法使用yum安装软件解决方法"></a>3.RedHat无法使用yum安装软件解决方法</h1><p>如果我们在虚拟机中使用RedHat去执行 <code>yum install xxx</code> 安装软件的话，系统会给出类似于 “This system is not registered to Red Hat Subscription Management.You can use subscription-manager to register.” 这说明我们是没办法使用yum在线安装RedHat的软件了，这就十分尴尬了。这么好用的yum不能用，尴尬癌都犯了有没有。</p>
 <p>三种办法解决，第一种去用CentOS，第二种我们使用RedHat的光盘ISO镜像作为本地源，第三种我们卸载RedHat自带yum，然后用CentOS的yum进行替换。第二种以及第三种的实现方法具体如下所示：</p>
-<h4 id="3-1-使用RedHat的光盘ISO镜像作为本地源"><a href="#3-1-使用RedHat的光盘ISO镜像作为本地源" class="headerlink" title="3.1 使用RedHat的光盘ISO镜像作为本地源"></a>3.1 使用RedHat的光盘ISO镜像作为本地源</h4><ul>
+<h2 id="3-1-使用RedHat的光盘ISO镜像作为本地源"><a href="#3-1-使用RedHat的光盘ISO镜像作为本地源" class="headerlink" title="3.1 使用RedHat的光盘ISO镜像作为本地源"></a>3.1 使用RedHat的光盘ISO镜像作为本地源</h2><ul>
 <li>首先我们需要挂载本地RedHat的光盘ISO镜像，无论是VMware还是VirtualBox，都是在菜单栏目中将可移动设备光盘中设置为对应的RedHat镜像，并挂在到虚拟机中；</li>
 <li><p>然后我们修改RedHat镜像的挂载位置(一定要记住之前的挂载点)，目的是便于后面使用，防止空格等字符的存在我们无法进入对应目录等，图示及命令如下所示：<br><img src="http://cdn.bugwz.com/006qpCDTly1ffxxatnllej30gw03eaa7.jpg" alt=""></p>
 <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">umount /dev/sr0</span><br><span class="line">mkdir -p /media/cdrom</span><br><span class="line">mount /dev/sr0 /media/cdrom</span><br></pre></td></tr></table></figure>
@@ -64,7 +64,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </li>
 </ul>
 <p><img src="http://cdn.bugwz.com/006qpCDTly1ffxxiyhj1tj30gx098my3.jpg" alt=""></p>
-<h4 id="3-2-使用CentOS的yum进行替换RedHat自带的yum"><a href="#3-2-使用CentOS的yum进行替换RedHat自带的yum" class="headerlink" title="3.2 使用CentOS的yum进行替换RedHat自带的yum"></a>3.2 使用CentOS的yum进行替换RedHat自带的yum</h4><ul>
+<h2 id="3-2-使用CentOS的yum进行替换RedHat自带的yum"><a href="#3-2-使用CentOS的yum进行替换RedHat自带的yum" class="headerlink" title="3.2 使用CentOS的yum进行替换RedHat自带的yum"></a>3.2 使用CentOS的yum进行替换RedHat自带的yum</h2><ul>
 <li>首先确定系统是32位的还是64位的，可以使用命令 <code>uname -a</code> 查看，根据系统位数，前往<a href="http://mirrors.163.com/centos/6/os/" target="_blank">网易开源镜像站</a>对应目录下的Packages目录中获取文件链接使用 <code>wget</code> 下载相关软件；</li>
 <li>(我RedHat是32位)相关软件如下所示，不过你会发现网站中并没有<br> <code>yum-3.2.29-30.el6.centos.noarch.rpm</code> ，反而有一个 <code>yum-3.2.29-81.el6.centos.noarch.rpm</code>，我想说的是，你下载后者安装会出错，所以你可从<a href="https://github.com/CUBEGWZ/Other/raw/master/yum-3.2.29-30.el6.centos.noarch.rpm" target="_blank" rel="noopener">这里</a>下载 <code>yum-3.2.29-30.el6.centos.noarch.rpm</code> 这个文件<ul>
 <li>python-iniparse-0.3.1-2.1.el6.noarch.rpm</li>
@@ -96,7 +96,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </li>
 </ul>
 <p><a id="redhat_4"></a></p>
-<h3 id="4-添加KDE桌面-中文支持和VNC设置体验-1"><a href="#4-添加KDE桌面-中文支持和VNC设置体验-1" class="headerlink" title="4.添加KDE桌面/中文支持和VNC设置体验"></a>4.添加KDE桌面/中文支持和VNC设置体验</h3><h4 id="4-1-添加KDE桌面-中文支持"><a href="#4-1-添加KDE桌面-中文支持" class="headerlink" title="4.1 添加KDE桌面/中文支持"></a>4.1 添加KDE桌面/中文支持</h4><ul>
+<h1 id="4-添加KDE桌面-中文支持和VNC设置体验-1"><a href="#4-添加KDE桌面-中文支持和VNC设置体验-1" class="headerlink" title="4.添加KDE桌面/中文支持和VNC设置体验"></a>4.添加KDE桌面/中文支持和VNC设置体验</h1><h2 id="4-1-添加KDE桌面-中文支持"><a href="#4-1-添加KDE桌面-中文支持" class="headerlink" title="4.1 添加KDE桌面/中文支持"></a>4.1 添加KDE桌面/中文支持</h2><ul>
 <li><p>在我们可以使用 <code>yum</code>的基础之上，我们需要安装 <code>KDE Desktop</code>这个软件组，我们可以使用下面的命令进行查看与安装：</p>
 <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">yum grouplist</span><br><span class="line">yum groupinstall <span class="string">"KDE Desktop"</span></span><br></pre></td></tr></table></figure>
 </li>
@@ -111,7 +111,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 </li>
 </ul>
-<h4 id="4-2-VNC设置体验"><a href="#4-2-VNC设置体验" class="headerlink" title="4.2 VNC设置体验"></a>4.2 VNC设置体验</h4><ul>
+<h2 id="4-2-VNC设置体验"><a href="#4-2-VNC设置体验" class="headerlink" title="4.2 VNC设置体验"></a>4.2 VNC设置体验</h2><ul>
 <li><p>VNC(Virtual Network Computing)是基于RFB（Remote Frame Buffer）协议进行通信的，是一个基于平台无关的简单显示协议的超级瘦客户系统，VNC的缺省端口是main:5900（C/S）和http:5800（B/S）端口。<br>RFB (远程帧缓存) 是一个远程图形用户的简单协议，因为它工作在帧缓存级别上，所以它可以应用于所有的窗口系统，例如：X11,Windows和Mac系统。由于RFB是基于TCP的一个应用层协议，所以VNC也是基于TCP协议的。</p>
 </li>
 <li><p>所需软件包括，RedHat服务器端安装的VNC服务器端软件，以及Windows下需要的VNC客户端软件，这里使用 <code>VNC Viewer</code>，下面安装VNC服务器端软件：</p>
@@ -140,7 +140,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </li>
 </ul>
 <p><a id="redhat_5"></a></p>
-<h3 id="5-XShell和X11转发-1"><a href="#5-XShell和X11转发-1" class="headerlink" title="5. XShell和X11转发"></a>5. XShell和X11转发</h3><p>X11是X Window系统的简称，由于X Window图形系统是一个经典的Server/Client架构，两者通过正常的网络协议进行通信。可是实现比如：服务器中并未安装桌面环境，通过SSH建立的隧道进行转发后，可以实现在另外一台启动了X Server的机器上，由X Server调用本机硬件资源，在屏幕上显示出界面。在windows下我们可以使用 <code>Xming X Server</code> 这款软件接受远程传输来的绘图的相关指令并在本机绘制。</p>
+<h1 id="5-XShell和X11转发-1"><a href="#5-XShell和X11转发-1" class="headerlink" title="5. XShell和X11转发"></a>5. XShell和X11转发</h1><p>X11是X Window系统的简称，由于X Window图形系统是一个经典的Server/Client架构，两者通过正常的网络协议进行通信。可是实现比如：服务器中并未安装桌面环境，通过SSH建立的隧道进行转发后，可以实现在另外一台启动了X Server的机器上，由X Server调用本机硬件资源，在屏幕上显示出界面。在windows下我们可以使用 <code>Xming X Server</code> 这款软件接受远程传输来的绘图的相关指令并在本机绘制。</p>
 <ul>
 <li>前提条件是，服务器端已经开启了X11转发，而系统默认是不开启的，我们需要编辑 <code>/etc/ssh/sshd_config</code> 文件，设置 <code>X11Forwarding yes</code>，然后执行 <code>service sshd restart</code> 命令</li>
 <li>在服务器开启了之后，我们还需要在SSH连接软件中开启类似于 “X11 转移” 的功能，然后打开本地的 <code>X Server</code> 软件，我们在windows下测试使用的软件是 <code>Xming X Server</code> 。</li>
