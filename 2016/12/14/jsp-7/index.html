@@ -19,7 +19,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
     error: 'Copy error',
     noSupport: 'The browser does not support'
   }
-} </script></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://ww1.sinaimg.cn/large/006qpCDTjw1fb81lswh9pj30sg0sg40t.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">28</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">14</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://wx2.sinaimg.cn/large/006qpCDTly1ffyq9t2mspj31hc0u0gvu.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">JSP笔记-7-JSP标准动作</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2016-12-14</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2016/12/14/jsp-7/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2016/12/14/jsp-7/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="说明"><a href="#说明" class="headerlink" title="说明"></a>说明</h1><h3 id="JavaBean的含义："><a href="#JavaBean的含义：" class="headerlink" title="JavaBean的含义："></a>JavaBean的含义：</h3><ol>
+} </script></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://ww1.sinaimg.cn/large/006qpCDTjw1fb81lswh9pj30sg0sg40t.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">28</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">14</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://wx2.sinaimg.cn/large/006qpCDTly1ffyq9t2mspj31hc0u0gvu.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">JSP笔记-7-JSP标准动作</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2016-12-14</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2016/12/14/jsp-7/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2016/12/14/jsp-7/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="说明"><a href="#说明" class="headerlink" title="说明"></a>说明</h1><h2 id="JavaBean的含义："><a href="#JavaBean的含义：" class="headerlink" title="JavaBean的含义："></a>JavaBean的含义：</h2><ol>
 <li>JavaBean是一种java语言写成的可复用组件。</li>
 <li>它是一种特殊的java类，特殊性如下：<ul>
 <li>类必须是具体的和公共的；</li>
@@ -28,12 +28,12 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 </li>
 </ol>
-<h3 id="JavaBean的优点："><a href="#JavaBean的优点：" class="headerlink" title="JavaBean的优点："></a>JavaBean的优点：</h3><ol>
+<h2 id="JavaBean的优点："><a href="#JavaBean的优点：" class="headerlink" title="JavaBean的优点："></a>JavaBean的优点：</h2><ol>
 <li>提高代码的可复用性；</li>
 <li>程序易于开发维护；</li>
 <li>可以跨平台；</li>
 </ol>
-<h3 id="JavaBean的使用："><a href="#JavaBean的使用：" class="headerlink" title="JavaBean的使用："></a>JavaBean的使用：</h3><ol>
+<h2 id="JavaBean的使用："><a href="#JavaBean的使用：" class="headerlink" title="JavaBean的使用："></a>JavaBean的使用：</h2><ol>
 <li>标准动作用于：<ul>
 <li>将JavaBean嵌入JSP页面；</li>
 <li>设置和获取JavaBean的属性</li>
@@ -52,7 +52,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li><code>&lt;jsp:forward&gt;</code></li>
 <li><code>&lt;jsp:include&gt;</code></li>
 </ol>
-<h3 id="useBean动作："><a href="#useBean动作：" class="headerlink" title="useBean动作："></a>useBean动作：</h3><ol>
+<h2 id="useBean动作："><a href="#useBean动作：" class="headerlink" title="useBean动作："></a>useBean动作：</h2><ol>
 <li><a href="jsp:useBean" target="_blank" rel="noopener">jsp:useBean</a>标签用于在指定的域范围内查找指定名称的JavaBean对象：<ul>
 <li>如果存在则直接返回该JavaBean对象的引用；</li>
 <li>如果不存在则实例化一个新的JavaBean对象并将它以制定的名称存储到指定的与范围内。</li>
@@ -68,17 +68,17 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li>Session – 有效范围在用户整个连接过程中(整个会话过程均有效)(sessionBean.jsp/MyBean.java)</li>
 <li>Application – 有效范围涵盖整个应用程序。也就是对整个网站均有效。(applicationBean1.jsp applicationBean2.jsp/MyBean.java)</li>
 </ol>
-<p>###补充：Get()和Set()方法：<br>Get()和Set()方法用于访问JavaBean的属性</p>
+<p>##补充：Get()和Set()方法：<br>Get()和Set()方法用于访问JavaBean的属性</p>
 <ol>
 <li>Get()方法：定义了共有方法，Get()方法返回值；</li>
 <li>Set()方法：定义了共有方法，Set()方法给属性赋值；</li>
 </ol>
-<h3 id="setProperty动作："><a href="#setProperty动作：" class="headerlink" title="setProperty动作："></a>setProperty动作：</h3><ol>
+<h2 id="setProperty动作："><a href="#setProperty动作：" class="headerlink" title="setProperty动作："></a>setProperty动作：</h2><ol>
 <li><a href="jsp:setProperty" target="_blank" rel="noopener">jsp:setProperty</a>标签用于设置JavaBean对象的属性。</li>
 <li>语法结构如下：<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&lt;jsp:setProperty name=<span class="string">"beanName"</span></span><br><span class="line">&#123;</span><br><span class="line">property=<span class="string">"propertyName"</span> value=<span class="string">"&#123;string | &lt;%= expression %&gt;&#125;"</span> | property=<span class="string">"propertyName"</span> [param=<span class="string">"parameterName"</span>] | property=<span class="string">"*"</span></span><br><span class="line">&#125;/&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment">//name 属性用于指定JavaBean对象的名称。</span></span><br><span class="line"><span class="comment">//property 属性用于指定JavaBean实例对象的属性名</span></span><br><span class="line"><span class="comment">//value 属性用于指定JavaBean对象的某个属性的值，value的值可以是字符串，也可以是表达式。为字符串时，该值会自动转化为JavaBean属性相应的类型，如果value的值是一个表达式，那么该表达式的计算结果必须与所要设置的JavaBean属性的类型一致。</span></span><br><span class="line"><span class="comment">//param属性用于将JavaBean实例对象的某个属性值设置为一个请求参数值，该属性值同样会自动转换成要设置的JavaBean属性的类型。</span></span><br></pre></td></tr></table></figure>
 </li>
 </ol>
-<h3 id="getProperty动作："><a href="#getProperty动作：" class="headerlink" title="getProperty动作："></a>getProperty动作：</h3><ol>
+<h2 id="getProperty动作："><a href="#getProperty动作：" class="headerlink" title="getProperty动作："></a>getProperty动作：</h2><ol>
 <li><a href="jsp:getProperty" target="_blank" rel="noopener">jsp:getProperty</a>标签用于读取JavaBean对象的属性，也就是调用JavaBean对象的getter方法，然后将读取的属性值转换成字符串后插入进输出的响应正文中。</li>
 <li><p>语法格式为：</p>
 <figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&lt;jsp:getProperty name=<span class="string">"beanInstanceName"</span> property=<span class="string">"PropertyName"</span> /&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment">//name 属性用于指定JavaBean实例对象的名称，其值应该与&lt;jsp:useBean&gt;标签的id属性值相同。</span></span><br><span class="line"><span class="comment">//property属性用于指定JavaBean实力对象的属性名。</span></span><br></pre></td></tr></table></figure>
