@@ -13,7 +13,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> Tools </tag>
             
@@ -34,9 +34,11 @@
       
         <tags>
             
-            <tag> Blog </tag>
-            
             <tag> GitHub Pages </tag>
+            
+            <tag> Hexo </tag>
+            
+            <tag> Blog </tag>
             
         </tags>
       
@@ -74,7 +76,7 @@
             
             <tag> Docker </tag>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> Tools </tag>
             
@@ -95,7 +97,7 @@
             
             <tag> Docker </tag>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> Tools </tag>
             
@@ -116,7 +118,7 @@
             
             <tag> Docker </tag>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> Tools </tag>
             
@@ -135,7 +137,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Blog </tag>
             
             <tag> Ghost </tag>
             
@@ -173,7 +175,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
         </tags>
       
@@ -190,14 +192,18 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notions </tag>
+            
+            <tag> C# </tag>
+            
+            <tag> Windows </tag>
             
         </tags>
       
     </entry>
     
     <entry>
-      <title>JSP笔记-7-JSP标准动作</title>
+      <title>JSP标准动作-JSP笔记-7</title>
       <link href="/2016/12/14/jsp-7/"/>
       <url>/2016/12/14/jsp-7/</url>
       
@@ -207,16 +213,18 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
+            
+            <tag> Campus </tag>
             
         </tags>
       
     </entry>
     
     <entry>
-      <title>JSP笔记-6-JSP隐式对象</title>
+      <title>JSP隐式对象-JSP笔记-6</title>
       <link href="/2016/12/11/jsp-6/"/>
       <url>/2016/12/11/jsp-6/</url>
       
@@ -226,16 +234,18 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
+            
+            <tag> Campus </tag>
             
         </tags>
       
     </entry>
     
     <entry>
-      <title>JSP笔记-4-JSP页面执行过程</title>
+      <title>JSP页面执行过程-JSP笔记-4</title>
       <link href="/2016/12/02/jsp-4/"/>
       <url>/2016/12/02/jsp-4/</url>
       
@@ -245,16 +255,18 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
+            
+            <tag> Campus </tag>
             
         </tags>
       
     </entry>
     
     <entry>
-      <title>JSP笔记-5-JSP脚本元素指令与动作</title>
+      <title>JSP脚本元素指令与动作JSP笔记-5</title>
       <link href="/2016/12/02/jsp-5/"/>
       <url>/2016/12/02/jsp-5/</url>
       
@@ -264,9 +276,11 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
+            
+            <tag> Campus </tag>
             
         </tags>
       
@@ -283,16 +297,18 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
+            
+            <tag> Campus </tag>
             
         </tags>
       
     </entry>
     
     <entry>
-      <title>JSP作业-2-利用Servlet完成表单提交验证</title>
+      <title>利用Servlet完成表单提交验证-JSP作业-2</title>
       <link href="/2016/11/30/jsp-homework-2/"/>
       <url>/2016/11/30/jsp-homework-2/</url>
       
@@ -302,16 +318,18 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
+            
+            <tag> Campus </tag>
             
         </tags>
       
     </entry>
     
     <entry>
-      <title>JSP笔记-1-初次使用Servlet</title>
+      <title>初次使用Servlet-JSP笔记-1</title>
       <link href="/2016/11/29/jsp-1/"/>
       <url>/2016/11/29/jsp-1/</url>
       
@@ -321,7 +339,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
             
@@ -330,7 +348,7 @@
     </entry>
     
     <entry>
-      <title>JSP笔记-2-理解Servlet的init()、service()与destroy()</title>
+      <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
       <link href="/2016/11/29/jsp-2/"/>
       <url>/2016/11/29/jsp-2/</url>
       
@@ -340,16 +358,18 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
+            
+            <tag> Campus </tag>
             
         </tags>
       
     </entry>
     
     <entry>
-      <title>JSP笔记-3-Servlet API</title>
+      <title>Servlet API-JSP笔记-3</title>
       <link href="/2016/11/29/jsp-3/"/>
       <url>/2016/11/29/jsp-3/</url>
       
@@ -359,16 +379,18 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
+            
+            <tag> Campus </tag>
             
         </tags>
       
     </entry>
     
     <entry>
-      <title>JSP作业-1-Servlet课后作业</title>
+      <title>Servlet课后作业-JSP作业-1</title>
       <link href="/2016/11/29/jsp-homework-1/"/>
       <url>/2016/11/29/jsp-homework-1/</url>
       
@@ -378,9 +400,11 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> JSP </tag>
+            
+            <tag> Campus </tag>
             
         </tags>
       
@@ -397,7 +421,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
             
             <tag> Markdown </tag>
             
@@ -416,9 +440,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Shadowsocks </tag>
+            
+            <tag> SS-Panel </tag>
             
         </tags>
       
@@ -436,6 +460,8 @@
         <tags>
             
             <tag> Linux </tag>
+            
+            <tag> Spider </tag>
             
         </tags>
       
@@ -490,6 +516,8 @@
             
             <tag> Linux </tag>
             
+            <tag> vsftpd </tag>
+            
             <tag> FTP </tag>
             
         </tags>
@@ -509,6 +537,10 @@
             
             <tag> Linux </tag>
             
+            <tag> pptpd </tag>
+            
+            <tag> VPN </tag>
+            
         </tags>
       
     </entry>
@@ -524,7 +556,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> Notes </tag>
+            
+            <tag> Campus </tag>
             
             <tag> Redhat </tag>
             
