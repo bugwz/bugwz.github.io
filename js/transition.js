@@ -2,8 +2,8 @@ $(function () {
   // page
   $('.layout').velocity('stop')
     .velocity('transition.slideUpIn', {
-      delay: 500,
-      duration: 1000,
+      delay: 0,
+      duration: 0,
       easing: 'easeInOutQuart',
       complete: function () {
         if ($('.sidebar-toc').length > 0) {
