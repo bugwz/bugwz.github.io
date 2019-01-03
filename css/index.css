@@ -1291,11 +1291,11 @@ footer {
 #content-inner h5,
 #content-inner h6 {
   cursor: pointer;
-  -webkit-transition: all 0s ease-out;
-  -moz-transition: all 0s ease-out;
-  -o-transition: all 0s ease-out;
-  -ms-transition: all 0s ease-out;
-  transition: all 0s ease-out;
+  -webkit-transition: all 0.5s ease-out;
+  -moz-transition: all 0.5s ease-out;
+  -o-transition: all 0.5s ease-out;
+  -ms-transition: all 0.5s ease-out;
+  transition: all 0.5s ease-out;
 }
 #content-inner h1:before,
 #content-inner h2:before,
@@ -1310,11 +1310,11 @@ footer {
   content: "\f0c1";
   font: normal normal normal 14px/1 FontAwesome;
   font-size: 0.8rem;
-  -webkit-transition: all 0s ease-out;
-  -moz-transition: all 0s ease-out;
-  -o-transition: all 0s ease-out;
-  -ms-transition: all 0s ease-out;
-  transition: all 0s ease-out;
+  -webkit-transition: all 0.5s ease-out;
+  -moz-transition: all 0.5s ease-out;
+  -o-transition: all 0.5s ease-out;
+  -ms-transition: all 0.5s ease-out;
+  transition: all 0.5s ease-out;
 }
 #content-inner h1:hover,
 #content-inner h2:hover,

@@ -15,8 +15,8 @@ $(function () {
     })
   $('#top-container').velocity('stop')
     .velocity('transition.fadeIn', {
-      delay: 500,
-      duration: 1000,
+      delay: 0,
+      duration: 0,
       easing: 'easeInOutQuart'
     })
 })
