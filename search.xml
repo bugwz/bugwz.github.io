@@ -3,6 +3,27 @@
   
     
     <entry>
+      <title>hashlimit-Iptables笔记</title>
+      <link href="/2019/01/04/iptables-hashlimit/"/>
+      <url>/2019/01/04/iptables-hashlimit/</url>
+      
+        <content type="html"><![CDATA[<h1 id="一、简介"><a href="#一、简介" class="headerlink" title="一、简介"></a>一、简介</h1><p>hashlimit是iptables的一个匹配模块，用它结合iptables的其它命令可以实现限速的功能。<strong>注意：单独hashlimit模块是无法进行限速的</strong>；</p><h1 id="二、原理介绍"><a href="#二、原理介绍" class="headerlink" title="二、原理介绍"></a>二、原理介绍</h1><p>实际上，使用 hashlimit 进行限速主要包括两个步骤：</p><ul><li>对符合 hashlimit 匹配规则包放行</li><li>丢弃/拒绝未放行的包</li></ul><h2 id="2-1-令牌桶模型"><a href="#2-1-令牌桶模型" class="headerlink" title="2.1 令牌桶模型"></a>2.1 令牌桶模型</h2><p>hashlimit 的匹配方式是基于令牌桶（Token bucket）的模型，令牌桶是一种网络通讯中常见的缓冲区工作原理，它有两个重要的参数，<code>令牌桶容量n</code>和<code>令牌产生速率s</code>；</p><ul><li><code>令牌桶容量n</code>：可以把令牌当成是门票，而令牌桶则是负责制作和发放门票的管理员，它手里最多有n张令牌。初始时，管理员开始手里有n张令牌，每当一个数据包到达后，管理员就看看手里是否还有可用的令牌。如果有，就把令牌发给这个数据包，hashlimit 就告诉iptables，这个数据包被匹配了，而当管理员把手上所有的令牌都发完了，再来的数据包就拿不到令牌了；这时，hashlimit 模块就告诉 iptables ，这个数据包不能被匹配，对应参数<code>--hashlimit-burst</code>；</li><li><code>令牌产生速率s</code>：当令牌桶中的令牌数量少于n，它就会以速率s来产生新的令牌，直到令牌数量到达n为止；</li></ul><p>通过令牌桶机制，可以有效的控制单位时间内通过（匹配）的数据包数量，又可以容许短时间内突发的大量数据包的通过（只要数据包数量不超过令牌桶n），对应参数<code>--hashlimit</code>；</p><h2 id="2-2-匹配项"><a href="#2-2-匹配项" class="headerlink" title="2.2 匹配项"></a>2.2 匹配项</h2><p>除了令牌桶模型外，hashlimit 匹配的另外一个重要概念是匹配项。在hashlimit中，每个匹配项拥有一个单独的令牌桶，执行独立的匹配计算，对应参数<code>--hashlimit-mode</code>，匹配项的可选参数为以下几种：</p><ul><li><code>srcip</code>：每个源地址IP为一个匹配项；</li><li><code>dstip</code>：每个目的地址IP为一个匹配项；</li><li><code>srcport</code>：每个源端口为一个匹配项；</li><li><code>dstport</code>：每个目的端口为一个匹配项；</li></ul><h2 id="2-3-相关配置参数"><a href="#2-3-相关配置参数" class="headerlink" title="2.3 相关配置参数"></a>2.3 相关配置参数</h2><p>hashlimit 的相关匹配项参数介绍如下：</p><ul><li><p><code>--hashlimit-name</code>：该参数指定了每个调用了 hashlimit 模块的 iptables 命令而建立的文件名，该文件存放在 /proc/net/ipt_hashlimit 目录中，其中保存着各匹配项的信息；</p></li><li><p><code>--hashlimit</code>：令牌产生速率，示例：5/sec 代表每秒产生5个；</p></li><li><p><code>--hashlimit-burst</code>：令牌桶容量，默认是5；</p></li><li><p><code>--hashlimit-mode</code>：匹配项，每个匹配项拥有一个单独的令牌桶，执行独立的匹配计算，可选参数如下所示：</p><ul><li><code>srcip</code>：每个源地址IP为一个匹配项；</li><li><code>dstip</code>：每个目的地址IP为一个匹配项；</li><li><code>srcport</code>：每个源端口为一个匹配项；</li><li><code>dstport</code>：每个目的端口为一个匹配项；</li></ul></li><li><code>--hashlimit-htable-size</code>：设置哈希表的元值；</li><li><code>--hashlimit-htable-max</code>：设定哈希表入口最大数量；</li></ul><h1 id="三、示例介绍"><a href="#三、示例介绍" class="headerlink" title="三、示例介绍"></a>三、示例介绍</h1><h2 id="3-1-实例一"><a href="#3-1-实例一" class="headerlink" title="3.1 实例一"></a>3.1 实例一</h2><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">iptables -A INPUT -p tcp --dport 1234 -m hashlimit --hashlimit-name HashLimitName --hashlimit 1/sec --hashlimit-burst 1 --hashlimit-mode srcip -j ACCEPT</span><br><span class="line">iptables -A INPUT -p tcp --dport 1234 -j DROP</span><br></pre></td></tr></table></figure><p>上述实例解释信息为：</p><ul><li>为所有访问本机 1234 端口的不同IP建立一个匹配项；</li><li>匹配项对应的令牌桶容量为10；</li><li>令牌产生速率为5个每秒；</li><li>放行通过匹配的数据包；</li><li>丢弃所有其它访问本机 1234 端口的数据包；</li></ul><h2 id="3-2-实例二"><a href="#3-2-实例二" class="headerlink" title="3.2 实例二"></a>3.2 实例二</h2><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">iptables -N DEFLOOD </span><br><span class="line">iptables -A FORWARD -s 192.168.1.2/24 -m state --state NEW -j DEFLOOD </span><br><span class="line">iptables -A DEFLOOD -m hashlimit --hashlimit-name deflood --hashlimit 10/sec </span><br><span class="line">--hashlimit-burst 10 --hashlimit-mode srcip -j ACCEPT </span><br><span class="line">iptables -P DEFLOOD -j DROP</span><br></pre></td></tr></table></figure><ul><li>建立了一个自定义的处理链；</li><li>所有来自于 192.168.1.2/24 网段的并且打算新建网络连接的数据包，都进入 DEFLOOD 链处理 ；</li><li>在 DEFLOOD 链中，为每个IP建立一个匹配项，对应令牌桶容量为10，产生速率为10个每秒；</li><li>放行通过匹配的数据包；</li><li>在 DEFLOOD 链中丢弃所有其它的数据包 ；</li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> hashlimit </tag>
+            
+            <tag> Iptables </tag>
+            
+            <tag> Linux </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>PrettyTable-Python使用笔记</title>
       <link href="/2019/01/02/python-prettytable/"/>
       <url>/2019/01/02/python-prettytable/</url>
