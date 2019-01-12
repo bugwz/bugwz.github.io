@@ -99,9 +99,9 @@
             
             <tag> C/C++ </tag>
             
-            <tag> Notes </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> Notes </tag>
             
         </tags>
       
@@ -183,9 +183,9 @@
             
             <tag> Tools </tag>
             
-            <tag> Docker </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> Docker </tag>
             
         </tags>
       
@@ -204,9 +204,9 @@
             
             <tag> Tools </tag>
             
-            <tag> Docker </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> Docker </tag>
             
         </tags>
       
@@ -225,9 +225,9 @@
             
             <tag> Tools </tag>
             
-            <tag> Docker </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> Docker </tag>
             
         </tags>
       
@@ -320,9 +320,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Campus </tag>
             
@@ -341,9 +341,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Campus </tag>
             
@@ -362,9 +362,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Campus </tag>
             
@@ -383,9 +383,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Campus </tag>
             
@@ -404,9 +404,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Campus </tag>
             
@@ -425,9 +425,30 @@
       
         <tags>
             
+            <tag> JSP </tag>
+            
             <tag> Notes </tag>
             
+            <tag> Campus </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
+      <link href="/2016/11/29/jsp-2/"/>
+      <url>/2016/11/29/jsp-2/</url>
+      
+        <content type="html"><![CDATA[<h1 id="环境"><a href="#环境" class="headerlink" title="环境"></a>环境</h1><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h1 id="课堂学习目标"><a href="#课堂学习目标" class="headerlink" title="课堂学习目标"></a>课堂学习目标</h1><p>实践servlet的init()、service()与destroy()方法，理解servlet生命周期的三个阶段。</p><h1 id="开始"><a href="#开始" class="headerlink" title="开始"></a>开始</h1><p>我们还是新建一个名为Test的新工程，然后新建一个不带doGet()与doPost()方法的一个基本的servlet，然后我们依次循规蹈矩的手动覆盖重写三个方法，他们分别是init()、service()和destroy()方法，重写后截图如下：</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa9cyhh80xj30rj0bgwfq.jpg" alt="Servlet_1"></p><p>我们在浏览器地址栏中输入进入Servlet_1的虚拟路径后，控制台下便出现了，调用init()方法的输出信息，然后调用了service()方法的输出信息，这两个方法的调用就是servlet的前两个生命周期，初始化阶段，调用init()方法；响应客户请求阶段，调用service()方法，之后每次刷新浏览器界面会发现只出现调用service()方法的输出结果，如下所示：</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa9d42n3glj30kv08vaaj.jpg" alt="service()输出结果"></p><blockquote><p>提示：</p></blockquote><p>如果你发现你打不开映射的虚拟路径，浏览器并提示了404错误，请尝试移步<a href="http://www.bugwz.com/jsp1/#jsp_1_trouble">这里</a> ，尝试解决问题。</p><p>之后，当我们停止服务器的时候，注意，这不是终止进程，还是有点区别的。</p><ol><li>停止服务器：web应用被终止，或Servlet容器终止运行，或Servlet容器重新装载Servlet新实例时，Servlet容器会先调用Servlet的destroy()方法，在destroy()方法中可以释放掉Servlet所占用的资源。</li><li>终止进程：servlet容器被强行终止，来不及调用Servlet的destroy()方法。</li></ol><p>我们点击停止服务器后效果图如下所示：</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa9dbaxac7j30sn0d4wgu.jpg" alt="Stop Server"></p><h1 id="来些总结"><a href="#来些总结" class="headerlink" title="来些总结"></a>来些总结</h1><p>Servlet生命周期分为三个阶段：</p><ol><li>初始化阶段，调用init()方法</li><li>响应客户请求阶段，调用service()方法</li><li>终止阶段，调用destroy()方法</li></ol><p>Servlet初始化阶段：(在下列时刻Servlet容器装载Servlet)</p><ol><li>Servlet容器启动时自动装载某些Servlet。</li><li>在Servlet容器启动后，客户首次向Servlet发送请求。</li><li>Servlet类文件被更新后，重新装载Servlet。</li></ol><blockquote><p>Servlet被装载后，Servlet容器创建一个Servlet实例并且调用Servlet的init()方法进行初始化。在Servlet的整个生命周期内，init()方法只被调用一次。</p></blockquote><p>Servlet响应请求阶段：</p><p>　　对于用户到达Servlet的请求，Servlet容器会创建特定于这个请求的ServletRequest对象和ServletResponse对象，然后调用Servlet的service方法。service方法从ServletRequest对象获得客户请求信息，处理该请求，并通过ServletResponse对象向客户返回响应信息。</p><p>Servlet终止阶段：</p><p>　　当web应用被终止，或Servlet容器终止运行，或Servlet容器重新装载Servlet新实例时，Servlet容器会先调用Servlet的destroy()方法，在destroy()方法中可以释放掉Servlet所占用的资源。</p><blockquote><p>关于Servlet生命周期与工作原理的更详细的信息，推荐访问<a href="http://www.cnblogs.com/cuiliang/archive/2011/10/21/2220671.html" target="_blank" rel="noopener">这里</a></p></blockquote>]]></content>
+      
+      
+      
+        <tags>
+            
             <tag> JSP </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Campus </tag>
             
@@ -446,30 +467,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
             
-        </tags>
-      
-    </entry>
-    
-    <entry>
-      <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
-      <link href="/2016/11/29/jsp-2/"/>
-      <url>/2016/11/29/jsp-2/</url>
-      
-        <content type="html"><![CDATA[<h1 id="环境"><a href="#环境" class="headerlink" title="环境"></a>环境</h1><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h1 id="课堂学习目标"><a href="#课堂学习目标" class="headerlink" title="课堂学习目标"></a>课堂学习目标</h1><p>实践servlet的init()、service()与destroy()方法，理解servlet生命周期的三个阶段。</p><h1 id="开始"><a href="#开始" class="headerlink" title="开始"></a>开始</h1><p>我们还是新建一个名为Test的新工程，然后新建一个不带doGet()与doPost()方法的一个基本的servlet，然后我们依次循规蹈矩的手动覆盖重写三个方法，他们分别是init()、service()和destroy()方法，重写后截图如下：</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa9cyhh80xj30rj0bgwfq.jpg" alt="Servlet_1"></p><p>我们在浏览器地址栏中输入进入Servlet_1的虚拟路径后，控制台下便出现了，调用init()方法的输出信息，然后调用了service()方法的输出信息，这两个方法的调用就是servlet的前两个生命周期，初始化阶段，调用init()方法；响应客户请求阶段，调用service()方法，之后每次刷新浏览器界面会发现只出现调用service()方法的输出结果，如下所示：</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa9d42n3glj30kv08vaaj.jpg" alt="service()输出结果"></p><blockquote><p>提示：</p></blockquote><p>如果你发现你打不开映射的虚拟路径，浏览器并提示了404错误，请尝试移步<a href="http://www.bugwz.com/jsp1/#jsp_1_trouble">这里</a> ，尝试解决问题。</p><p>之后，当我们停止服务器的时候，注意，这不是终止进程，还是有点区别的。</p><ol><li>停止服务器：web应用被终止，或Servlet容器终止运行，或Servlet容器重新装载Servlet新实例时，Servlet容器会先调用Servlet的destroy()方法，在destroy()方法中可以释放掉Servlet所占用的资源。</li><li>终止进程：servlet容器被强行终止，来不及调用Servlet的destroy()方法。</li></ol><p>我们点击停止服务器后效果图如下所示：</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa9dbaxac7j30sn0d4wgu.jpg" alt="Stop Server"></p><h1 id="来些总结"><a href="#来些总结" class="headerlink" title="来些总结"></a>来些总结</h1><p>Servlet生命周期分为三个阶段：</p><ol><li>初始化阶段，调用init()方法</li><li>响应客户请求阶段，调用service()方法</li><li>终止阶段，调用destroy()方法</li></ol><p>Servlet初始化阶段：(在下列时刻Servlet容器装载Servlet)</p><ol><li>Servlet容器启动时自动装载某些Servlet。</li><li>在Servlet容器启动后，客户首次向Servlet发送请求。</li><li>Servlet类文件被更新后，重新装载Servlet。</li></ol><blockquote><p>Servlet被装载后，Servlet容器创建一个Servlet实例并且调用Servlet的init()方法进行初始化。在Servlet的整个生命周期内，init()方法只被调用一次。</p></blockquote><p>Servlet响应请求阶段：</p><p>　　对于用户到达Servlet的请求，Servlet容器会创建特定于这个请求的ServletRequest对象和ServletResponse对象，然后调用Servlet的service方法。service方法从ServletRequest对象获得客户请求信息，处理该请求，并通过ServletResponse对象向客户返回响应信息。</p><p>Servlet终止阶段：</p><p>　　当web应用被终止，或Servlet容器终止运行，或Servlet容器重新装载Servlet新实例时，Servlet容器会先调用Servlet的destroy()方法，在destroy()方法中可以释放掉Servlet所占用的资源。</p><blockquote><p>关于Servlet生命周期与工作原理的更详细的信息，推荐访问<a href="http://www.cnblogs.com/cuiliang/archive/2011/10/21/2220671.html" target="_blank" rel="noopener">这里</a></p></blockquote>]]></content>
-      
-      
-      
-        <tags>
-            
             <tag> Notes </tag>
-            
-            <tag> JSP </tag>
-            
-            <tag> Campus </tag>
             
         </tags>
       
@@ -486,9 +486,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Campus </tag>
             
@@ -507,9 +507,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Campus </tag>
             
