@@ -13,9 +13,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Iptables </tag>
+            
+            <tag> Linux </tag>
             
             <tag> nf_conntrack </tag>
             
@@ -118,28 +118,9 @@
       
         <tags>
             
-            <tag> Netfilter </tag>
-            
-            <tag> Linux </tag>
-            
             <tag> hashlimit </tag>
             
             <tag> Iptables </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
-      <title>Linux内核软件框架-Netfilter概述</title>
-      <link href="/2019/01/03/Untitled/"/>
-      <url>/2019/01/03/Untitled/</url>
-      
-        <content type="html"><![CDATA[<h1 id="一、简述"><a href="#一、简述" class="headerlink" title="一、简述"></a>一、简述</h1><p><a href="https://www.netfilter.org/" target="_blank" rel="noopener">Netfilter</a>是Linux内核中的一个软件框架，用于管理网络数据包。不仅具有网络地址转换（NAT）的功能，也具备数据包内容修改、以及数据包过滤等防火墙功能。利用运作于用户空间的应用软件，如<a href="https://www.netfilter.org/projects/iptables/index.html" target="_blank" rel="noopener">iptables</a>等，来控制Netfilter，系统管理者可以管理通过Linux操作系统的各种网络数据包。1990年代，Netfilter在Linux 2.3.15版时进入Linux内核，正式应用于Linux 2.4版。</p><p>现今许多市面上许多的IP分享器或无线网络路由器（Wireless router），多是嵌入式Linux平台，并利用Netfilter的数据包处理能力，提供NAT以及防火墙的功能。此外，Netfilter平台的模块化设计使得功能具可扩展性，以及Linux核心本身属于开放的源代码，能够免费获取源代码进行修改与扩展。Netfilter平台中制定了五个数据包的挂载点（Hook），分别是PRE_ROUTING、INPUT、OUTPUT、FORWARD与POST_ROUTING。</p><h1 id="二、原理"><a href="#二、原理" class="headerlink" title="二、原理"></a>二、原理</h1><p>Linux网络内核中存在5条内置chain，针对于每条chain，Netfilter都有与之对应的hook，他们的对应关系如下所示（左为chain，右为hook）：</p><ul><li><code>PREROUTING</code>：由<code>NF_IP_PRE_ROUTING</code>触发；</li><li><code>INPUT</code>：由<code>NF_IP_LOCAL_IN</code>触发；</li><li><code>FORWARD</code>：由<code>NF_IP_FORWARD</code>触发；</li><li><code>OUTPUT</code>：由<code>NF_IP_LOCAL_OUT</code>触发；</li><li><code>POSTROUTING</code>：由<code>NF_IP_POST_ROUTING</code>触发； </li></ul><p>Netfilter通过在内核中嵌入的这五个NF_HOOK函数的位置上注册相关函数，截断数据包的流动，从而完成对数据包的过滤和转换。</p><p><img src="http://cdn.bugwz.com/image-20190816163744122.png" alt="Packet flow in Netfilter and General Networking"></p>]]></content>
-      
-      
-      
-        <tags>
             
             <tag> Netfilter </tag>
             
@@ -200,11 +181,11 @@
       
         <tags>
             
+            <tag> Iptables </tag>
+            
             <tag> Netfilter </tag>
             
             <tag> Linux </tag>
-            
-            <tag> Iptables </tag>
             
         </tags>
       
@@ -221,9 +202,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> Linux </tag>
             
             <tag> C/C++ </tag>
             
