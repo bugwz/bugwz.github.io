@@ -192,6 +192,25 @@
     </entry>
     
     <entry>
+      <title>共享库LD_PRELOAD环境变量分析</title>
+      <link href="/2019/01/01/ld-preload/"/>
+      <url>/2019/01/01/ld-preload/</url>
+      
+        <content type="html"><![CDATA[<h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p><code>LD_PRELOAD</code>是<code>Linux/Unix</code>系统的一个环境变量，它影响程序的运行时的链接（Runtime linker），它允许在程序运行前定义优先加载的动态链接库。这个功能主要就是用来有选择性的载入不同动态链接库中的相同函数。通过这个环境变量，我们可以在主程序和其动态链接库的中间加载别的动态链接库，甚至覆盖正常的函数库。一方面，我们可以以此功能来使用自己的或是更好的函数（无需别人的源码），而另一方面，我们也可以以向别人的程序注入程序，从而达到特定的目的。</p><p><strong>动态库的搜索路径搜索的先后顺序是：</strong></p><ul><li>编译目标代码时指定的动态库搜索路径（可指定多个搜索路径，按照先后顺序依次搜索）；</li><li>环境变量<code>LD_LIBRARY_PATH</code>指定的动态库搜索路径（可指定多个搜索路径，按照先后顺序依次搜索）；</li><li>配置文件<code>/etc/ld.so.conf</code>中指定的动态库搜索路径（可指定多个搜索路径，按照先后顺序依次搜索）；</li><li>默认的动态库搜索路径<code>/lib</code>；</li><li>默认的动态库搜索路径<code>/usr/lib</code>；</li></ul><h1 id="模拟实现"><a href="#模拟实现" class="headerlink" title="模拟实现"></a>模拟实现</h1><p>这里并不是直接替换系统中的函数调用，而是采用添加hook的方式进行；</p><ul><li>main.c</li></ul><figure class="highlight c"><table><tr><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;string.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">main</span><span class="params">(<span class="keyword">int</span> argc, <span class="keyword">char</span> *argv[])</span> </span>&#123;</span><br><span class="line">  <span class="keyword">if</span>(<span class="built_in">strcmp</span>(argv[<span class="number">1</span>], <span class="string">"test"</span>)) &#123;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">"Incorrect password\n"</span>);</span><br><span class="line">  &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">"Correct password\n"</span>);</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><ul><li>用于劫持函数的<code>.so</code>代码<code>hook.c</code></li></ul><figure class="highlight c"><table><tr><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;string.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;dlfcn.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="comment">/* hook的目标是strcmp，所以typedef了一个STRCMP函数指针，</span></span><br><span class="line"><span class="comment"> * hook的目的是要控制函数行为，从原库libc.so.6中拿到strcmp指针，保存成old_strcmp以备调用. */</span></span><br><span class="line"><span class="function"><span class="keyword">typedef</span> <span class="title">int</span><span class="params">(*STRCMP)</span><span class="params">(<span class="keyword">const</span> <span class="keyword">char</span>*, <span class="keyword">const</span> <span class="keyword">char</span>*)</span></span>;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">strcmp</span><span class="params">(<span class="keyword">const</span> <span class="keyword">char</span> *s1, <span class="keyword">const</span> <span class="keyword">char</span> *s2)</span> </span>&#123;</span><br><span class="line">  <span class="keyword">static</span> <span class="keyword">void</span> *handle = <span class="literal">NULL</span>;</span><br><span class="line">  <span class="keyword">static</span> STRCMP old_strcmp = <span class="literal">NULL</span>;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">if</span>(!handle) &#123;</span><br><span class="line">    handle = dlopen(<span class="string">"libc.so.6"</span>, RTLD_LAZY);</span><br><span class="line">    old_strcmp = (STRCMP)dlsym(handle, <span class="string">"strcmp"</span>);</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="built_in">printf</span>(<span class="string">"oops!!! hack function invoked. s1=&lt;%s&gt; s2=&lt;%s&gt;\n"</span>, s1, s2);</span><br><span class="line">  <span class="keyword">return</span> old_strcmp(s1, s2);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><ul><li>编译运行：</li></ul><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 编译</span></span><br><span class="line">gcc -o main main.c</span><br><span class="line">gcc -fPIC -shared -o hook.so hook.c -ldl</span><br><span class="line"></span><br><span class="line"><span class="comment"># 运行</span></span><br><span class="line">LD_PRELOAD=./hook.so ./main 123</span><br></pre></td></tr></table></figure><ul><li>运行结果：</li></ul><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">oops!!! hack <span class="keyword">function</span> invoked. s1=&lt;123&gt; s2=&lt;<span class="built_in">test</span>&gt;</span><br><span class="line">Incorrect password</span><br></pre></td></tr></table></figure>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> C/C++ </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>RPM打包记录</title>
       <link href="/2019/01/01/make-rpm/"/>
       <url>/2019/01/01/make-rpm/</url>
@@ -541,25 +560,6 @@
     </entry>
     
     <entry>
-      <title>初次使用Servlet-JSP笔记-1</title>
-      <link href="/2016/11/29/jsp-1/"/>
-      <url>/2016/11/29/jsp-1/</url>
-      
-        <content type="html"><![CDATA[<h1 id="环境"><a href="#环境" class="headerlink" title="环境"></a>环境</h1><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h1 id="课堂学习目标"><a href="#课堂学习目标" class="headerlink" title="课堂学习目标"></a>课堂学习目标</h1><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h1 id="开始"><a href="#开始" class="headerlink" title="开始"></a>开始</h1><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择”源码”,然后选择”覆盖/实现方法”中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a href="#题外话：什么是web-xml文件？" class="headerlink" title="题外话：什么是web.xml文件？"></a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。 </p><h1 id="继续"><a href="#继续" class="headerlink" title="继续"></a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：<br><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure></p><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签<ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为”servlet所属包名.servlet的类名”，这样才能找到具体的类，并执行。</li></ul></li><li>servlet-mapping标签<ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul></li><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Notes </tag>
-            
-            <tag> JSP </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
       <link href="/2016/11/29/jsp-2/"/>
       <url>/2016/11/29/jsp-2/</url>
@@ -575,6 +575,25 @@
             <tag> JSP </tag>
             
             <tag> Campus </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>初次使用Servlet-JSP笔记-1</title>
+      <link href="/2016/11/29/jsp-1/"/>
+      <url>/2016/11/29/jsp-1/</url>
+      
+        <content type="html"><![CDATA[<h1 id="环境"><a href="#环境" class="headerlink" title="环境"></a>环境</h1><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h1 id="课堂学习目标"><a href="#课堂学习目标" class="headerlink" title="课堂学习目标"></a>课堂学习目标</h1><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h1 id="开始"><a href="#开始" class="headerlink" title="开始"></a>开始</h1><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择”源码”,然后选择”覆盖/实现方法”中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a href="#题外话：什么是web-xml文件？" class="headerlink" title="题外话：什么是web.xml文件？"></a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。 </p><h1 id="继续"><a href="#继续" class="headerlink" title="继续"></a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：<br><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure></p><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签<ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为”servlet所属包名.servlet的类名”，这样才能找到具体的类，并执行。</li></ul></li><li>servlet-mapping标签<ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul></li><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="http://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
         </tags>
       
