@@ -36,9 +36,8 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </li>
 <li><p>打包脚本如下所示：</p>
 </li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">fpm -f -s dir -t rpm -n mysh \</span><br><span class="line">-v 1.5 \</span><br><span class="line">--iteration 6 \</span><br><span class="line">-C /data/<span class="built_in">test</span>/ \</span><br><span class="line">-p /data/out/ \</span><br><span class="line">--description <span class="string">'This is mysh rpm'</span> \</span><br><span class="line">--url <span class="string">'http://www.mysh.com'</span> \</span><br><span class="line">--after-install /data/<span class="built_in">test</span>/usr/<span class="built_in">local</span>/bin/sh/install.sh \</span><br><span class="line">--after-remove /data/<span class="built_in">test</span>/usr/<span class="built_in">local</span>/bin/sh/remove.sh</span><br></pre></td></tr></table></figure>
-<ul>
+<li><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">fpm -f -s dir -t rpm -n mysh \</span><br><span class="line">-v 1.5 \</span><br><span class="line">--iteration 6 \</span><br><span class="line">-C /data/<span class="built_in">test</span>/ \</span><br><span class="line">-p /data/out/ \</span><br><span class="line">--description <span class="string">'This is mysh rpm'</span> \</span><br><span class="line">--url <span class="string">'http://www.mysh.com'</span> \</span><br><span class="line">--after-install /data/<span class="built_in">test</span>/usr/<span class="built_in">local</span>/bin/sh/install.sh \</span><br><span class="line">--after-remove /data/<span class="built_in">test</span>/usr/<span class="built_in">local</span>/bin/sh/remove.sh</span><br></pre></td></tr></table></figure>
+</li>
 <li><p>执行脚本后日志信息为：</p>
 </li>
 <li><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">Created package &#123;:path=&gt;<span class="string">"/data/out/mysh-1.5-6.x86_64.rpm"</span>&#125;</span><br></pre></td></tr></table></figure>
