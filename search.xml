@@ -3,6 +3,25 @@
   
     
     <entry>
+      <title>Markdown中支持数学公式</title>
+      <link href="/2019/09/14/markdown-latex/"/>
+      <url>/2019/09/14/markdown-latex/</url>
+      
+        <content type="html"><![CDATA[<h1 id="一、引言"><a href="#一、引言" class="headerlink" title="一、引言"></a>一、引言</h1><p>Markdown在目前无疑是一个比较好的写作方式，但是它时候和大部分的写作软件一样，在一些数据公式的编写上，只能引入图片呢？除了引用图片之外是不是还有更好的数学公式编辑手段呢？这里主要介绍一下LaTex Math在Markdown上的支持。</p><h3 id="LaTex介绍"><a href="#LaTex介绍" class="headerlink" title="LaTex介绍"></a>LaTex介绍</h3><p>LaTex](<a href="https://www.latex-project.org/)是一种基于TeX的排版系统，LaTeX使用TeX作为它的格式化引擎，LaTeX遵循呈现与内容分离的设计理念，以便作者可以专注于他们正在编写的内容，而不必同时注视其外观。在准备LaTeX文档时，作者使用章（chapter）、节（section）、表（table）、图（figure）等简单的概念指定文档的逻辑结构，并让LaTeX系统负责这些结构的格式和布局。因此，它鼓励从内容中分离布局，同时仍然允许在需要时进行手动排版调整。这个概念类似于许多文字处理器允许全局定义整个文档的样式的机制，或使用层叠样式表来规定HTML的样式。LaTeX系统是一种可以处理排版和渲染的标记语言。" target="_blank" rel="noopener">https://www.latex-project.org/)是一种基于TeX的排版系统，LaTeX使用TeX作为它的格式化引擎，LaTeX遵循呈现与内容分离的设计理念，以便作者可以专注于他们正在编写的内容，而不必同时注视其外观。在准备LaTeX文档时，作者使用章（chapter）、节（section）、表（table）、图（figure）等简单的概念指定文档的逻辑结构，并让LaTeX系统负责这些结构的格式和布局。因此，它鼓励从内容中分离布局，同时仍然允许在需要时进行手动排版调整。这个概念类似于许多文字处理器允许全局定义整个文档的样式的机制，或使用层叠样式表来规定HTML的样式。LaTeX系统是一种可以处理排版和渲染的标记语言。</a></p><h1 id="二、Markdown的Latex规则"><a href="#二、Markdown的Latex规则" class="headerlink" title="二、Markdown的Latex规则"></a>二、Markdown的Latex规则</h1><h3 id="2-1、行内与独行"><a href="#2-1、行内与独行" class="headerlink" title="2.1、行内与独行"></a>2.1、行内与独行</h3><ul><li><code>行内公式</code>：将公式插入到本行内，格式为<code>$公式内容$</code>，如：<code>$xyz$</code>，展示效果为：$xyz$；</li><li><code>独行公式</code>：将公式插入到新的一行内，并且居中，格式为<code>$$公式内容$$</code>，如：<code>$$xyz$$</code>，展示效果为：$$xyz$$</li></ul><h3 id="2-2、上标、下标与组合"><a href="#2-2、上标、下标与组合" class="headerlink" title="2.2、上标、下标与组合"></a>2.2、上标、下标与组合</h3><ul><li><code>上标符号</code>：格式为<code>^</code>，如：<code>$x^4$</code>，展示效果为：$x^4$；</li><li><code>下标符号</code>：格式为<code>_</code>，如：<code>$x_1$</code>，展示效果为：$x_1$；</li><li><code>组合符号</code>：格式为<code>{}</code>，如：<code>${16}_{8}O{2+}_{2}$</code>，展示效果为：${16}<em>{8}O{2+}</em>{2}$；</li></ul><h3 id="2-3、汉字、字体与格式"><a href="#2-3、汉字、字体与格式" class="headerlink" title="2.3、汉字、字体与格式"></a>2.3、汉字、字体与格式</h3><ul><li><code>汉字形式</code>：格式为<code>\mbox{}</code>，如：<code>$V_{\mbox{初始}}$</code>，展示效果为：$V_{\mbox{初始}}$；</li><li><code>字体控制</code>：格式为<code>\displaystyle</code>，如：<code>$\displaystyle \frac{x+y}{y+z}$</code>，展示效果为：$\displaystyle \frac{x+y}{y+z}$；</li><li><code>下划线符号</code>：格式为<code>\underline</code>，如：<code>$\underline{x+y}$</code>，展示效果为：$\underline{x+y}$；</li><li><code>标签</code>：格式为<code>\tag{数字}</code>，如：<code>$\tag{11}$</code>，展示效果为：$\tag{11}$；</li><li><code>上大括号</code>：格式为<code>\overbrace{算式}</code>，如：<code>$\overbrace{a+b+c+d}^{2.0}$</code>，展示效果为：$\overbrace{a+b+c+d}^{2.0}$；</li><li><code>下大括号</code>：格式为<code>\underbrace{算式}</code>，如：<code>$a+\underbrace{b+c}_{1.0}+d$</code>，展示效果为：$a+\underbrace{b+c}_{1.0}+d$；</li><li><code>上位符号</code>：格式为<code>\stacrel{上位符号}{基位符号}</code>，如：<code>$\vec{x}\stackrel{\mathrm{def}}{=}{x_1,\dots,x_n}$</code>，展示效果为：$\vec{x}\stackrel{\mathrm{def}}{=}{x_1,\dots,x_n}$；</li></ul><h3 id="2-4、占位符"><a href="#2-4、占位符" class="headerlink" title="2.4、占位符"></a>2.4、占位符</h3><ul><li><code>两个quad空格</code>：格式为<code>\qquad</code>，如：<code>$x \qquad y$</code>，展示效果为：$x \qquad y$；</li><li><code>quad空格</code>：格式为<code>\quad</code>，如：<code>$x \quad y$</code>，展示效果为：$x \quad y$；</li><li><code>大空格</code>：格式为<code>\</code>，如：<code>$x \ y$</code>，展示效果为：$x \ y$；</li><li><code>中空格</code>：格式为<code>\:</code>，如：<code>$x : y$</code>，展示效果为：$x : y$；</li><li><code>小空格</code>：格式为<code>\,</code>，如：<code>$x , y$</code>，展示效果为：$x , y$；</li><li><code>没有空格`</code>：格式为<code></code>，如：<code>$xy$</code>，展示效果为：$xy$；</li><li><code>紧贴</code>：格式为<code>\!</code>，如：<code>$x ! y$</code>，展示效果为：$x ! y$；</li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Latex </tag>
+            
+            <tag> Markdown </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>Charles工具的介绍与使用</title>
       <link href="/2019/09/13/charles/"/>
       <url>/2019/09/13/charles/</url>
@@ -179,11 +198,11 @@
             
             <tag> Linux </tag>
             
-            <tag> hashlimit </tag>
-            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
+            
+            <tag> hashlimit </tag>
             
         </tags>
       
