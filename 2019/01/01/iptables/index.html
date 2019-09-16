@@ -19,54 +19,42 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
     error: 'Copy error',
     noSupport: 'The browser does not support'
   }
-} </script><!-- hexo-inject:begin --><!-- hexo-inject:end --></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">48</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">42</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a><a class="author-info-links__name text-center" href="https://www.hozen.site/" target="_blank">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/iptables.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Netfilter的数据包过滤器iptables</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2019-01-01</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2019/01/01/iptables/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2019/01/01/iptables/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="1-iptables简介"><a class="markdownIt-Anchor" href="#1-iptables简介"></a> 1、iptables简介</h1>
-<!-- hexo-inject:begin --><!-- hexo-inject:end --><p>iptables是一款基于Netfilter的Linux防火墙的管理工具，可实现完成封包过滤、封包重定向和网络地址转换（NAT）等功能。</p>
-<h1 id="2-iptables的基本概念"><a class="markdownIt-Anchor" href="#2-iptables的基本概念"></a> 2、iptables的基本概念</h1>
-<h2 id="21-iptables的规则表"><a class="markdownIt-Anchor" href="#21-iptables的规则表"></a> 2.1 iptables的规则表</h2>
-<ul>
+} </script><!-- hexo-inject:begin --><!-- hexo-inject:end --></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">48</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">42</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a><a class="author-info-links__name text-center" href="https://www.hozen.site/" target="_blank">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/iptables.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Netfilter的数据包过滤器iptables</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2019-01-01</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2019/01/01/iptables/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2019/01/01/iptables/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="1、iptables简介"><a href="#1、iptables简介" class="headerlink" title="1、iptables简介"></a>1、iptables简介</h1><p>iptables是一款基于Netfilter的Linux防火墙的管理工具，可实现完成封包过滤、封包重定向和网络地址转换（NAT）等功能。</p>
+<!-- hexo-inject:begin --><!-- hexo-inject:end --><h1 id="2、iptables的基本概念"><a href="#2、iptables的基本概念" class="headerlink" title="2、iptables的基本概念"></a>2、iptables的基本概念</h1><h2 id="2-1-iptables的规则表"><a href="#2-1-iptables的规则表" class="headerlink" title="2.1 iptables的规则表"></a>2.1 iptables的规则表</h2><ul>
 <li><code>表（tables）</code>：提供特定的功能，iptables内置了4个表，即filter表、nat表、mangle表和raw表，分别用于实现包过滤，网络地址转换、包重构(修改)和数据跟踪处理；</li>
 <li><code>链（chains）</code>：数据包传播的路径，每一条链其实就是众多规则中的一个检查清单，每一条链中可以有一条或数条规则；</li>
 <li><code>规则（rules）</code>：当一个数据包到达一个链时，iptables就会从链中第一条规则开始检查，看该数据包是否满足规则所定义的条件，如果满足规则，系统就会根据该条规则所定义的方法处理该数据包，如果不满足规则，继续检查下一条规则，如果该数据包不符合链中任一条规则，iptables就会根据该链预先定义的默认策略来处理数据包；</li>
 </ul>
-<h2 id="22-iptables的规则链"><a class="markdownIt-Anchor" href="#22-iptables的规则链"></a> 2.2  iptables的规则链</h2>
-<ul>
+<h2 id="2-2-iptables的规则链"><a href="#2-2-iptables的规则链" class="headerlink" title="2.2  iptables的规则链"></a>2.2  iptables的规则链</h2><ul>
 <li><code>PREROUTING链</code>：数据进入网卡，首先会进入<code>PREROUTING链</code>，内核依据数据包的目的IP判断是否需要传送出去；</li>
 <li><code>FORWARD链</code>：数据包需要转发，并且内核允许转发，则该数据包经过该链，进入<code>POSTROUTING链</code>；</li>
 <li><code>INPUT链</code>：数据包目的为本机，进入<code>INPUT链</code>，本机的所有进程均可访问到该数据包；</li>
 <li><code>OUTPUT链</code>：本机的进程发送数据包至<code>OUTPUT链</code>；</li>
 <li><code>POSTROUTING链</code>：数据包经过该链；</li>
 </ul>
-<h2 id="23-iptables的规则表与规则链的关系"><a class="markdownIt-Anchor" href="#23-iptables的规则表与规则链的关系"></a> 2.3  iptables的规则表与规则链的关系</h2>
-<p><img src="https://cdn.bugwz.com/image-20190816164844503.png" alt="iptables中的数据包路线"></p>
-<h3 id="231-规则表过滤数据包的优先顺序及介绍"><a class="markdownIt-Anchor" href="#231-规则表过滤数据包的优先顺序及介绍"></a> 2.3.1 规则表过滤数据包的优先顺序及介绍：</h3>
-<p>在<code>REHL4</code>中是三张表五个链，在<code>REHL5</code>成了四张表五个链。</p>
+<h2 id="2-3-iptables的规则表与规则链的关系"><a href="#2-3-iptables的规则表与规则链的关系" class="headerlink" title="2.3  iptables的规则表与规则链的关系"></a>2.3  iptables的规则表与规则链的关系</h2><p><img src="https://cdn.bugwz.com/image-20190816164844503.png" alt="iptables中的数据包路线"></p>
+<h3 id="2-3-1-规则表过滤数据包的优先顺序及介绍："><a href="#2-3-1-规则表过滤数据包的优先顺序及介绍：" class="headerlink" title="2.3.1 规则表过滤数据包的优先顺序及介绍："></a>2.3.1 规则表过滤数据包的优先顺序及介绍：</h3><p>在<code>REHL4</code>中是三张表五个链，在<code>REHL5</code>成了四张表五个链。</p>
 <ul>
-<li>
-<p><code>Raw表</code>：</p>
-<ul>
+<li><code>Raw表</code>：<ul>
 <li><code>链</code>：OUTPUT、PREROUTING；</li>
 <li><code>作用</code>：决定数据包是否被状态跟踪机制处理；</li>
 <li><code>内核模块</code>：iptable_raw；</li>
 </ul>
 </li>
-<li>
-<p><code>Mangle表</code>：</p>
-<ul>
+<li><code>Mangle表</code>：<ul>
 <li><code>链</code>：PREROUTING、POSTROUTING、INPUT、OUTPUT、FORWARD；</li>
 <li><code>作用</code>：修改数据包的服务类型、TTL、并且可以配置路由实现QOS；</li>
 <li><code>内核模块</code>：iptable_mangle；</li>
 </ul>
 </li>
-<li>
-<p><code>Nat表</code>：</p>
+<li><p><code>Nat表</code>：</p>
 <ul>
 <li><code>链</code>：PREROUTING、POSTROUTING、OUTPUT；</li>
 <li><code>作用</code>：用于网络地址转换（IP、端口）；</li>
 <li><code>内核模块</code>：iptable_nat；</li>
 </ul>
 </li>
-<li>
-<p><code>Filter表</code>：</p>
+<li><p><code>Filter表</code>：</p>
 <ul>
 <li><code>链</code>：INPUT、FORWARD、OUTPUT；</li>
 <li><code>作用</code>：主要用于过滤数据包；</li>
@@ -74,30 +62,25 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 </li>
 </ul>
-<h3 id="232-规则链之间的优先顺序分三种情况"><a class="markdownIt-Anchor" href="#232-规则链之间的优先顺序分三种情况"></a> 2.3.2 规则链之间的优先顺序（分三种情况）：</h3>
-<ul>
-<li><code>第一种情况：入站数据流向</code>
-<ul>
+<h3 id="2-3-2-规则链之间的优先顺序（分三种情况）："><a href="#2-3-2-规则链之间的优先顺序（分三种情况）：" class="headerlink" title="2.3.2 规则链之间的优先顺序（分三种情况）："></a>2.3.2 规则链之间的优先顺序（分三种情况）：</h3><ul>
+<li><code>第一种情况：入站数据流向</code><ul>
 <li><code>PREROUTING链</code>：从外界到达防火墙的数据包，先被PREROUTING规则链处理（是否修改数据包地址等）；</li>
 <li><code>INPUT链</code>：数据包目标为本地，内核将其传给INPUT链进行处理（是否允许通过等），通过以后再交给系统上层的应用程序进行响应；</li>
 </ul>
 </li>
-<li><code>第二种情况：转发数据流向</code>
-<ul>
+<li><code>第二种情况：转发数据流向</code><ul>
 <li><code>PREROUTING链</code>：从外界到达防火墙的数据包，先被PREROUTING规则链处理（是否修改数据包地址等）；</li>
 <li><code>FORWARD链</code>：数据包目标为其他外部地址，内核将其传递给FORWARD链进行处理（是否转发或拦截）；</li>
 <li><code>POSTROUTING链</code>：之后交给POSTROUTING规则链（是否修改数据包的地址等）进行处理；</li>
 </ul>
 </li>
-<li><code>第三种情况：出站数据流向</code>
-<ul>
+<li><code>第三种情况：出站数据流向</code><ul>
 <li><code>OUTPUT链</code>：防火墙本机向外部地址发送的数据包，首先被OUTPUT规则链处理，之后进行路由选择；</li>
 <li><code>POSTROUTING链</code>：路由选择后传递给POSTROUTING规则链（是否修改数据包的地址等）进行处理；</li>
 </ul>
 </li>
 </ul>
-<h1 id="3-iptables的使用"><a class="markdownIt-Anchor" href="#3-iptables的使用"></a> 3、iptables的使用</h1>
-</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2019/01/01/iptables/">https://bugwz.com/2019/01/01/iptables/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Linux/">Linux</a><a class="post-meta__tags" href="/tags/Iptables/">Iptables</a><a class="post-meta__tags" href="/tags/Netfilter/">Netfilter</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2019/01/01/cache-and-buffer/"><i class="fa fa-chevron-left">  </i><span>Linux下的Cache/Buffer</span></a></div><div class="next-post pull-right"><a href="/2019/01/01/ld-preload/"><span>共享库LD_PRELOAD环境变量分析</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+<h1 id="3、iptables的使用"><a href="#3、iptables的使用" class="headerlink" title="3、iptables的使用"></a>3、iptables的使用</h1></div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2019/01/01/iptables/">https://bugwz.com/2019/01/01/iptables/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Linux/">Linux</a><a class="post-meta__tags" href="/tags/Iptables/">Iptables</a><a class="post-meta__tags" href="/tags/Netfilter/">Netfilter</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2019/01/01/cache-and-buffer/"><i class="fa fa-chevron-left">  </i><span>Linux下的Cache/Buffer</span></a></div><div class="next-post pull-right"><a href="/2019/01/01/ld-preload/"><span>共享库LD_PRELOAD环境变量分析</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
 var disqus_config = function () {
   this.page.url = 'https://bugwz.com/2019/01/01/iptables/';
   this.page.identifier = '2019/01/01/iptables/';
@@ -106,4 +89,34 @@ var disqus_config = function () {
 var d = document, s = d.createElement('script');
 s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
 s.setAttribute('data-timestamp', '' + +new Date());
-(d.head || d.body).appendChild(s);</script><script id="dsq-count-src" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2019 By bugwz</div><div class="framework-info"><span>Driven - </span><a href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a href="https://github.com/bugwz/bface"><span>bface</span></a></div><div class="footer_custom_text">This is bugwz's blog!</div><div class="busuanzi"><script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file-o"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="/js/third-party/anime.min.js"></script><script src="/js/third-party/jquery.min.js"></script><script src="/js/third-party/jquery.fancybox.min.js"></script><script src="/js/third-party/velocity.min.js"></script><script src="/js/third-party/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.5.6"></script><script src="/js/fancybox.js?version=1.5.6"></script><script src="/js/sidebar.js?version=1.5.6"></script><script src="/js/copy.js?version=1.5.6"></script><script src="/js/fireworks.js?version=1.5.6"></script><script src="/js/transition.js?version=1.5.6"></script><script src="/js/scroll.js?version=1.5.6"></script><script src="/js/head.js?version=1.5.6"></script><script src="/js/search/local-search.js"></script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div><!-- hexo-inject:begin --><!-- hexo-inject:end --></body></html>
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-src" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2019 By bugwz</div><div class="framework-info"><span>Driven - </span><a href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a href="https://github.com/bugwz/bface"><span>bface</span></a></div><div class="footer_custom_text">This is bugwz's blog!</div><div class="busuanzi"><script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file-o"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="/js/third-party/anime.min.js"></script><script src="/js/third-party/jquery.min.js"></script><script src="/js/third-party/jquery.fancybox.min.js"></script><script src="/js/third-party/velocity.min.js"></script><script src="/js/third-party/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.5.6"></script><script src="/js/fancybox.js?version=1.5.6"></script><script src="/js/sidebar.js?version=1.5.6"></script><script src="/js/copy.js?version=1.5.6"></script><script src="/js/fireworks.js?version=1.5.6"></script><script src="/js/transition.js?version=1.5.6"></script><script src="/js/scroll.js?version=1.5.6"></script><script src="/js/head.js?version=1.5.6"></script><script type="text/x-mathjax-config">MathJax.Hub.Config({
+  tex2jax: {
+    inlineMath: [ ['$','$'], ["\\(","\\)"]  ],
+    processEscapes: true,
+    skipTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+  }
+});
+</script><script type="text/x-mathjax-config">MathJax.Hub.Queue(function() {
+  var all = MathJax.Hub.getAllJax(), i;
+  for (i=0; i < all.length; i += 1) {
+    all[i].SourceElement().parentNode.className += ' has-jax';
+  }
+});
+</script><script src="https://cdn.jsdelivr.net/npm/mathjax/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script><script src="/js/search/local-search.js"></script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div><!-- hexo-inject:begin --><!-- Begin: Injected MathJax -->
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({"tex2jax":{"inlineMath":[["$","$"],["\\(","\\)"]],"skipTags":["script","noscript","style","textarea","pre","code"],"processEscapes":true},"TeX":{"equationNumbers":{"autoNumber":"AMS"}}});
+</script>
+
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Queue(function() {
+    var all = MathJax.Hub.getAllJax(), i;
+    for(i=0; i < all.length; i += 1) {
+      all[i].SourceElement().parentNode.className += ' has-jax';
+    }
+  });
+</script>
+
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js">
+</script>
+<!-- End: Injected MathJax -->
+<!-- hexo-inject:end --></body></html>
