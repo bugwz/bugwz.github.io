@@ -19,14 +19,18 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
     error: 'Copy error',
     noSupport: 'The browser does not support'
   }
-} </script><!-- hexo-inject:begin --><!-- hexo-inject:end --></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">48</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">42</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a><a class="author-info-links__name text-center" href="https://www.hozen.site/" target="_blank">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/linux.jpeg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Linux操作系统知识点整理</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2018-12-12</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2018/12/12/linux-tools-notes/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2018/12/12/linux-tools-notes/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="一、系统工具相关"><a href="#一、系统工具相关" class="headerlink" title="一、系统工具相关"></a>一、系统工具相关</h1><h3 id="1-1、CPU性能工具："><a href="#1-1、CPU性能工具：" class="headerlink" title="1.1、CPU性能工具："></a>1.1、CPU性能工具：</h3><ul>
-<!-- hexo-inject:begin --><!-- hexo-inject:end --><li>平均负载：<ul>
+} </script><!-- hexo-inject:begin --><!-- hexo-inject:end --></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">48</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">42</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a><a class="author-info-links__name text-center" href="https://www.hozen.site/" target="_blank">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/linux.jpeg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Linux操作系统知识点整理</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2018-12-12</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2018/12/12/linux-tools-notes/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2018/12/12/linux-tools-notes/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="一-系统工具相关"><a class="markdownIt-Anchor" href="#一-系统工具相关"></a> 一、系统工具相关</h1>
+<!-- hexo-inject:begin --><!-- hexo-inject:end --><h3 id="11-cpu性能工具"><a class="markdownIt-Anchor" href="#11-cpu性能工具"></a> 1.1、CPU性能工具：</h3>
+<ul>
+<li>平均负载：
+<ul>
 <li><code>uptime</code>：最简单；</li>
 <li><code>top</code>：提供了最全的指标；</li>
 <li><code>/proc/loadavg</code>：常用于监控系统；</li>
 </ul>
 </li>
-<li>系统CPU使用率：<ul>
+<li>系统CPU使用率：
+<ul>
 <li><code>vmstat</code>：只可以动态查看；</li>
 <li><code>mpstat</code>：只可以动态查看；</li>
 <li><code>top</code>：只可以动态查看；</li>
@@ -34,7 +38,8 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li><code>/proc/stat</code>：是其他性能工具的数据来源，也可用于监控；</li>
 </ul>
 </li>
-<li>进程CPU使用率：<ul>
+<li>进程CPU使用率：
+<ul>
 <li><code>top</code>：可以按照CPU使用率给进程排序；</li>
 <li><code>ps</code>：可以按照CPU使用率给进程排序；</li>
 <li><code>pidstat</code>：只显示实际用了CPU的进程；</li>
@@ -42,67 +47,80 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li><code>atop</code>：可以以不同的颜色显示，更加直观；</li>
 </ul>
 </li>
-<li>系统上下文切换：<ul>
+<li>系统上下文切换：
+<ul>
 <li><code>vmstat</code>：除了上下文切换的次数，还提供运行状态和不可中断状态进程的数量；</li>
 </ul>
 </li>
-<li>进程上下文切换：<ul>
+<li>进程上下文切换：
+<ul>
 <li><code>pidstat</code>：注意加上-w选项；</li>
 </ul>
 </li>
-<li>软中断：<ul>
+<li>软中断：
+<ul>
 <li><code>top</code>：提供软中断CPU的使用率；</li>
 <li><code>mpstat</code>：提供了各种软中断在每个CPU上的运行次数；</li>
 <li><code>/proc/softirps</code>：提供了各种软中断在每个CPU上的运行次数；</li>
 </ul>
 </li>
-<li>硬中断：<ul>
+<li>硬中断：
+<ul>
 <li><code>vmstat</code>：提供总的中断次数；</li>
 <li><code>/proc/interrupts</code>：提供各种中断在每个CPU上的运行的累积次数；</li>
 </ul>
 </li>
-<li>网络：<ul>
+<li>网络：
+<ul>
 <li><code>dstat</code>：提供总的网络接收和发送情况；</li>
 <li><code>sar</code>：提供总的网络接收和发送情况；</li>
 <li><code>tcpdump</code>：动态的抓取正在运行的网络通讯；</li>
 </ul>
 </li>
-<li>IO：<ul>
+<li>IO：
+<ul>
 <li><code>dstat</code>：提供了I/O的整体情况；</li>
 <li><code>sar</code>：提供了I/O的整体情况；</li>
 </ul>
 </li>
-<li>CPU缓存：<ul>
+<li>CPU缓存：
+<ul>
 <li><code>perf</code>：使用perf stat的子命令；</li>
 </ul>
 </li>
-<li>CPU数：<ul>
+<li>CPU数：
+<ul>
 <li><code>lscpu</code>：lscpu更加直观；</li>
 <li><code>/proc/cpuinfo</code>：</li>
 </ul>
 </li>
-<li>事件刨析：<ul>
+<li>事件刨析：
+<ul>
 <li><code>perf</code>：用来分析热点函数以及调用栈；</li>
 <li><code>火焰图</code>：用来分析热点函数以及调用栈；</li>
 <li><code>execsnoop</code>：用来监测短时进程；</li>
 </ul>
 </li>
-<li>动态追踪：<ul>
+<li>动态追踪：
+<ul>
 <li><code>ftrace</code>：用来追踪内核函数的调用栈；</li>
 <li><code>bcc</code>：用于跟踪内核或应用程序的执行过程，要求内核版本&gt;=4.1</li>
 <li><code>systemtab</code>：用于跟踪内核或应用程序的执行过程</li>
 </ul>
 </li>
 </ul>
-<h3 id="1-2、内存性能工具："><a href="#1-2、内存性能工具：" class="headerlink" title="1.2、内存性能工具："></a>1.2、内存性能工具：</h3><ul>
-<li>系统已用/可用/剩余内存：<ul>
+<h3 id="12-内存性能工具"><a class="markdownIt-Anchor" href="#12-内存性能工具"></a> 1.2、内存性能工具：</h3>
+<ul>
+<li>系统已用/可用/剩余内存：
+<ul>
 <li><code>free</code>：最为简单；</li>
 <li><code>vmstat</code>：更为全面；</li>
 <li><code>sar</code>：更为全面；</li>
 <li><code>/proc/meminfo</code>：其他工具的数据来源，也常用于监控系统中；</li>
 </ul>
 </li>
-<li>进程虚拟/常驻/共享内存：<ul>
+<li>进程虚拟/常驻/共享内存：
+<ul>
 <li><code>ps</code>：最为简单；</li>
 <li><code>top</code>：最为简单；</li>
 <li><code>pidstat</code>：需要加上-r选项；</li>
@@ -110,175 +128,210 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li><code>/proc/pid/status</code>：是其他工具的数据来源，也常用于监控系统中；</li>
 </ul>
 </li>
-<li>进程内存分布：<ul>
+<li>进程内存分布：
+<ul>
 <li><code>pmap</code>：</li>
 <li><code>/proc/pid/maps</code>：是pmap的数据来源；</li>
 </ul>
 </li>
-<li>进程Swap换出内存：<ul>
+<li>进程Swap换出内存：
+<ul>
 <li><code>top</code>：</li>
 <li><code>/proc/pid/status</code>：是top的数据来源；</li>
 </ul>
 </li>
-<li>进程缺页异常：<ul>
+<li>进程缺页异常：
+<ul>
 <li><code>ps</code>：</li>
 <li><code>top</code>：</li>
 <li><code>pidstat</code>：注意给pidstat加上-r选项；</li>
 </ul>
 </li>
-<li>系统换页情况：<ul>
+<li>系统换页情况：
+<ul>
 <li><code>sar</code>：注意加上-B选项；</li>
 </ul>
 </li>
-<li>缓存/缓冲区用量：<ul>
+<li>缓存/缓冲区用量：
+<ul>
 <li><code>free</code>：</li>
 <li><code>vmstat</code>：最为常用；</li>
 <li><code>sar</code>：</li>
 <li><code>cachestat</code>：需要安装bcc；</li>
 </ul>
 </li>
-<li>缓存/缓冲区命中率：<ul>
+<li>缓存/缓冲区命中率：
+<ul>
 <li><code>cachetop</code>：需要安装bcc；</li>
 </ul>
 </li>
-<li>Swap已用空间和剩余空间：<ul>
+<li>Swap已用空间和剩余空间：
+<ul>
 <li><code>free</code>：最为简单；</li>
 <li><code>sar</code>：还可以记录历史；</li>
 </ul>
 </li>
-<li>Swap换入换出：<ul>
+<li>Swap换入换出：
+<ul>
 <li><code>vmstat</code>：最为简单；</li>
 <li><code>sar</code>：还可以记录历史；</li>
 </ul>
 </li>
-<li>内存泄漏监测：<ul>
+<li>内存泄漏监测：
+<ul>
 <li><code>memleak</code>：需要安装bcc；</li>
 <li><code>valgrind</code>：还可以在旧版本（如3.x）内核中使用；</li>
 </ul>
 </li>
-<li>指定文件的缓存大小：<ul>
+<li>指定文件的缓存大小：
+<ul>
 <li><code>pcstat</code>：需要从源码下载安装；</li>
 </ul>
 </li>
 </ul>
-<h3 id="1-3、文件系统和磁盘I-O性能工具"><a href="#1-3、文件系统和磁盘I-O性能工具" class="headerlink" title="1.3、文件系统和磁盘I/O性能工具"></a>1.3、文件系统和磁盘I/O性能工具</h3><ul>
-<li>文件系统空闲容量、使用量以及剩余空间：<ul>
+<h3 id="13-文件系统和磁盘io性能工具"><a class="markdownIt-Anchor" href="#13-文件系统和磁盘io性能工具"></a> 1.3、文件系统和磁盘I/O性能工具</h3>
+<ul>
+<li>文件系统空闲容量、使用量以及剩余空间：
+<ul>
 <li><code>df</code>：详细文档可以执行 info coreutils ‘df invocation’ 命令进程查询；</li>
 </ul>
 </li>
-<li>索引节点容量、使用量以及剩余量：<ul>
+<li>索引节点容量、使用量以及剩余量：
+<ul>
 <li><code>df</code>：注意加上 -i 选项；</li>
 </ul>
 </li>
-<li>叶缓存和可回收Slab缓存：<ul>
+<li>叶缓存和可回收Slab缓存：
+<ul>
 <li><code>/proc/meminfo</code>：是其他工具的数据来源，也常用于监控；</li>
 <li><code>sar</code>：注意加上 -r 选项；</li>
 <li><code>vmstat</code>：</li>
 </ul>
 </li>
-<li>缓冲区：<ul>
+<li>缓冲区：
+<ul>
 <li><code>/proc/meminfo</code>：是其他工具的数据来源，也常用于监控；</li>
 <li><code>sar</code>：注意加上 -r 选项；</li>
 <li><code>vmstat</code>：</li>
 </ul>
 </li>
-<li>目录页、索引节点以及文件系统的缓存：<ul>
+<li>目录页、索引节点以及文件系统的缓存：
+<ul>
 <li><code>/proc/slabinfo</code>：常用于监控；</li>
 <li><code>slabtop</code>：slabtop更加直观；</li>
 </ul>
 </li>
-<li>磁盘I/O使用率、IOPS、吞吐量、响应时间、I/O平均大小以及等待队列长度：<ul>
+<li>磁盘I/O使用率、IOPS、吞吐量、响应时间、I/O平均大小以及等待队列长度：
+<ul>
 <li><code>iostat</code>：最为常用，注意使用 iostat -d -x 选项；</li>
 <li><code>sar</code>：注意使用 sar -d 选项；</li>
 <li><code>dstat</code>：</li>
 <li><code>/proc/diskstats</code>：是其他工具的数据来源，也常用于监控；</li>
 </ul>
 </li>
-<li>进程I/O大小以及I/O延迟：<ul>
+<li>进程I/O大小以及I/O延迟：
+<ul>
 <li><code>pidstat</code>：注意使用 pidstat -d 选项；</li>
 <li><code>iotop</code>：</li>
 </ul>
 </li>
-<li>块设备I/O事件追踪：<ul>
+<li>块设备I/O事件追踪：
+<ul>
 <li><code>blktrace</code>：需要跟 blkparse 配合使用，比如 blktrace -d /dev/sda -o | blkparse -i</li>
 </ul>
 </li>
-<li>进程I/O系统调用跟踪：<ul>
+<li>进程I/O系统调用跟踪：
+<ul>
 <li><code>strace</code>：只可以跟踪单个进程；</li>
 <li><code>perf trace</code>：可以跟踪所有进程的系统调用；</li>
 </ul>
 </li>
-<li>进程块设备I/O大小跟踪：<ul>
+<li>进程块设备I/O大小跟踪：
+<ul>
 <li><code>biosnoop</code>：需要安装bcc；</li>
 <li><code>biotop</code>：需要安装bcc；</li>
 </ul>
 </li>
-<li>动态追踪：<ul>
+<li>动态追踪：
+<ul>
 <li><code>ftrace</code>：用于跟踪内核函数调用栈；</li>
 <li><code>bcc</code>：用于跟踪内核或应用程序的执行过程（要求内核版本&gt;=4.1）；</li>
 <li><code>systemtab</code>：用于跟踪内核或应用程序的执行过程；</li>
 </ul>
 </li>
 </ul>
-<h3 id="1-4、网络性能工具"><a href="#1-4、网络性能工具" class="headerlink" title="1.4、网络性能工具"></a>1.4、网络性能工具</h3><ul>
-<li>吞吐量（BPS）：<ul>
+<h3 id="14-网络性能工具"><a class="markdownIt-Anchor" href="#14-网络性能工具"></a> 1.4、网络性能工具</h3>
+<ul>
+<li>吞吐量（BPS）：
+<ul>
 <li><code>sar</code>：可以查看网络接口的网络吞吐量；</li>
 <li><code>nethogs</code>：可以查看进程的网络吞吐量；</li>
 <li><code>iftop</code>：可以查看IP地址的网络吞吐量；</li>
 <li><code>/proc/net/dev</code>：常用于监控；</li>
 </ul>
 </li>
-<li>吞吐量（PPS）：<ul>
+<li>吞吐量（PPS）：
+<ul>
 <li><code>sar</code>：注意使用 sar -n DEV 选项；</li>
 <li><code>/proc/net/dev</code>：</li>
 </ul>
 </li>
-<li>网络连接数：<ul>
+<li>网络连接数：
+<ul>
 <li><code>netstat</code>：</li>
 <li><code>ss</code>：速度更快；</li>
 </ul>
 </li>
-<li>网络错误数：<ul>
+<li>网络错误数：
+<ul>
 <li><code>netstat</code>：注意使用 netstat -s 选项；</li>
 <li><code>sar</code>：注意使用 sar -n EDEV/EIP 选项；</li>
 </ul>
 </li>
-<li>网络延迟：<ul>
+<li>网络延迟：
+<ul>
 <li><code>ping</code>：基于ICMP；</li>
 <li><code>hping3</code>：基于TCP协议；</li>
 </ul>
 </li>
-<li>连接跟踪数：<ul>
+<li>连接跟踪数：
+<ul>
 <li><code>conntrack</code>：可用于查看所有连接跟踪数的详细信息；</li>
 <li><code>/proc/sys/net/netfilter/nf_conntrack_count</code>：显示连接跟踪的数量；</li>
 <li><code>/proc/sys/net/netfilter/nf_conntrack_max</code>：限制总的连接跟踪的数量；</li>
 </ul>
 </li>
-<li>路由：<ul>
+<li>路由：
+<ul>
 <li><code>mtr</code>：用于排查和定位网络链路中的路由问题；</li>
 <li><code>traceroute</code>：用于排查和定位网络链路中的路由问题；</li>
 <li><code>route</code>：用于查询路由表；</li>
 </ul>
 </li>
-<li>DNS：<ul>
+<li>DNS：
+<ul>
 <li><code>dig</code>：用于排查DNS的解析问题；</li>
 <li><code>nslookup</code>：用于排查DNS的解析问题；</li>
 </ul>
 </li>
-<li>防火墙和NAT：<ul>
+<li>防火墙和NAT：
+<ul>
 <li><code>iptables</code>：用于排查防火墙及NAT的问题；</li>
 </ul>
 </li>
-<li>网卡选项：<ul>
+<li>网卡选项：
+<ul>
 <li><code>ethtool</code>：用于查看和配置网络接口的功能选项；</li>
 </ul>
 </li>
-<li>网络抓包：<ul>
+<li>网络抓包：
+<ul>
 <li><code>tcpdump</code>：服务中使用tcpdump抓包；</li>
 <li><code>wireshark</code>：图形界面分析抓包的数据；</li>
 </ul>
 </li>
-<li>动态追踪：<ul>
+<li>动态追踪：
+<ul>
 <li><code>ftrace</code>：用于跟踪内核函数的调用栈；</li>
 <li><code>bcc</code>：用于跟踪内核或应用程序的执行过程（要求内核版本&gt;=4.1）；</li>
 <li><code>systemtap</code>：用于跟踪内核或应用程序的执行过程；</li>
@@ -294,34 +347,4 @@ var disqus_config = function () {
 var d = document, s = d.createElement('script');
 s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
 s.setAttribute('data-timestamp', '' + +new Date());
-(d.head || d.body).appendChild(s);</script><script id="dsq-count-src" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2019 By bugwz</div><div class="framework-info"><span>Driven - </span><a href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a href="https://github.com/bugwz/bface"><span>bface</span></a></div><div class="footer_custom_text">This is bugwz's blog!</div><div class="busuanzi"><script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file-o"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="/js/third-party/anime.min.js"></script><script src="/js/third-party/jquery.min.js"></script><script src="/js/third-party/jquery.fancybox.min.js"></script><script src="/js/third-party/velocity.min.js"></script><script src="/js/third-party/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.5.6"></script><script src="/js/fancybox.js?version=1.5.6"></script><script src="/js/sidebar.js?version=1.5.6"></script><script src="/js/copy.js?version=1.5.6"></script><script src="/js/fireworks.js?version=1.5.6"></script><script src="/js/transition.js?version=1.5.6"></script><script src="/js/scroll.js?version=1.5.6"></script><script src="/js/head.js?version=1.5.6"></script><script type="text/x-mathjax-config">MathJax.Hub.Config({
-  tex2jax: {
-    inlineMath: [ ['$','$'], ["\\(","\\)"]  ],
-    processEscapes: true,
-    skipTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
-  }
-});
-</script><script type="text/x-mathjax-config">MathJax.Hub.Queue(function() {
-  var all = MathJax.Hub.getAllJax(), i;
-  for (i=0; i < all.length; i += 1) {
-    all[i].SourceElement().parentNode.className += ' has-jax';
-  }
-});
-</script><script src="https://cdn.jsdelivr.net/npm/mathjax/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script><script src="/js/search/local-search.js"></script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div><!-- hexo-inject:begin --><!-- Begin: Injected MathJax -->
-<script type="text/x-mathjax-config">
-  MathJax.Hub.Config({"tex2jax":{"inlineMath":[["$","$"],["\\(","\\)"]],"skipTags":["script","noscript","style","textarea","pre","code"],"processEscapes":true},"TeX":{"equationNumbers":{"autoNumber":"AMS"}}});
-</script>
-
-<script type="text/x-mathjax-config">
-  MathJax.Hub.Queue(function() {
-    var all = MathJax.Hub.getAllJax(), i;
-    for(i=0; i < all.length; i += 1) {
-      all[i].SourceElement().parentNode.className += ' has-jax';
-    }
-  });
-</script>
-
-<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js">
-</script>
-<!-- End: Injected MathJax -->
-<!-- hexo-inject:end --></body></html>
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-src" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2019 By bugwz</div><div class="framework-info"><span>Driven - </span><a href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a href="https://github.com/bugwz/bface"><span>bface</span></a></div><div class="footer_custom_text">This is bugwz's blog!</div><div class="busuanzi"><script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file-o"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="/js/third-party/anime.min.js"></script><script src="/js/third-party/jquery.min.js"></script><script src="/js/third-party/jquery.fancybox.min.js"></script><script src="/js/third-party/velocity.min.js"></script><script src="/js/third-party/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.5.6"></script><script src="/js/fancybox.js?version=1.5.6"></script><script src="/js/sidebar.js?version=1.5.6"></script><script src="/js/copy.js?version=1.5.6"></script><script src="/js/fireworks.js?version=1.5.6"></script><script src="/js/transition.js?version=1.5.6"></script><script src="/js/scroll.js?version=1.5.6"></script><script src="/js/head.js?version=1.5.6"></script><script src="/js/search/local-search.js"></script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div><!-- hexo-inject:begin --><!-- hexo-inject:end --></body></html>
