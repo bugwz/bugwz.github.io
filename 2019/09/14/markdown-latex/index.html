@@ -19,154 +19,138 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
     error: 'Copy error',
     noSupport: 'The browser does not support'
   }
-} </script><!-- hexo-inject:begin --><!-- hexo-inject:end --></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#null"><span class="toc-number">1.</span> <span class="toc-text">一、引言</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">1.0.1.</span> <span class="toc-text">LaTex介绍</span></a></li></ol></li></ol><li class="toc-item toc-level-1"><a class="toc-link" href="#null"><span class="toc-number">2.</span> <span class="toc-text">二、Markdown的Latex规则</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.1.</span> <span class="toc-text">2.1、行内与独行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.2.</span> <span class="toc-text">2.2、上标、下标与组合</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.3.</span> <span class="toc-text">2.3、汉字、字体与格式</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.4.</span> <span class="toc-text">2.4、占位符</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.5.</span> <span class="toc-text">2.5、定界符与组合</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.6.</span> <span class="toc-text">2.6、四则运算</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.7.</span> <span class="toc-text">2.7、高级运算</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.8.</span> <span class="toc-text">2.8、逻辑运算</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.9.</span> <span class="toc-text">2.9、集合运算</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.10.</span> <span class="toc-text">2.10、数学符号</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#null"><span class="toc-number">2.0.11.</span> <span class="toc-text">2.11、希腊字母</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#null"><span class="toc-number">3.</span> <span class="toc-text">三、目前使用的问题</span></a></li></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">48</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">42</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a><a class="author-info-links__name text-center" href="https://www.hozen.site/" target="_blank">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/math.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Markdown中支持LaTex数学公式</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2019-09-14</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2019/09/14/markdown-latex/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2019/09/14/markdown-latex/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1>一、引言</h1>
-<!-- hexo-inject:begin --><!-- hexo-inject:end --><p>Markdown在目前无疑是一个比较好的写作方式，但是它时候和大部分的写作软件一样，在一些数据公式的编写上，只能引入图片呢？除了引用图片之外是不是还有更好的数学公式编辑手段呢？这里主要介绍一下LaTex Math在Markdown上的支持。</p>
-<p>本博客目前采用<a href="https://github.com/sun11/hexo-renderer-kramed" target="_blank" rel="noopener">hexo-renderer-kramed</a>渲染器替换了Hexo自带的hexo-renderer-marked渲染器来支持LaTex；</p>
-<h3>LaTex介绍</h3>
-<p><a href="https://www.latex-project.org/" target="_blank" rel="noopener">LaTex</a>是一种基于TeX的排版系统，LaTeX使用TeX作为它的格式化引擎，LaTeX遵循呈现与内容分离的设计理念，以便作者可以专注于他们正在编写的内容，而不必同时注视其外观。在准备LaTeX文档时，作者使用章（chapter）、节（section）、表（table）、图（figure）等简单的概念指定文档的逻辑结构，并让LaTeX系统负责这些结构的格式和布局。因此，它鼓励从内容中分离布局，同时仍然允许在需要时进行手动排版调整。这个概念类似于许多文字处理器允许全局定义整个文档的样式的机制，或使用层叠样式表来规定HTML的样式。LaTeX系统是一种可以处理排版和渲染的标记语言。</p>
-<h1>二、Markdown的Latex规则</h1>
-<h3>2.1、行内与独行</h3>
-<ul>
-<li>
-<p><code>行内公式</code>：将公式插入到本行内，格式为<code>$公式内容$</code>，如：<code>$xyz$</code>，展示效果为：$xyz$；</p>
+} </script><!-- hexo-inject:begin --><!-- hexo-inject:end --></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#一、引言"><span class="toc-number">1.</span> <span class="toc-text">一、引言</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#LaTex介绍"><span class="toc-number">1.0.1.</span> <span class="toc-text">LaTex介绍</span></a></li></ol></li></ol><li class="toc-item toc-level-1"><a class="toc-link" href="#二、Markdown的Latex规则"><span class="toc-number">2.</span> <span class="toc-text">二、Markdown的Latex规则</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#2-1、行内与独行"><span class="toc-number">2.1.</span> <span class="toc-text">2.1、行内与独行</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-2、上标、下标与组合"><span class="toc-number">2.2.</span> <span class="toc-text">2.2、上标、下标与组合</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-3、汉字、字体与格式"><span class="toc-number">2.3.</span> <span class="toc-text">2.3、汉字、字体与格式</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-4、占位符"><span class="toc-number">2.4.</span> <span class="toc-text">2.4、占位符</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-5、定界符与组合"><span class="toc-number">2.5.</span> <span class="toc-text">2.5、定界符与组合</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-6、四则运算"><span class="toc-number">2.6.</span> <span class="toc-text">2.6、四则运算</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-7、高级运算"><span class="toc-number">2.7.</span> <span class="toc-text">2.7、高级运算</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-8、逻辑运算"><span class="toc-number">2.8.</span> <span class="toc-text">2.8、逻辑运算</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-9、集合运算"><span class="toc-number">2.9.</span> <span class="toc-text">2.9、集合运算</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-10、数学符号"><span class="toc-number">2.10.</span> <span class="toc-text">2.10、数学符号</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-11、希腊字母"><span class="toc-number">2.11.</span> <span class="toc-text">2.11、希腊字母</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#三、目前使用的问题"><span class="toc-number">3.</span> <span class="toc-text">三、目前使用的问题</span></a></li></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">48</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">42</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a><a class="author-info-links__name text-center" href="https://www.hozen.site/" target="_blank">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/math.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Markdown中支持LaTex数学公式</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2019-09-14</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2019/09/14/markdown-latex/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2019/09/14/markdown-latex/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="一、引言"><a href="#一、引言" class="headerlink" title="一、引言"></a>一、引言</h1><p>Markdown在目前无疑是一个比较好的写作方式，但是它时候和大部分的写作软件一样，在一些数据公式的编写上，只能引入图片呢？除了引用图片之外是不是还有更好的数学公式编辑手段呢？这里主要介绍一下LaTex Math在Markdown上的支持。</p>
+<!-- hexo-inject:begin --><!-- hexo-inject:end --><p>本博客目前采用<a href="https://github.com/sun11/hexo-renderer-kramed" target="_blank" rel="noopener">hexo-renderer-kramed</a>渲染器替换了Hexo自带的hexo-renderer-marked渲染器来支持LaTex；</p>
+<h3 id="LaTex介绍"><a href="#LaTex介绍" class="headerlink" title="LaTex介绍"></a>LaTex介绍</h3><p><a href="https://www.latex-project.org/" target="_blank" rel="noopener">LaTex</a>是一种基于TeX的排版系统，LaTeX使用TeX作为它的格式化引擎，LaTeX遵循呈现与内容分离的设计理念，以便作者可以专注于他们正在编写的内容，而不必同时注视其外观。在准备LaTeX文档时，作者使用章（chapter）、节（section）、表（table）、图（figure）等简单的概念指定文档的逻辑结构，并让LaTeX系统负责这些结构的格式和布局。因此，它鼓励从内容中分离布局，同时仍然允许在需要时进行手动排版调整。这个概念类似于许多文字处理器允许全局定义整个文档的样式的机制，或使用层叠样式表来规定HTML的样式。LaTeX系统是一种可以处理排版和渲染的标记语言。</p>
+<h1 id="二、Markdown的Latex规则"><a href="#二、Markdown的Latex规则" class="headerlink" title="二、Markdown的Latex规则"></a>二、Markdown的Latex规则</h1><h2 id="2-1、行内与独行"><a href="#2-1、行内与独行" class="headerlink" title="2.1、行内与独行"></a>2.1、行内与独行</h2><ul>
+<li><p><code>行内公式</code>：将公式插入到本行内，格式为<script type="math/tex">公式内容</script>，如：<script type="math/tex">xyz</script>，展示效果为：$xyz$；</p>
 </li>
-<li>
-<p><code>独行公式</code>：将公式居中插入到新的一行内，格式为<code>$$公式内容$$</code>，如：<code>$$xyz$$</code>，展示效果为：</p>
-<p>$$xyz$$</p>
-</li>
+<li><p><code>独行公式</code>：将公式居中插入到新的一行内，格式为$$$公式内容$$$，如：$$$xyz$$$，展示效果为：</p>
+<script type="math/tex; mode=display">xyz</script></li>
 </ul>
-<h3>2.2、上标、下标与组合</h3>
-<ul>
-<li><code>上标符号</code>：格式为<code>^</code>，如：<code>$x^4$</code>，展示效果为：$x^4$；</li>
-<li><code>下标符号</code>：格式为<code>_</code>，如：<code>$x_1$</code>，展示效果为：$x_1$；</li>
-<li><code>组合符号</code>：格式为<code>{}</code>，如：<code>${16}_{8}O{2+}_{2}$</code>，展示效果为：${16}<em>{8}O{2+}</em>{2}$；</li>
+<h2 id="2-2、上标、下标与组合"><a href="#2-2、上标、下标与组合" class="headerlink" title="2.2、上标、下标与组合"></a>2.2、上标、下标与组合</h2><ul>
+<li><code>上标符号</code>：格式为<code>^</code>，如：<script type="math/tex">x^4</script>，展示效果为：$x^4$；</li>
+<li><code>下标符号</code>：格式为<code>_</code>，如：<script type="math/tex">x_1</script>，展示效果为：$x_1$；</li>
+<li><code>组合符号</code>：格式为<code>{}</code>，如：<script type="math/tex">{16}_{8}O{2+}_{2}</script>，展示效果为：${16}<em>{8}O{2+}</em>{2}$；</li>
 </ul>
-<h3>2.3、汉字、字体与格式</h3>
-<ul>
-<li><code>汉字形式</code>：格式为<code>\mbox{}</code>，如：<code>$V_{\mbox{初始}}$</code>，展示效果为：$V_{\mbox{初始}}$；</li>
-<li><code>字体控制</code>：格式为<code>\displaystyle</code>，如：<code>$\displaystyle \frac{x+y}{y+z}$</code>，展示效果为：$\displaystyle \frac{x+y}{y+z}$；</li>
-<li><code>下划线符号</code>：格式为<code>\underline</code>，如：<code>$\underline{x+y}$</code>，展示效果为：$\underline{x+y}$；</li>
-<li><code>标签</code>：格式为<code>\tag{数字}</code>，如：<code>$\tag{11}$</code>，展示效果为：$\tag{11}$；</li>
-<li><code>上大括号</code>：格式为<code>\overbrace{算式}</code>，如：<code>$\overbrace{a+b+c+d}^{2.0}$</code>，展示效果为：$\overbrace{a+b+c+d}^{2.0}$；</li>
-<li><code>下大括号</code>：格式为<code>\underbrace{算式}</code>，如：<code>$a+\underbrace{b+c}_{1.0}+d$</code>，展示效果为：$a+\underbrace{b+c}_{1.0}+d$；</li>
-<li><code>上位符号</code>：格式为<code>\stacrel{上位符号}{基位符号}</code>，如：<code>$\vec{x}\stackrel{\mathrm{def}}{=}{x_1,\dots,x_n}$</code>，展示效果为：$\vec{x}\stackrel{\mathrm{def}}{=}{x_1,\dots,x_n}$；</li>
+<h2 id="2-3、汉字、字体与格式"><a href="#2-3、汉字、字体与格式" class="headerlink" title="2.3、汉字、字体与格式"></a>2.3、汉字、字体与格式</h2><ul>
+<li><code>汉字形式</code>：格式为<code>\mbox{}</code>，如：<script type="math/tex">V_{\mbox{初始}}</script>，展示效果为：$V_{\mbox{初始}}$；</li>
+<li><code>字体控制</code>：格式为<code>\displaystyle</code>，如：<script type="math/tex">\displaystyle \frac{x+y}{y+z}</script>，展示效果为：$\displaystyle \frac{x+y}{y+z}$；</li>
+<li><code>下划线符号</code>：格式为<code>\underline</code>，如：<script type="math/tex">\underline{x+y}</script>，展示效果为：$\underline{x+y}$；</li>
+<li><code>标签</code>：格式为<code>\tag{数字}</code>，如：<script type="math/tex">\tag{11}</script>，展示效果为：$\tag{11}$；</li>
+<li><code>上大括号</code>：格式为<code>\overbrace{算式}</code>，如：<script type="math/tex">\overbrace{a+b+c+d}^{2.0}</script>，展示效果为：$\overbrace{a+b+c+d}^{2.0}$；</li>
+<li><code>下大括号</code>：格式为<code>\underbrace{算式}</code>，如：<script type="math/tex">a+\underbrace{b+c}_{1.0}+d</script>，展示效果为：$a+\underbrace{b+c}_{1.0}+d$；</li>
+<li><code>上位符号</code>：格式为<code>\stacrel{上位符号}{基位符号}</code>，如：<script type="math/tex">\vec{x}\stackrel{\mathrm{def}}{=}{x_1,\dots,x_n}</script>，展示效果为：$\vec{x}\stackrel{\mathrm{def}}{=}{x_1,\dots,x_n}$；</li>
 </ul>
-<h3>2.4、占位符</h3>
-<ul>
-<li><code>两个quad空格</code>：格式为<code>\qquad</code>，如：<code>$x \qquad y$</code>，展示效果为：$x \qquad y$；</li>
-<li><code>quad空格</code>：格式为<code>\quad</code>，如：<code>$x \quad y$</code>，展示效果为：$x \quad y$；</li>
-<li><code>大空格</code>：格式为<code>\</code>，如：<code>$x \ y$</code>，展示效果为：$x \ y$；</li>
-<li><code>中空格</code>：格式为<code>\:</code>，如：<code>$x : y$</code>，展示效果为：$x : y$；</li>
-<li><code>小空格</code>：格式为<code>\,</code>，如：<code>$x , y$</code>，展示效果为：$x , y$；</li>
-<li><code>没有空格``：格式为</code> <code>，如：</code>$xy$`，展示效果为：$xy$；</li>
-<li><code>紧贴</code>：格式为<code>\!</code>，如：<code>$x ! y$</code>，展示效果为：$x ! y$；</li>
+<h2 id="2-4、占位符"><a href="#2-4、占位符" class="headerlink" title="2.4、占位符"></a>2.4、占位符</h2><ul>
+<li><code>两个quad空格</code>：格式为<code>\qquad</code>，如：<script type="math/tex">x \qquad y</script>，展示效果为：$x \qquad y$；</li>
+<li><code>quad空格</code>：格式为<code>\quad</code>，如：<script type="math/tex">x \quad y</script>，展示效果为：$x \quad y$；</li>
+<li><code>大空格</code>：格式为<code>\</code>，如：<script type="math/tex">x \ y</script>，展示效果为：$x \ y$；</li>
+<li><code>中空格</code>：格式为<code>\:</code>，如：<script type="math/tex">x : y</script>，展示效果为：$x : y$；</li>
+<li><code>小空格</code>：格式为<code>\,</code>，如：<script type="math/tex">x , y</script>，展示效果为：$x , y$；</li>
+<li><code>没有空格``：格式为</code> `，如：<script type="math/tex">xy</script>，展示效果为：$xy$；</li>
+<li><code>紧贴</code>：格式为<code>\!</code>，如：<script type="math/tex">x ! y</script>，展示效果为：$x ! y$；</li>
 </ul>
-<h3>2.5、定界符与组合</h3>
-<ul>
-<li><code>括号</code>：格式为<code>（）\big(\big) \Big(\Big) \bigg(\bigg) \Bigg(\Bigg)</code>，如：<code>$()\big(\big) \Big(\Big)\bigg(\bigg)\Bigg(\Bigg)$</code>，展示效果为：$（）\big(\big) \Big(\Big) \bigg(\bigg) \Bigg(\Bigg)$；</li>
-<li><code>中括号</code>：格式为<code>[]</code>，如：<code>$[x+y]$</code>，展示效果为：$[x+y]$；</li>
-<li><code>大括号</code>：格式为<code>\{ \}</code>，如：<code>${x+y}$</code>，展示效果为：${x+y}$；</li>
-<li><code>自适应括号</code>：格式为<code>\left \right</code>，如：<code>$\left(x\right)$</code>，<code>$\left(x{yz}\right)$</code>，展示效果为：$\left(x\right)$，$\left(x{yz}\right)$；</li>
-<li><code>组合公式</code>：格式为<code>{上位公式 \choose 下位公式}</code>，如：<code>${n+1 \choose k}={n \choose k}+{n \choose k-1}$</code>,展示效果为：${n+1 \choose k}={n \choose k}+{n \choose k-1}$；</li>
-<li><code>组合公式</code>：格式为<code>{上位公式 \atop 下位公式}</code>，如：<code>$\sum_{k_0,k_1,\ldots&gt;0 \atop k_0+k_1+\cdots=n}A_{k_0}A_{k_1}\cdots$</code>，展示效果为：$\sum_{k_0,k_1,\ldots&gt;0 \atop k_0+k_1+\cdots=n}A_{k_0}A_{k_1}\cdots$；</li>
+<h2 id="2-5、定界符与组合"><a href="#2-5、定界符与组合" class="headerlink" title="2.5、定界符与组合"></a>2.5、定界符与组合</h2><ul>
+<li><code>括号</code>：格式为<code>（）\big(\big) \Big(\Big) \bigg(\bigg) \Bigg(\Bigg)</code>，如：<script type="math/tex">()\big(\big) \Big(\Big)\bigg(\bigg)\Bigg(\Bigg)</script>，展示效果为：$（）\big(\big) \Big(\Big) \bigg(\bigg) \Bigg(\Bigg)$；</li>
+<li><code>中括号</code>：格式为<code>[]</code>，如：<script type="math/tex">[x+y]</script>，展示效果为：$[x+y]$；</li>
+<li><code>大括号</code>：格式为<code>\{ \}</code>，如：<script type="math/tex">{x+y}</script>，展示效果为：${x+y}$；</li>
+<li><code>自适应括号</code>：格式为<code>\left \right</code>，如：<script type="math/tex">\left(x\right)</script>，<script type="math/tex">\left(x{yz}\right)</script>，展示效果为：$\left(x\right)$，$\left(x{yz}\right)$；</li>
+<li><code>组合公式</code>：格式为<code>{上位公式 \choose 下位公式}</code>，如：<script type="math/tex">{n+1 \choose k}={n \choose k}+{n \choose k-1}</script>,展示效果为：${n+1 \choose k}={n \choose k}+{n \choose k-1}$；</li>
+<li><code>组合公式</code>：格式为<code>{上位公式 \atop 下位公式}</code>，如：<script type="math/tex">\sum_{k_0,k_1,\ldots>0 \atop k_0+k_1+\cdots=n}A_{k_0}A_{k_1}\cdots</script>，展示效果为：$\sum<em>{k_0,k_1,\ldots&gt;0 \atop k_0+k_1+\cdots=n}A</em>{k<em>0}A</em>{k_1}\cdots$；</li>
 </ul>
-<h3>2.6、四则运算</h3>
-<ul>
-<li><code>加法运算</code>：格式为符号：<code>+</code>，如：<code>$x+y=z$</code>，展示效果为：$x+y=z$；</li>
-<li><code>减法运算</code>：格式为<code>-</code>，如：<code>$x-y=z$</code>，展示效果为：$x-y=z$；</li>
-<li><code>加减运算</code>：格式为<code>\pm</code>，如：<code>$x \pm y=z$</code>，展示效果为：$x \pm y=z$；</li>
-<li><code>减甲运算</code>：格式为<code>\mp</code>，如：<code>$x \mp y=z$</code>，展示效果为：$x \mp y=z$；</li>
-<li><code>乘法运算</code>：格式为<code>\times</code>，如：<code>$x \times y=z$</code>，展示效果为：$x \times y=z$；</li>
-<li><code>点乘运算</code>：格式为<code>\cdot</code>，如：<code>$x \cdot y=z$</code>，展示效果为：$x \cdot y=z$；</li>
-<li><code>星乘运算</code>：格式为<code>\ast</code>，如：<code>$x \ast y=z$</code>，展示效果为：$x \ast y=z$；</li>
-<li><code>除法运算</code>：格式为<code>\div</code>，如：<code>$x \div y=z$</code>，展示效果为：$x \div y=z$；</li>
-<li><code>斜法运算</code>：格式为<code>/</code>，如：<code>$x/y=z$</code>，展示效果为：$x/y=z$；</li>
-<li><code>分式表示</code>：格式为<code>\frac{分子}{分母}</code>，如：<code>$\frac{x+y}{y+z}$</code>，展示效果为：$\frac{x+y}{y+z}$；</li>
-<li><code>分式表示</code>：格式为<code>{分子} \voer {分母}</code>，如：<code>${x+y} \over {y+z}$</code>，展示效果为：${x+y} \over {y+z}$；</li>
-<li><code>绝对值表示</code>：格式为<code>||</code>，如：<code>$|x+y|$</code>，展示效果为：$|x+y|$；</li>
+<h2 id="2-6、四则运算"><a href="#2-6、四则运算" class="headerlink" title="2.6、四则运算"></a>2.6、四则运算</h2><ul>
+<li><code>加法运算</code>：格式为符号：<code>+</code>，如：<script type="math/tex">x+y=z</script>，展示效果为：$x+y=z$；</li>
+<li><code>减法运算</code>：格式为<code>-</code>，如：<script type="math/tex">x-y=z</script>，展示效果为：$x-y=z$；</li>
+<li><code>加减运算</code>：格式为<code>\pm</code>，如：<script type="math/tex">x \pm y=z</script>，展示效果为：$x \pm y=z$；</li>
+<li><code>减甲运算</code>：格式为<code>\mp</code>，如：<script type="math/tex">x \mp y=z</script>，展示效果为：$x \mp y=z$；</li>
+<li><code>乘法运算</code>：格式为<code>\times</code>，如：<script type="math/tex">x \times y=z</script>，展示效果为：$x \times y=z$；</li>
+<li><code>点乘运算</code>：格式为<code>\cdot</code>，如：<script type="math/tex">x \cdot y=z</script>，展示效果为：$x \cdot y=z$；</li>
+<li><code>星乘运算</code>：格式为<code>\ast</code>，如：<script type="math/tex">x \ast y=z</script>，展示效果为：$x \ast y=z$；</li>
+<li><code>除法运算</code>：格式为<code>\div</code>，如：<script type="math/tex">x \div y=z</script>，展示效果为：$x \div y=z$；</li>
+<li><code>斜法运算</code>：格式为<code>/</code>，如：<script type="math/tex">x/y=z</script>，展示效果为：$x/y=z$；</li>
+<li><code>分式表示</code>：格式为<code>\frac{分子}{分母}</code>，如：<script type="math/tex">\frac{x+y}{y+z}</script>，展示效果为：$\frac{x+y}{y+z}$；</li>
+<li><code>分式表示</code>：格式为<code>{分子} \voer {分母}</code>，如：<script type="math/tex">{x+y} \over {y+z}</script>，展示效果为：${x+y} \over {y+z}$；</li>
+<li><code>绝对值表示</code>：格式为<code>||</code>，如：<script type="math/tex">|x+y|</script>，展示效果为：$|x+y|$；</li>
 </ul>
-<h3>2.7、高级运算</h3>
-<ul>
-<li>平均数运算：格式为<code>\overline{算式}</code>，如：<code>$\overline{xyz}$</code>，展示效果为：$\overline{xyz}$；</li>
+<h2 id="2-7、高级运算"><a href="#2-7、高级运算" class="headerlink" title="2.7、高级运算"></a>2.7、高级运算</h2><ul>
+<li>平均数运算：格式为<code>\overline{算式}</code>，如：<script type="math/tex">\overline{xyz}</script>，展示效果为：$\overline{xyz}$；</li>
 <li>开二次方运算：格式为<code>\sqrt</code>，如：$\sqrt x$，展示效果为：；</li>
-<li>开方运算：格式为<code>\sqrt[开方数]{被开方数}</code>，如：<code>$\sqrt[3]{x+y}$</code>，展示效果为：$\sqrt[3]{x+y}$；</li>
-<li>对数运算：格式为<code>\log</code>，如：<code>$\log(x)$</code>，展示效果为：$\log(x)$；</li>
-<li>极限运算：格式为<code>\lim</code>，如：<code>$\lim^{x \to \infty}_{y \to 0}{\frac{x}{y}}$</code>，展示效果为：$\lim^{x \to \infty}_{y \to 0}{\frac{x}{y}}$；</li>
-<li>极限运算：格式为<code>\displaystyle \lim</code>，如：<code>$\displaystyle \lim^{x \to \infty}_{y \to 0}{\frac{x}{y}}$</code>，展示效果为：$\displaystyle \lim^{x \to \infty}_{y \to 0}{\frac{x}{y}}$；</li>
-<li>求和运算：格式为<code>\sum</code>，如：<code>$\sum^{x \to \infty}_{y \to 0}{\frac{x}{y}}$</code>，展示效果为：$\sum^{x \to \infty}_{y \to 0}{\frac{x}{y}}$；</li>
-<li>求和运算：格式为<code>\displaystyle \sum</code>，如：<code>$\displaystyle \sum^{x \to \infty}_{y \to 0}{\frac{x}{y}}$</code>，展示效果为：$\displaystyle \sum^{x \to \infty}_{y \to 0}{\frac{x}{y}}$；</li>
-<li>积分运算：格式为<code>\int</code>，如：<code>$\int^{\infty}_{0}{xdx}$</code>，展示效果为：$\int^{\infty}_{0}{xdx}$；</li>
-<li>积分运算：格式为<code>\displaystyle \int</code>，如：<code>$\displaystyle \int^{\infty}_{0}{xdx}$</code>，展示效果为：$\displaystyle \int^{\infty}_{0}{xdx}$；</li>
-<li>微分运算：格式为<code>\partial</code>，如：<code>$\frac{\partial x}{\partial y}$</code>，展示效果为：$\frac{\partial x}{\partial y}$；</li>
-<li>矩阵表示：格式为<code>\begin{matrix} \end{matrix}</code>，如：<code>$\left[ \begin{matrix} 1 &amp;2 &amp;\cdots &amp;4\5 &amp;6 &amp;\cdots &amp;8\\vdots &amp;\vdots &amp;\ddots &amp;\vdots\13 &amp;14 &amp;\cdots &amp;16\end{matrix} \right]$</code>，展示效果为：$\left[ \begin{matrix} 1 &amp;2 &amp;\cdots &amp;4\5 &amp;6 &amp;\cdots &amp;8\vdots &amp;\vdots &amp;\ddots &amp;\vdots\13 &amp;14 &amp;\cdots &amp;16\end{matrix} \right]$；</li>
+<li>开方运算：格式为<code>\sqrt[开方数]{被开方数}</code>，如：<script type="math/tex">\sqrt[3]{x+y}</script>，展示效果为：$\sqrt[3]{x+y}$；</li>
+<li>对数运算：格式为<code>\log</code>，如：<script type="math/tex">\log(x)</script>，展示效果为：$\log(x)$；</li>
+<li>极限运算：格式为<code>\lim</code>，如：<script type="math/tex">\lim^{x \to \infty}_{y \to 0}{\frac{x}{y}}</script>，展示效果为：$\lim^{x \to \infty}_{y \to 0}{\frac{x}{y}}$；</li>
+<li>极限运算：格式为<code>\displaystyle \lim</code>，如：<script type="math/tex">\displaystyle \lim^{x \to \infty}_{y \to 0}{\frac{x}{y}}</script>，展示效果为：$\displaystyle \lim^{x \to \infty}_{y \to 0}{\frac{x}{y}}$；</li>
+<li>求和运算：格式为<code>\sum</code>，如：<script type="math/tex">\sum^{x \to \infty}_{y \to 0}{\frac{x}{y}}</script>，展示效果为：$\sum^{x \to \infty}_{y \to 0}{\frac{x}{y}}$；</li>
+<li>求和运算：格式为<code>\displaystyle \sum</code>，如：<script type="math/tex">\displaystyle \sum^{x \to \infty}_{y \to 0}{\frac{x}{y}}</script>，展示效果为：$\displaystyle \sum^{x \to \infty}_{y \to 0}{\frac{x}{y}}$；</li>
+<li>积分运算：格式为<code>\int</code>，如：<script type="math/tex">\int^{\infty}_{0}{xdx}</script>，展示效果为：$\int^{\infty}_{0}{xdx}$；</li>
+<li>积分运算：格式为<code>\displaystyle \int</code>，如：<script type="math/tex">\displaystyle \int^{\infty}_{0}{xdx}</script>，展示效果为：$\displaystyle \int^{\infty}_{0}{xdx}$；</li>
+<li>微分运算：格式为<code>\partial</code>，如：<script type="math/tex">\frac{\partial x}{\partial y}</script>，展示效果为：$\frac{\partial x}{\partial y}$；</li>
+<li>矩阵表示：格式为<code>\begin{matrix} \end{matrix}</code>，如：<script type="math/tex">\left[ \begin{matrix} 1 &2 &\cdots &4\5 &6 &\cdots &8\\vdots &\vdots &\ddots &\vdots\13 &14 &\cdots &16\end{matrix} \right]</script>，展示效果为：$\left[ \begin{matrix} 1 &amp;2 &amp;\cdots &amp;4\5 &amp;6 &amp;\cdots &amp;8\vdots &amp;\vdots &amp;\ddots &amp;\vdots\13 &amp;14 &amp;\cdots &amp;16\end{matrix} \right]$；</li>
 </ul>
-<h3>2.8、逻辑运算</h3>
-<ul>
-<li>等于运算：格式为<code>=</code>，如：<code>$x+y=z$</code>，展示效果为：$x+y=z$；</li>
-<li>大于运算：格式为<code>&gt;</code>，如：<code>$x+y&gt;z$</code>，展示效果为：$x+y&gt;z$；</li>
-<li>小于运算：格式为<code>&lt;</code>，如：<code>$x+y&lt;z$</code>，展示效果为：$x+y&lt;z$；</li>
-<li>大于等于运算：格式为<code>\geq</code>，如：<code>$x+y \geq z$</code>，展示效果为：$x+y \geq z$；</li>
-<li>小于等于运算：格式为<code>\leq</code>，如：<code>$x+y \leq z$</code>，展示效果为：$x+y \leq z$；</li>
-<li>不等于运算：格式为<code>\neq</code>，如：<code>$x+y \neq z$</code>，展示效果为：$x+y \neq z$；</li>
-<li>不大于等于运算：格式为<code>\ngeq</code>，如：<code>$x+y \ngeq z$</code>，展示效果为：$x+y \ngeq z$；</li>
-<li>不大于等于运算：格式为<code>\not\geq</code>，如：<code>$x+y \not\geq z$</code>，展示效果为：$x+y \not\geq z$；</li>
-<li>不小于等于运算：格式为<code>\nleq</code>，如：<code>$x+y \nleq z$</code>，展示效果为：$x+y \nleq z$；</li>
-<li>不小于等于运算：格式为<code>\not\leq</code>，如：<code>$x+y \not\leq z$</code>，展示效果为：$x+y \not\leq z$；</li>
-<li>约等于运算：格式为<code>\approx</code>，如：<code>$x+y \approx z$</code>，展示效果为：$x+y \approx z$；</li>
-<li>恒定等于运算：格式为<code>\equiv</code>，如：<code>$x+y \equiv z$</code>，展示效果为：$x+y \equiv z$；</li>
+<h2 id="2-8、逻辑运算"><a href="#2-8、逻辑运算" class="headerlink" title="2.8、逻辑运算"></a>2.8、逻辑运算</h2><ul>
+<li>等于运算：格式为<code>=</code>，如：<script type="math/tex">x+y=z</script>，展示效果为：$x+y=z$；</li>
+<li>大于运算：格式为<code>&gt;</code>，如：<script type="math/tex">x+y>z</script>，展示效果为：$x+y&gt;z$；</li>
+<li>小于运算：格式为<code>&lt;</code>，如：<script type="math/tex">x+y<z</script>，展示效果为：$x+y&lt;z$；</li>
+<li>大于等于运算：格式为<code>\geq</code>，如：<script type="math/tex">x+y \geq z</script>，展示效果为：$x+y \geq z$；</li>
+<li>小于等于运算：格式为<code>\leq</code>，如：<script type="math/tex">x+y \leq z</script>，展示效果为：$x+y \leq z$；</li>
+<li>不等于运算：格式为<code>\neq</code>，如：<script type="math/tex">x+y \neq z</script>，展示效果为：$x+y \neq z$；</li>
+<li>不大于等于运算：格式为<code>\ngeq</code>，如：<script type="math/tex">x+y \ngeq z</script>，展示效果为：$x+y \ngeq z$；</li>
+<li>不大于等于运算：格式为<code>\not\geq</code>，如：<script type="math/tex">x+y \not\geq z</script>，展示效果为：$x+y \not\geq z$；</li>
+<li>不小于等于运算：格式为<code>\nleq</code>，如：<script type="math/tex">x+y \nleq z</script>，展示效果为：$x+y \nleq z$；</li>
+<li>不小于等于运算：格式为<code>\not\leq</code>，如：<script type="math/tex">x+y \not\leq z</script>，展示效果为：$x+y \not\leq z$；</li>
+<li>约等于运算：格式为<code>\approx</code>，如：<script type="math/tex">x+y \approx z</script>，展示效果为：$x+y \approx z$；</li>
+<li>恒定等于运算：格式为<code>\equiv</code>，如：<script type="math/tex">x+y \equiv z</script>，展示效果为：$x+y \equiv z$；</li>
 </ul>
-<h3>2.9、集合运算</h3>
-<ul>
-<li>属于运算：格式为<code>\in</code>，如：<code>$x \in y$</code>，展示效果为：$x \in y$；</li>
-<li>不属于运算：格式为<code>\notin</code>，如：<code>$x \notin y$</code>，展示效果为：$x \notin y$；</li>
-<li>不属于运算：格式为<code>\not\in</code>，如：<code>$x \not\in y$</code>，展示效果为：$x \not\in y$；</li>
-<li>子集运算：格式为<code>\subset</code>，如：<code>$x \subset y$</code>，展示效果为：$x \subset y$；</li>
-<li>子集运算：格式为<code>\supset</code>，如：<code>$x \supset y$</code>，展示效果为：$x \supset y$；</li>
-<li>真子集运算：格式为<code>\subseteq</code>，如：<code>$x \subseteq y$</code>，展示效果为：$x \subseteq y$；</li>
-<li>非真子集运算：格式为<code>\subsetneq</code>，如：<code>$x \subsetneq y$</code>，展示效果为：$x \subsetneq y$；</li>
-<li>真子集运算：格式为<code>\supseteq</code>，如：<code>$x \supseteq y$</code>，展示效果为：$x \supseteq y$；</li>
-<li>非真子集运算：格式为<code>\supsetneq</code>，如：<code>$x \supsetneq y$</code>，展示效果为：$x \supsetneq y$；</li>
-<li>非子集运算：格式为<code>\not\subset</code>，如：<code>$x \not\subset y$</code>，展示效果为：$x \not\subset y$；</li>
-<li>非子集运算：格式为<code>\not\supset</code>，如：<code>$x \not\supset y$</code>，展示效果为：$x \not\supset y$；</li>
-<li>并集运算：格式为<code>\cup</code>，如：<code>$x \cup y$</code>，展示效果为：$x \cup y$；</li>
-<li>交集运算：格式为<code>\cap</code>，如：<code>$x \cap y$</code>，展示效果为：$x \cap y$；</li>
-<li>差集运算：格式为<code>\setminus</code>，如：<code>$x \setminus y$</code>，展示效果为：$x \setminus y$；</li>
-<li>同或运算：格式为<code>\bigodot</code>，如：<code>$x \bigodot y$</code>，展示效果为：$x \bigodot y$；</li>
-<li>同与运算：格式为<code>\bigotimes</code>，如：<code>$x \bigotimes y$</code>，展示效果为：$x \bigotimes y$；</li>
+<h2 id="2-9、集合运算"><a href="#2-9、集合运算" class="headerlink" title="2.9、集合运算"></a>2.9、集合运算</h2><ul>
+<li>属于运算：格式为<code>\in</code>，如：<script type="math/tex">x \in y</script>，展示效果为：$x \in y$；</li>
+<li>不属于运算：格式为<code>\notin</code>，如：<script type="math/tex">x \notin y</script>，展示效果为：$x \notin y$；</li>
+<li>不属于运算：格式为<code>\not\in</code>，如：<script type="math/tex">x \not\in y</script>，展示效果为：$x \not\in y$；</li>
+<li>子集运算：格式为<code>\subset</code>，如：<script type="math/tex">x \subset y</script>，展示效果为：$x \subset y$；</li>
+<li>子集运算：格式为<code>\supset</code>，如：<script type="math/tex">x \supset y</script>，展示效果为：$x \supset y$；</li>
+<li>真子集运算：格式为<code>\subseteq</code>，如：<script type="math/tex">x \subseteq y</script>，展示效果为：$x \subseteq y$；</li>
+<li>非真子集运算：格式为<code>\subsetneq</code>，如：<script type="math/tex">x \subsetneq y</script>，展示效果为：$x \subsetneq y$；</li>
+<li>真子集运算：格式为<code>\supseteq</code>，如：<script type="math/tex">x \supseteq y</script>，展示效果为：$x \supseteq y$；</li>
+<li>非真子集运算：格式为<code>\supsetneq</code>，如：<script type="math/tex">x \supsetneq y</script>，展示效果为：$x \supsetneq y$；</li>
+<li>非子集运算：格式为<code>\not\subset</code>，如：<script type="math/tex">x \not\subset y</script>，展示效果为：$x \not\subset y$；</li>
+<li>非子集运算：格式为<code>\not\supset</code>，如：<script type="math/tex">x \not\supset y</script>，展示效果为：$x \not\supset y$；</li>
+<li>并集运算：格式为<code>\cup</code>，如：<script type="math/tex">x \cup y</script>，展示效果为：$x \cup y$；</li>
+<li>交集运算：格式为<code>\cap</code>，如：<script type="math/tex">x \cap y</script>，展示效果为：$x \cap y$；</li>
+<li>差集运算：格式为<code>\setminus</code>，如：<script type="math/tex">x \setminus y</script>，展示效果为：$x \setminus y$；</li>
+<li>同或运算：格式为<code>\bigodot</code>，如：<script type="math/tex">x \bigodot y</script>，展示效果为：$x \bigodot y$；</li>
+<li>同与运算：格式为<code>\bigotimes</code>，如：<script type="math/tex">x \bigotimes y</script>，展示效果为：$x \bigotimes y$；</li>
 <li>实数集合：格式为<code>\mathbb{R}</code>，如：<code>mathbb{R}</code>，展示效果为：<code>\mathbb{R}</code>；</li>
 <li>自然数集合：格式为<code>\mathbb{Z}</code>，如：<code>\mathbb{Z}</code>，展示效果为：<code>\mathbb{Z}</code>；</li>
-<li>空集：格式为<code>\emptyset</code>，如：<code>$\emptyset$</code>，展示效果为：$\emptyset$；</li>
+<li>空集：格式为<code>\emptyset</code>，如：<script type="math/tex">\emptyset</script>，展示效果为：$\emptyset$；</li>
 </ul>
-<h3>2.10、数学符号</h3>
-<ul>
-<li>无穷：格式为<code>\infty</code>，如：<code>$\infty$</code>，展示效果为：$\infty$；</li>
-<li>虚数：格式为<code>\imath</code>，如：<code>$\imath$</code>，展示效果为：$\imath$；</li>
-<li>虚数：格式为<code>\jmath</code>，如：<code>$\jmath$</code>，展示效果为：$\jmath$；</li>
-<li>数学符号：格式为<code>\hat{a}</code>，如：<code>$\hat{a}$</code>，展示效果为：$\hat{a}$；</li>
-<li>数学符号：格式为<code>\check{a}</code>，如：<code>$\check{a}$</code>，展示效果为：$\check{a}$；</li>
-<li>数学符号：格式为<code>\breve{a}</code>，如：<code>$\breve{a}$</code>，展示效果为：$\breve{a}$；</li>
-<li>数学符号：格式为<code>\tilde{a}</code>，如：<code>$\tilde{a}$</code>，展示效果为：$\tilde{a}$；</li>
-<li>数学符号：格式为<code>\bar{a}</code>，如：<code>$\bar{a}$</code>，展示效果为：$\bar{a}$；</li>
-<li>矢量符号：格式为<code>\vec{a}</code>，如：<code>$\vec{a}$</code>，展示效果为：$\vec{a}$；</li>
-<li>数学符号：格式为<code>\acute{a}</code>，如：<code>$\acute{a}$</code>，展示效果为：$\acute{a}$；</li>
-<li>数学符号：格式为<code>\grave{a}</code>，如：<code>$\grave{a}$</code>，展示效果为：$\grave{a}$；</li>
-<li>数学符号：格式为<code>\mathring{a}</code>，如：<code>$\mathring{a}$</code>，展示效果为：$\mathring{a}$；</li>
-<li>一阶导数符号：格式为<code>\dot{a}</code>，如：<code>$\dot{a}$</code>，展示效果为：$\dot{a}$；</li>
-<li>二阶导数符号：格式为<code>\ddot{a}</code>，如：<code>$\ddot{a}$</code>，展示效果为：$\ddot{a}$；</li>
-<li>上箭头：格式为<code>\uparrow</code>，如：<code>$\uparrow$</code>，展示效果为：$\uparrow$；</li>
-<li>上箭头：格式为<code>\Uparrow</code>，如：<code>$\Uparrow$</code>，展示效果为：$\Uparrow$；</li>
-<li>下箭头：格式为<code>\downarrow</code>，如：<code>$\downarrow$</code>，展示效果为：$\downarrow$；</li>
-<li>下箭头：格式为<code>\Downarrow</code>，如：<code>$\Downarrow$</code>，展示效果为：$\Downarrow$；</li>
-<li>左箭头：格式为<code>\leftarrow</code>，如：<code>$\leftarrow$</code>，展示效果为：$\leftarrow$；</li>
-<li>左箭头：格式为<code>\Leftarrow</code>，如：<code>$\Leftarrow$</code>，展示效果为：$\Leftarrow$；</li>
-<li>右箭头：格式为<code>\rightarrow</code>，如：<code>$\rightarrow$</code>，展示效果为：$\rightarrow$；</li>
-<li>右箭头：格式为<code>\Rightarrow</code>，如：<code>$\Rightarrow$</code>，展示效果为：$\Rightarrow$；</li>
-<li>底端对齐的省略号：格式为<code>\ldots</code>，如：<code>$1,2,\ldots,n$</code>，展示效果为：$1,2,\ldots,n$；</li>
-<li>中线对齐的省略号：格式为<code>\cdots</code>，如：<code>$x_1^2 + x_2^2 + \cdots + x_n^2$</code>，展示效果为：$x_1^2 + x_2^2 + \cdots + x_n^2$；</li>
-<li>竖直对齐的省略号：格式为<code>\vdots</code>，如：<code>$\vdots$</code>，展示效果为：$\vdots$；</li>
-<li>斜对齐的省略号：格式为<code>\ddots</code>，如：<code>$\ddots$</code>，展示效果为：$\ddots$；</li>
+<h2 id="2-10、数学符号"><a href="#2-10、数学符号" class="headerlink" title="2.10、数学符号"></a>2.10、数学符号</h2><ul>
+<li>无穷：格式为<code>\infty</code>，如：<script type="math/tex">\infty</script>，展示效果为：$\infty$；</li>
+<li>虚数：格式为<code>\imath</code>，如：<script type="math/tex">\imath</script>，展示效果为：$\imath$；</li>
+<li>虚数：格式为<code>\jmath</code>，如：<script type="math/tex">\jmath</script>，展示效果为：$\jmath$；</li>
+<li>数学符号：格式为<code>\hat{a}</code>，如：<script type="math/tex">\hat{a}</script>，展示效果为：$\hat{a}$；</li>
+<li>数学符号：格式为<code>\check{a}</code>，如：<script type="math/tex">\check{a}</script>，展示效果为：$\check{a}$；</li>
+<li>数学符号：格式为<code>\breve{a}</code>，如：<script type="math/tex">\breve{a}</script>，展示效果为：$\breve{a}$；</li>
+<li>数学符号：格式为<code>\tilde{a}</code>，如：<script type="math/tex">\tilde{a}</script>，展示效果为：$\tilde{a}$；</li>
+<li>数学符号：格式为<code>\bar{a}</code>，如：<script type="math/tex">\bar{a}</script>，展示效果为：$\bar{a}$；</li>
+<li>矢量符号：格式为<code>\vec{a}</code>，如：<script type="math/tex">\vec{a}</script>，展示效果为：$\vec{a}$；</li>
+<li>数学符号：格式为<code>\acute{a}</code>，如：<script type="math/tex">\acute{a}</script>，展示效果为：$\acute{a}$；</li>
+<li>数学符号：格式为<code>\grave{a}</code>，如：<script type="math/tex">\grave{a}</script>，展示效果为：$\grave{a}$；</li>
+<li>数学符号：格式为<code>\mathring{a}</code>，如：<script type="math/tex">\mathring{a}</script>，展示效果为：$\mathring{a}$；</li>
+<li>一阶导数符号：格式为<code>\dot{a}</code>，如：<script type="math/tex">\dot{a}</script>，展示效果为：$\dot{a}$；</li>
+<li>二阶导数符号：格式为<code>\ddot{a}</code>，如：<script type="math/tex">\ddot{a}</script>，展示效果为：$\ddot{a}$；</li>
+<li>上箭头：格式为<code>\uparrow</code>，如：<script type="math/tex">\uparrow</script>，展示效果为：$\uparrow$；</li>
+<li>上箭头：格式为<code>\Uparrow</code>，如：<script type="math/tex">\Uparrow</script>，展示效果为：$\Uparrow$；</li>
+<li>下箭头：格式为<code>\downarrow</code>，如：<script type="math/tex">\downarrow</script>，展示效果为：$\downarrow$；</li>
+<li>下箭头：格式为<code>\Downarrow</code>，如：<script type="math/tex">\Downarrow</script>，展示效果为：$\Downarrow$；</li>
+<li>左箭头：格式为<code>\leftarrow</code>，如：<script type="math/tex">\leftarrow</script>，展示效果为：$\leftarrow$；</li>
+<li>左箭头：格式为<code>\Leftarrow</code>，如：<script type="math/tex">\Leftarrow</script>，展示效果为：$\Leftarrow$；</li>
+<li>右箭头：格式为<code>\rightarrow</code>，如：<script type="math/tex">\rightarrow</script>，展示效果为：$\rightarrow$；</li>
+<li>右箭头：格式为<code>\Rightarrow</code>，如：<script type="math/tex">\Rightarrow</script>，展示效果为：$\Rightarrow$；</li>
+<li>底端对齐的省略号：格式为<code>\ldots</code>，如：<script type="math/tex">1,2,\ldots,n</script>，展示效果为：$1,2,\ldots,n$；</li>
+<li>中线对齐的省略号：格式为<code>\cdots</code>，如：<script type="math/tex">x_1^2 + x_2^2 + \cdots + x_n^2</script>，展示效果为：$x_1^2 + x_2^2 + \cdots + x_n^2$；</li>
+<li>竖直对齐的省略号：格式为<code>\vdots</code>，如：<script type="math/tex">\vdots</script>，展示效果为：$\vdots$；</li>
+<li>斜对齐的省略号：格式为<code>\ddots</code>，如：<script type="math/tex">\ddots</script>，展示效果为：$\ddots$；</li>
 </ul>
-<h3>2.11、希腊字母</h3>
+<h2 id="2-11、希腊字母"><a href="#2-11、希腊字母" class="headerlink" title="2.11、希腊字母"></a>2.11、希腊字母</h2><div class="table-container">
 <table>
 <thead>
 <tr>
@@ -323,8 +307,8 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </tr>
 </tbody>
 </table>
-<h1>三、目前使用的问题</h1>
-</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2019/09/14/markdown-latex/">https://bugwz.com/2019/09/14/markdown-latex/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Markdown/">Markdown</a><a class="post-meta__tags" href="/tags/Latex/">Latex</a></div><nav id="pagination"><div class="next-post pull-right"><a href="/2019/09/13/charles/"><span>Charles工具的介绍与使用</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+</div>
+<h1 id="三、目前使用的问题"><a href="#三、目前使用的问题" class="headerlink" title="三、目前使用的问题"></a>三、目前使用的问题</h1></div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2019/09/14/markdown-latex/">https://bugwz.com/2019/09/14/markdown-latex/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Markdown/">Markdown</a><a class="post-meta__tags" href="/tags/Latex/">Latex</a></div><nav id="pagination"><div class="next-post pull-right"><a href="/2019/09/13/charles/"><span>Charles工具的介绍与使用</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
 var disqus_config = function () {
   this.page.url = 'https://bugwz.com/2019/09/14/markdown-latex/';
   this.page.identifier = '2019/09/14/markdown-latex/';
