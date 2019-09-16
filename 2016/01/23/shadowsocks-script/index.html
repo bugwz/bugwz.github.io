@@ -19,10 +19,10 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
     error: 'Copy error',
     noSupport: 'The browser does not support'
   }
-} </script><!-- hexo-inject:begin --><!-- hexo-inject:end --></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">48</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">42</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a><a class="author-info-links__name text-center" href="https://www.hozen.site/" target="_blank">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/shadowsocks.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Shadowsocks一键安装脚本</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2016-01-23</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2016/01/23/shadowsocks-script/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2016/01/23/shadowsocks-script/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="shadowsocks介绍"><a class="markdownIt-Anchor" href="#shadowsocks介绍"></a> Shadowsocks介绍</h1>
+} </script><!-- hexo-inject:begin --><!-- hexo-inject:end --></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar"><div class="author-info"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">48</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">42</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" href="https://blog.nobug.in/" target="_blank">BugSniper</a><a class="author-info-links__name text-center" href="https://ibytes.cn/" target="_blank">i字节</a><a class="author-info-links__name text-center" href="https://www.hozen.site/" target="_blank">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/shadowsocks.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a><a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">Shadowsocks一键安装脚本</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2016-01-23</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2016/01/23/shadowsocks-script/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2016/01/23/shadowsocks-script/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1>Shadowsocks介绍</h1>
 <!-- hexo-inject:begin --><!-- hexo-inject:end --><p>Shadowsocks（中文名称：影梭）是使用Python等语言开发的、基于Apache许可证开源的代理软件。Shadowsocks使用socks5代理，用于保护网络流量。Shadowsocks分为服务器端和客户端。在使用之前，需要先将服务器端部署在支持Python等的服务器上面，然后通过客户端连接并创建本地代理。此外用户也可以选择购买基于Shadowsocks的商业服务，以获得更加稳定可靠的服务，或者免去自行部署的麻烦。目前开发者Clowwindy由于一些原因已宣布停止维护，shadowsocksR 的作者已表示会继续开发新版本。</p>
 <p>对于想要使用SS的用户来说，相比在网路上买一些月供几十的SS服务商的出售的SS账户，自己倒不如买个便宜点的VPS自己构建一个SS服务器，为防止VPS资源过剩，自己也可以干点别的事情，这里给出了使用三种语言搭建SS服务器的一键安装脚本，供大家使用。</p>
-<h1 id="python一键脚本"><a class="markdownIt-Anchor" href="#python一键脚本"></a> Python一键脚本</h1>
+<h1>Python一键脚本</h1>
 <ol>
 <li>
 <p>适用条件：系统为CentOS 6，7，Debian，Ubuntu 、内存≥128M</p>
@@ -32,10 +32,10 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </li>
 <li>
 <p>一键脚本（使用root用户）：</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">wget --no-check-certificate https://raw.githubusercontent.com/CUBEGWZ/Shadowsocks/master/Python/shadowsocks.sh</span><br><span class="line">chmod +x shadowsocks.sh</span><br><span class="line">./shadowsocks.sh 2&gt;&amp;1 | tee shadowsocks.log</span><br></pre></td></tr></table></figure>
+<p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">wget --no-check-certificate https://raw.githubusercontent.com/CUBEGWZ/Shadowsocks/master/Python/shadowsocks.sh</span><br><span class="line">chmod +x shadowsocks.sh</span><br><span class="line">./shadowsocks.sh 2&gt;&amp;1 | tee shadowsocks.log</span><br></pre></td></tr></table></figure></p>
 </li>
 <li>
-<p>卸载与其他配置：<br>
+<p>卸载与其他配置：
 卸载方式： <code>./shadowsocks.sh uninstall</code></p>
 </li>
 </ol>
@@ -43,13 +43,13 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li>单用户配置文件 Sample：<br>
 配置文件路径：<code>/etc/shadowsocks.json</code></li>
 </ul>
-  <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">"server"</span>:<span class="string">"0.0.0.0"</span>,</span><br><span class="line">    <span class="string">"server_port"</span>:8585,</span><br><span class="line">    <span class="string">"local_address"</span>:<span class="string">"127.0.0.1"</span>,</span><br><span class="line">    <span class="string">"local_port"</span>:1080,</span><br><span class="line">    <span class="string">"password"</span>:<span class="string">"password"</span>,</span><br><span class="line">    <span class="string">"timeout"</span>:300,</span><br><span class="line">    <span class="string">"method"</span>:<span class="string">"aes-256-cfb"</span>,</span><br><span class="line">    <span class="string">"fast_open"</span>: <span class="literal">false</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">"server"</span>:<span class="string">"0.0.0.0"</span>,</span><br><span class="line">    <span class="string">"server_port"</span>:8585,</span><br><span class="line">    <span class="string">"local_address"</span>:<span class="string">"127.0.0.1"</span>,</span><br><span class="line">    <span class="string">"local_port"</span>:1080,</span><br><span class="line">    <span class="string">"password"</span>:<span class="string">"password"</span>,</span><br><span class="line">    <span class="string">"timeout"</span>:300,</span><br><span class="line">    <span class="string">"method"</span>:<span class="string">"aes-256-cfb"</span>,</span><br><span class="line">    <span class="string">"fast_open"</span>: <span class="literal">false</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
 <ul>
 <li>多用户多端口配置文件 Sample：<br>
 配置文件路径：<code>/etc/shadowsocks.json</code></li>
 </ul>
-  <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">"server"</span>:<span class="string">"0.0.0.0"</span>,</span><br><span class="line">    <span class="string">"local_address"</span>:<span class="string">"127.0.0.1"</span>,</span><br><span class="line">    <span class="string">"local_port"</span>:1080,</span><br><span class="line">    <span class="string">"port_password"</span>:&#123;</span><br><span class="line">    <span class="string">"8585"</span>:<span class="string">"password0"</span>,</span><br><span class="line">    <span class="string">"9001"</span>:<span class="string">"password1"</span>,</span><br><span class="line">    <span class="string">"9002"</span>:<span class="string">"password2"</span>,</span><br><span class="line">    <span class="string">"9003"</span>:<span class="string">"password3"</span>,</span><br><span class="line">    <span class="string">"9004"</span>:<span class="string">"password4"</span></span><br><span class="line">    &#125;,</span><br><span class="line">    <span class="string">"timeout"</span>:300,</span><br><span class="line">    <span class="string">"method"</span>:<span class="string">"aes-256-cfb"</span>,</span><br><span class="line">    <span class="string">"fast_open"</span>: <span class="literal">false</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<h1 id="go一键脚本"><a class="markdownIt-Anchor" href="#go一键脚本"></a> GO一键脚本</h1>
+<p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">"server"</span>:<span class="string">"0.0.0.0"</span>,</span><br><span class="line">    <span class="string">"local_address"</span>:<span class="string">"127.0.0.1"</span>,</span><br><span class="line">    <span class="string">"local_port"</span>:1080,</span><br><span class="line">    <span class="string">"port_password"</span>:&#123;</span><br><span class="line">    <span class="string">"8585"</span>:<span class="string">"password0"</span>,</span><br><span class="line">    <span class="string">"9001"</span>:<span class="string">"password1"</span>,</span><br><span class="line">    <span class="string">"9002"</span>:<span class="string">"password2"</span>,</span><br><span class="line">    <span class="string">"9003"</span>:<span class="string">"password3"</span>,</span><br><span class="line">    <span class="string">"9004"</span>:<span class="string">"password4"</span></span><br><span class="line">    &#125;,</span><br><span class="line">    <span class="string">"timeout"</span>:300,</span><br><span class="line">    <span class="string">"method"</span>:<span class="string">"aes-256-cfb"</span>,</span><br><span class="line">    <span class="string">"fast_open"</span>: <span class="literal">false</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<h1>GO一键脚本</h1>
 <ol>
 <li>
 <p>适用条件：系统为CentOS，Debian，Ubuntu 、内存≥128M</p>
@@ -59,10 +59,10 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </li>
 <li>
 <p>一键脚本（使用root用户）：</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">wget --no-check-certificate https://raw.githubusercontent.com/CUBEGWZ/Shadowsocks/master/Go/shadowsocks-go.sh</span><br><span class="line">chmod +x shadowsocks-go.sh</span><br><span class="line">./shadowsocks-go.sh 2&gt;&amp;1 | tee shadowsocks-go.log</span><br></pre></td></tr></table></figure>
+<p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">wget --no-check-certificate https://raw.githubusercontent.com/CUBEGWZ/Shadowsocks/master/Go/shadowsocks-go.sh</span><br><span class="line">chmod +x shadowsocks-go.sh</span><br><span class="line">./shadowsocks-go.sh 2&gt;&amp;1 | tee shadowsocks-go.log</span><br></pre></td></tr></table></figure></p>
 </li>
 <li>
-<p>卸载与其他配置：<br>
+<p>卸载与其他配置：
 卸载方式： <code>./shadowsocks-go.sh uninstall</code></p>
 </li>
 </ol>
@@ -70,8 +70,8 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li>多用户多端口配置文件 Sample：<br>
 配置文件路径：<code>/etc/shadowsocks.json</code></li>
 </ul>
-  <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">"port_password"</span>:&#123;</span><br><span class="line">    <span class="string">"8585"</span>:<span class="string">"password0"</span>,</span><br><span class="line">    <span class="string">"9001"</span>:<span class="string">"password1"</span>,</span><br><span class="line">    <span class="string">"9002"</span>:<span class="string">"password2"</span>,</span><br><span class="line">    <span class="string">"9003"</span>:<span class="string">"password3"</span>,</span><br><span class="line">    <span class="string">"9004"</span>:<span class="string">"password4"</span></span><br><span class="line">    &#125;,</span><br><span class="line">    <span class="string">"method"</span>:<span class="string">"aes-256-cfb"</span>,</span><br><span class="line">    <span class="string">"timeout"</span>:600</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<h1 id="libev一键脚本"><a class="markdownIt-Anchor" href="#libev一键脚本"></a> Libev一键脚本</h1>
+<p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">"port_password"</span>:&#123;</span><br><span class="line">    <span class="string">"8585"</span>:<span class="string">"password0"</span>,</span><br><span class="line">    <span class="string">"9001"</span>:<span class="string">"password1"</span>,</span><br><span class="line">    <span class="string">"9002"</span>:<span class="string">"password2"</span>,</span><br><span class="line">    <span class="string">"9003"</span>:<span class="string">"password3"</span>,</span><br><span class="line">    <span class="string">"9004"</span>:<span class="string">"password4"</span></span><br><span class="line">    &#125;,</span><br><span class="line">    <span class="string">"method"</span>:<span class="string">"aes-256-cfb"</span>,</span><br><span class="line">    <span class="string">"timeout"</span>:600</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<h1>Libev一键脚本</h1>
 <ol>
 <li>
 <p>适用条件：系统为CentOS 32或64位、内存≥128M</p>
@@ -81,20 +81,20 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </li>
 <li>
 <p>一键脚本（使用root用户）：</p>
-<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">wget --no-check-certificate https://raw.githubusercontent.com/CUBEGWZ/Shadowsocks/master/Libev/shadowsocks-libev.sh</span><br><span class="line">chmod +x shadowsocks-libev.sh</span><br></pre></td></tr></table></figure>
+<p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">wget --no-check-certificate https://raw.githubusercontent.com/CUBEGWZ/Shadowsocks/master/Libev/shadowsocks-libev.sh</span><br><span class="line">chmod +x shadowsocks-libev.sh</span><br></pre></td></tr></table></figure></p>
 </li>
 <li>
-<p>卸载与其他配置：<br>
+<p>卸载与其他配置：
 卸载方式： <code>./shadowsocks-libev.sh uninstall</code></p>
 </li>
 </ol>
 <ul>
 <li>
 <p>修改配置文件 <code>/etc/shadowsocks-libev/config.json</code>,同时启用 IPv4 与 IPv6 支持：</p>
-   <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">"server"</span>:[<span class="string">"[::0]"</span>,<span class="string">"0.0.0.0"</span>],</span><br><span class="line">    <span class="string">"server_port"</span>:your_server_port,</span><br><span class="line">    <span class="string">"local_address"</span>:<span class="string">"127.0.0.1"</span>,</span><br><span class="line">    <span class="string">"local_port"</span>:1080,</span><br><span class="line">    <span class="string">"password"</span>:<span class="string">"password"</span>,</span><br><span class="line">    <span class="string">"timeout"</span>:600,</span><br><span class="line">    <span class="string">"method"</span>:<span class="string">"aes-256-cfb"</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">"server"</span>:[<span class="string">"[::0]"</span>,<span class="string">"0.0.0.0"</span>],</span><br><span class="line">    <span class="string">"server_port"</span>:your_server_port,</span><br><span class="line">    <span class="string">"local_address"</span>:<span class="string">"127.0.0.1"</span>,</span><br><span class="line">    <span class="string">"local_port"</span>:1080,</span><br><span class="line">    <span class="string">"password"</span>:<span class="string">"password"</span>,</span><br><span class="line">    <span class="string">"timeout"</span>:600,</span><br><span class="line">    <span class="string">"method"</span>:<span class="string">"aes-256-cfb"</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
 </li>
 </ul>
-<h1 id="shadowsocks操作命令"><a class="markdownIt-Anchor" href="#shadowsocks操作命令"></a> Shadowsocks操作命令</h1>
+<h1>Shadowsocks操作命令</h1>
 <ul>
 <li>启动：<code>/etc/init.d/shadowsocks start</code></li>
 <li>停止：<code>/etc/init.d/shadowsocks stop</code></li>
