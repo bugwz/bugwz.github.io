@@ -143,7 +143,7 @@ table td {
   vertical-align: top;
 }
 *::selection {
-  background: #00c4b6;
+  background: #49b1f5;
   color: #f7f7f7;
 }
 .text-center {
@@ -1155,7 +1155,7 @@ footer {
   cursor: pointer;
 }
 #pagination .page-number.current {
-  background: #00c4b6;
+  background: #49b1f5;
   color: #fff;
   cursor: default;
 }
@@ -1334,6 +1334,7 @@ footer {
 }
 #content-inner h1 {
   padding-left: 1.1rem;
+  font-size: 1.5rem;
 }
 #content-inner h1:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
@@ -1344,6 +1345,7 @@ footer {
 }
 #content-inner h2 {
   padding-left: 1rem;
+  font-size: 1.35rem;
 }
 #content-inner h2:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
@@ -1354,6 +1356,7 @@ footer {
 }
 #content-inner h3 {
   padding-left: 0.9rem;
+  font-size: 1.2rem;
 }
 #content-inner h3:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
@@ -1364,6 +1367,7 @@ footer {
 }
 #content-inner h4 {
   padding-left: 0.8rem;
+  font-size: 1.05rem;
 }
 #content-inner h4:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
@@ -1374,6 +1378,7 @@ footer {
 }
 #content-inner h5 {
   padding-left: 0.7rem;
+  font-size: 0.9rem;
 }
 #content-inner h5:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
@@ -1383,14 +1388,15 @@ footer {
   padding-left: 0.8rem;
 }
 #content-inner h6 {
-  padding-left: 0.7rem;
+  padding-left: 0.6rem;
+  font-size: 0.75rem;
 }
 #content-inner h6:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
-  font-size: 0.6rem;
+  font-size: 0.5rem;
 }
 #content-inner h6:hover {
-  padding-left: 0.8rem;
+  padding-left: 0.7rem;
 }
 #post-content {
   margin-bottom: 1rem;
@@ -1660,7 +1666,7 @@ img:hover {
   transition: all 0.2s ease-in-out;
 }
 #sidebar .toggle-sidebar-info span:hover {
-  background: #00c4b6;
+  background: #49b1f5;
 }
 #sidebar .author-info {
   margin-left: -0.25rem;
@@ -1741,10 +1747,10 @@ img:hover {
   content: "";
 }
 #sidebar .author-info-articles .article-meta:hover {
-  background: #00ddcd;
+  background: #58b7f6;
 }
 #sidebar .author-info-articles .article-meta:hover .pull-right {
-  color: #00c4b6;
+  color: #49b1f5;
 }
 #sidebar .author-info-links__title {
   margin-bottom: 0.4rem;
@@ -1806,15 +1812,15 @@ img:hover {
   transition: all 0.2s ease-in-out;
 }
 #sidebar .sidebar-toc .toc-link.active {
-  border-right-color: #009d92;
-  background: #00c4b6;
+  border-right-color: #0d97f1;
+  background: #49b1f5;
   color: #fff;
 }
 #sidebar .sidebar-toc__progress {
   position: relative;
   margin-top: -0.3rem;
   padding-left: 0.6rem;
-  color: #00c4b6;
+  color: #49b1f5;
 }
 #sidebar .sidebar-toc__progress .progress-notice {
   margin-right: 0.4rem;
@@ -1826,7 +1832,7 @@ img:hover {
 #sidebar .sidebar-toc__progress-bar {
   width: 0;
   height: 1px;
-  background: #00c4b6;
+  background: #49b1f5;
 }
 .search-dialog {
   position: fixed;
