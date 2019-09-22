@@ -3,6 +3,27 @@
   
     
     <entry>
+      <title>Typora与PicGo的使用技巧</title>
+      <link href="/2019/09/22/typora-picgo/"/>
+      <url>/2019/09/22/typora-picgo/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-typora"><a class="header-anchor" href="#一-typora"> </a>一、Typora</h2><p><a href="https://typora.io/" target="_blank" rel="noopener">Typora</a>是一款极简的Markdown写作编辑器，相比于传统的双栏目预览式编辑，Typora巧妙的实现了一种所见即所得的编辑模式，关于这款工具的详细的介绍，以及它与其他工具的对比，在网上到处都是，这里就不赘述了。我只简单的描述以下我对这个编辑的印象与评价。</p><ul><li>优点：<ul><li>风格极简，支持几种主流的主题风格，同时支持主题自定义；</li><li>所见即所得的创新的写作风格体验；</li><li>支持文档导出为多种格式，PDF，HTML，Word等；</li><li>支持LaTex公式；</li></ul></li><li>待改进：<ul><li>文档列表新建文件的按钮有时候会无响应，点击多次才能新建文件；</li><li>图片插入目前只支持iPic这款付费插件，诸如PicGo还不支持；</li></ul></li></ul><h2 id="二-picgo"><a class="header-anchor" href="#二-picgo"> </a>二、PicGo</h2><p><a href="https://github.com/Molunerfinn/PicGo" target="_blank" rel="noopener">PicGo</a>是一款开源的图床软件，该软件与iPic的不分伯仲，目前支持众多图床（SM.MS图床，腾讯云COS，微博图床，GitHub图床，七牛图床，Imgur图床，阿里云OSS，又拍云图床等），这里简单表述一下我的个人使用体验。</p><ul><li>优点：<ul><li>项目开源，文档支持中文，比较齐全；</li><li>支持插件，用户可根据自己需要自定义插件；</li></ul></li></ul><h2 id="三-结合使用"><a class="header-anchor" href="#三-结合使用"> </a>三、结合使用</h2><p>由于公司内部使用GitLab，在记录一下issue的时候，相关图片又不便于存放在外网，在使用Typora的时候则需要图片信息能够自动保存在公司内部的GitLab中，因此不可避免的便需要Typora与PicGo的相互结合，目前Typora并没有支持PicGo的图片来源扩展，鉴于PicGo支持插件开发，所以充分利用的PicGo的插件来实现公司文档的便捷文档编写。</p><h3 id="3-1-picgo的配置与插件"><a class="header-anchor" href="#3-1-picgo的配置与插件"> </a>3.1、PicGo的配置与插件</h3><ul><li><p>配置：</p><ul><li><code>链接格式</code>：在上传区的链接格式中将返回的数据格式选中为<code>Markdown</code>；</li><li><code>快捷键</code>：配置上传剪贴板图片的快捷键<code>Option + S</code>;</li></ul></li><li><p>插件：</p><ul><li><code>picgo-plugin-gitlab</code>：基于picgo-plugin-web-uploader开发，配置项目简单化，将图片上传到内部GitLab的指定的项目中，并返回图片的绝对URL；</li><li><code>picgo-plugin-autocopy</code>：自动复制上传完成后图片返回的URL地址；</li></ul></li></ul><h3 id="3-2-实际体验"><a class="header-anchor" href="#3-2-实际体验"> </a>3.2、实际体验</h3><ul><li><p>截屏获取图片；</p></li><li><p>执行<code>Option + s</code>上传剪贴板的图片信息；</p></li><li><p>待图片上传完成后，在Typora编辑器中直接<code>Command + v</code>粘贴图片（实际写入的为Markdown格式）即可；</p></li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Markdown </tag>
+            
+            <tag> Typora </tag>
+            
+            <tag> PicGo </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>sar指令的使用与源码解析-每周指令</title>
       <link href="/2019/09/19/sar-command/"/>
       <url>/2019/09/19/sar-command/</url>
