@@ -3,6 +3,25 @@
   
     
     <entry>
+      <title>ssh的高级用法 - ProxyCommand</title>
+      <link href="/2019/10/09/ssh-proxycommand/"/>
+      <url>/2019/10/09/ssh-proxycommand/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p><code>OpenSSH</code>的客户端有一个 <code>ProxyCommand</code> 的选项，用于 <code>SSH 客户端</code>与<code>服务器</code>之间的<code>隧道通信(tunneling)</code>。所谓的隧道技术，也称代理技术，是网络通信技术的一个普遍概念，就是把一条信道建立于另外一条信道之上。</p><p><code>SSH</code> 会话基于一个 <code>TCP</code> 连接，如果我们把连接的两个端口各自的出口（也即入口）进行截获，就可以用其它的信道来传输。而且 <code>SSH</code> 仍然认为它用的是和另一端连接一条<code>TCP</code> 连接。</p><p><code>ProxyCommand</code> 指定一个命令（称为<code>Proxy</code>），<code>SSH</code> 客户端将通过标准输入输出和这个命令启动后的进程进行正常的 <code>SSH</code> 通信，而 <code>Proxy</code> 连接着<code>SSH</code> 服务器（一般是一个 <code>Server Proxy</code>，再由该 <code>Server Proxy</code> 连接服务器）。<code>Proxy</code> 和 <code>Server Proxy</code> 之间组成了一条隧道，如果两者之间用 <code>HTTP</code> 协议进行通信，则整个系统便称为<code>tunneling SSH over HTTP</code>，当然也可以使用 <code>UDP</code>、<code>TCP</code>、<code>IP</code> 以及其它任意的可行的协议。</p><p><code>SSH ProxyCommand</code> 相对于 <code>SOCKS</code>、<code>HTTP</code> 或者其它的<code>Proxy</code>技术来说更简单。因为它工作在进程间的<code>文件 IO</code>通信，用任何支持 <code>socket</code> 的编程语言，都能轻易地编写出一个可用的 Proxy，复杂度只落在隧道本身。想一想，如果没有 <code>ProxyCommand</code>，你需要改变或侵入操作系统的 <code>TCP 子系统</code>才能实现 <code>SSH 隧道</code>。<code>ProxyCommand</code> 提供了方便应用隧道的接口，网络程序都应该提供这样的接口，而不是完全依赖于 socket。</p><p>因为一个会话就会启动一个 ProxyCommand 进程，所以只有在会话依赖于连接的协议上才能使用这种技术。</p><h2 id="二-实践"><a class="header-anchor" href="#二-实践"> </a>二、实践</h2><p>环境说明</p><ul><li>远程服务器的IP地址为<code>180.0.0.1</code>，代号为<code>X</code>；</li><li>另一个远程服务器的IP为<code>180.0.0.2</code>，代号为<code>Y</code>；</li><li>目前本机的IP地址为<code>10.0.0.1</code>，代号为<code>A</code>，本地可以利用SSH客户端通过密钥或密码连接<code>X</code>和<code>Y</code>；</li></ul><p>这里实际使用的为全部使用密钥的方式进行访问，暂时<code>X</code>与<code>Y</code>之间无法通过密钥进行访问。</p><h3 id="2-1-通过ssh原生支持的指令实现"><a class="header-anchor" href="#2-1-通过ssh原生支持的指令实现"> </a>2.1、通过ssh原生支持的指令实现</h3><p><code>A</code>本地的<code>～/.ssh/config</code>的配置文件信息如下，通过X连接到Y；</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">Host X</span><br><span class="line">        HostName 180.0.0.1</span><br><span class="line">        User bugwz</span><br><span class="line">        Port 18001</span><br><span class="line">        PreferredAuthentications publickey</span><br><span class="line">        IdentityFile ~/.ssh/bugwz_181</span><br><span class="line">Host Y</span><br><span class="line">        HostName 180.0.0.2</span><br><span class="line">        User bugwz</span><br><span class="line">        Port 18002</span><br><span class="line">        PreferredAuthentications publickey</span><br><span class="line">        IdentityFile ~/.ssh/bugwz_182</span><br><span class="line">Host <span class="built_in">test</span></span><br><span class="line">    HostName 180.0.0.2</span><br><span class="line">    User bugwz</span><br><span class="line">    Port 18002</span><br><span class="line">    IdentityFile ~/.ssh/bugwz_182</span><br><span class="line">    ProxyCommand ssh X -W %h:%p</span><br></pre></td></tr></table></figure><p><strong>原理分析：</strong></p><ul><li>本地<code>A</code>机器通过<code>ProxyCommand</code>先与<code>X</code>建立一个<code>SSH</code>连接，并把这个连接当作一个代理使用；</li><li><code>X</code>在与<code>Y</code>建立<code>SSH</code>连接，使用的认证方式为<code>A</code>的认证密钥，因此不需要将认证密钥存放在<code>X</code>端；</li><li><code>A</code>与<code>Y</code>就建立了一个间接的<code>SSH</code>连接；</li></ul><p><strong>困惑：</strong></p><p>目前遇到一个现象，当我们通过<code>X</code>连接到<code>Y</code>之后，在将<code>X</code>上的<code>sshd</code>杀掉之后，发现在<code>A</code>上与<code>Y</code>建立的连接依旧保持通畅，但是再次新建通过<code>X</code>访问<code>Y</code>的链接无法成功建立，怀疑这与sshd的机制有关系，是否会保持已有的会话连接？后续继续分析一下，此处保留困惑。</p><h3 id="2-2-借助nc来实现"><a class="header-anchor" href="#2-2-借助nc来实现"> </a>2.2、借助nc来实现</h3><p>一些说明：</p><ul><li><code>-W</code>：该参数在<code>OpenSSH 5.4</code>及之后的版本才支持，参考<a href="http://www.openssh.com/txt/release-5.4" target="_blank" rel="noopener">官方的Release信息</a>；</li></ul><p>在使用<code>-W</code>之前，通常都是使用<code>nc</code>选项，<code>nc</code>允许你转发<code>TCP/UDP</code>数据包到指定（备用）位置并且基本上与<code>ssh -W</code>相同；</p><p>待补充！！！</p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> ssh </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>nc指令的使用与源码解析 - 每周指令</title>
       <link href="/2019/09/28/command-nc/"/>
       <url>/2019/09/28/command-nc/</url>
@@ -13,9 +32,9 @@
       
         <tags>
             
-            <tag> Commands </tag>
-            
             <tag> nc </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
@@ -53,9 +72,9 @@
       
         <tags>
             
-            <tag> sar </tag>
-            
             <tag> Commands </tag>
+            
+            <tag> sar </tag>
             
         </tags>
       
@@ -253,9 +272,9 @@
       
         <tags>
             
-            <tag> C/C++ </tag>
-            
             <tag> Tools </tag>
+            
+            <tag> C/C++ </tag>
             
             <tag> Format </tag>
             
@@ -276,11 +295,11 @@
             
             <tag> Linux </tag>
             
+            <tag> hashlimit </tag>
+            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
-            
-            <tag> hashlimit </tag>
             
         </tags>
       
@@ -405,25 +424,6 @@
     </entry>
     
     <entry>
-      <title>ssh的高级用法 - ProxyCommand</title>
-      <link href="/2019/01/01/ssh-proxycommand/"/>
-      <url>/2019/01/01/ssh-proxycommand/</url>
-      
-        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p><code>OpenSSH</code>的客户端有一个 <code>ProxyCommand</code> 的选项，用于 <code>SSH 客户端</code>与<code>服务器</code>之间的<code>隧道通信(tunneling)</code>。所谓的隧道技术，也称代理技术，是网络通信技术的一个普遍概念，就是把一条信道建立于另外一条信道之上。</p><p><code>SSH</code> 会话基于一个 <code>TCP</code> 连接，如果我们把连接的两个端口各自的出口（也即入口）进行截获，就可以用其它的信道来传输。而且 <code>SSH</code> 仍然认为它用的是和另一端连接一条<code>TCP</code> 连接。</p><p><code>ProxyCommand</code> 指定一个命令（称为<code>Proxy</code>），<code>SSH</code> 客户端将通过标准输入输出和这个命令启动后的进程进行正常的 <code>SSH</code> 通信，而 <code>Proxy</code> 连接着<code>SSH</code> 服务器（一般是一个 <code>Server Proxy</code>，再由该 <code>Server Proxy</code> 连接服务器）。<code>Proxy</code> 和 <code>Server Proxy</code> 之间组成了一条隧道，如果两者之间用 <code>HTTP</code> 协议进行通信，则整个系统便称为<code>tunneling SSH over HTTP</code>，当然也可以使用 <code>UDP</code>、<code>TCP</code>、<code>IP</code> 以及其它任意的可行的协议。</p><p><code>SSH ProxyCommand</code> 相对于 <code>SOCKS</code>、<code>HTTP</code> 或者其它的<code>Proxy</code>技术来说更简单。因为它工作在进程间的<code>文件 IO</code>通信，用任何支持 <code>socket</code> 的编程语言，都能轻易地编写出一个可用的 Proxy，复杂度只落在隧道本身。想一想，如果没有 <code>ProxyCommand</code>，你需要改变或侵入操作系统的 <code>TCP 子系统</code>才能实现 <code>SSH 隧道</code>。<code>ProxyCommand</code> 提供了方便应用隧道的接口，网络程序都应该提供这样的接口，而不是完全依赖于 socket。</p><p>因为一个会话就会启动一个 ProxyCommand 进程，所以只有在会话依赖于连接的协议上才能使用这种技术。</p><h2 id="二-实践"><a class="header-anchor" href="#二-实践"> </a>二、实践</h2><p>环境说明</p><ul><li>远程服务器的IP地址为<code>180.0.0.1</code>，代号为<code>X</code>；</li><li>另一个远程服务器的IP为<code>180.0.0.2</code>，代号为<code>Y</code>；</li><li>目前本机的IP地址为<code>10.0.0.1</code>，代号为<code>A</code>，本地可以利用SSH客户端通过密钥或密码连接<code>X</code>和<code>Y</code>；</li></ul><p>这里实际使用的为全部使用密钥的方式进行访问，暂时<code>X</code>与<code>Y</code>之间无法通过密钥进行访问。</p><h3 id="2-1-通过ssh原生支持的指令实现"><a class="header-anchor" href="#2-1-通过ssh原生支持的指令实现"> </a>2.1、通过ssh原生支持的指令实现</h3><p><code>A</code>本地的<code>～/.ssh/config</code>的配置文件信息如下，通过X连接到Y；</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">Host X</span><br><span class="line">        HostName 180.0.0.1</span><br><span class="line">        User bugwz</span><br><span class="line">        Port 18001</span><br><span class="line">        PreferredAuthentications publickey</span><br><span class="line">        IdentityFile ~/.ssh/bugwz_181</span><br><span class="line">Host Y</span><br><span class="line">        HostName 180.0.0.2</span><br><span class="line">        User bugwz</span><br><span class="line">        Port 18002</span><br><span class="line">        PreferredAuthentications publickey</span><br><span class="line">        IdentityFile ~/.ssh/bugwz_182</span><br><span class="line">Host <span class="built_in">test</span></span><br><span class="line">    HostName 180.0.0.2</span><br><span class="line">    User bugwz</span><br><span class="line">    Port 18002</span><br><span class="line">    IdentityFile ~/.ssh/bugwz_182</span><br><span class="line">    ProxyCommand ssh X -W %h:%p</span><br></pre></td></tr></table></figure><p><strong>原理分析：</strong></p><ul><li>本地<code>A</code>机器通过<code>ProxyCommand</code>先与<code>X</code>建立一个<code>SSH</code>连接，并把这个连接当作一个代理使用；</li><li><code>X</code>在与<code>Y</code>建立<code>SSH</code>连接，使用的认证方式为<code>A</code>的认证密钥，因此不需要将认证密钥存放在<code>X</code>端；</li><li><code>A</code>与<code>Y</code>就建立了一个间接的<code>SSH</code>连接；</li></ul><p><strong>困惑：</strong></p><p>目前遇到一个现象，当我们通过<code>X</code>连接到<code>Y</code>之后，在将<code>X</code>上的<code>sshd</code>杀掉之后，发现在<code>A</code>上与<code>Y</code>建立的连接依旧保持通畅，但是再次新建通过<code>X</code>访问<code>Y</code>的链接无法成功建立，怀疑这与sshd的机制有关系，是否会保持已有的会话连接？后续继续分析一下，此处保留困惑。</p><h3 id="2-2-借助nc来实现"><a class="header-anchor" href="#2-2-借助nc来实现"> </a>2.2、借助nc来实现</h3><p>一些说明：</p><ul><li><code>-W</code>：该参数在<code>OpenSSH 5.4</code>及之后的版本才支持，参考<a href="http://www.openssh.com/txt/release-5.4" target="_blank" rel="noopener">官方的Release信息</a>；：<a href="http://www.openssh.com/txt/release-5.4" target="_blank" rel="noopener">http://www.openssh.com/txt/release-5.4</a></li></ul><p>在使用<code>-W</code>之前，通常都是使用<code>nc</code>选项，<code>nc</code>允许你转发<code>TCP/UDP</code>数据包到指定（备用）位置并且基本上与<code>ssh -W</code>相同；</p><p>待补充！！！</p>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Linux </tag>
-            
-            <tag> ssh </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>RPM打包记录</title>
       <link href="/2019/01/01/make-rpm/"/>
       <url>/2019/01/01/make-rpm/</url>
@@ -493,9 +493,9 @@
             
             <tag> Notes </tag>
             
-            <tag> C/C++ </tag>
-            
             <tag> Tools </tag>
+            
+            <tag> C/C++ </tag>
             
             <tag> GDB </tag>
             
@@ -554,9 +554,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> Docker </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Tools </tag>
             
@@ -575,9 +575,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> Docker </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Tools </tag>
             
@@ -596,9 +596,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> Docker </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Tools </tag>
             
@@ -693,9 +693,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
             <tag> Campus </tag>
             
@@ -714,9 +714,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
             <tag> Campus </tag>
             
@@ -735,9 +735,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
             <tag> Campus </tag>
             
@@ -756,9 +756,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
             <tag> Campus </tag>
             
@@ -777,9 +777,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
             <tag> Campus </tag>
             
@@ -798,9 +798,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
             <tag> Campus </tag>
             
@@ -819,9 +819,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
         </tags>
       
@@ -838,9 +838,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
             <tag> Campus </tag>
             
@@ -859,9 +859,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
             <tag> Campus </tag>
             
@@ -880,9 +880,9 @@
       
         <tags>
             
-            <tag> JSP </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
             <tag> Campus </tag>
             
@@ -901,9 +901,9 @@
       
         <tags>
             
-            <tag> Markdown </tag>
-            
             <tag> Notes </tag>
+            
+            <tag> Markdown </tag>
             
         </tags>
       
