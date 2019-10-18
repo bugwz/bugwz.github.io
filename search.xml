@@ -53,9 +53,9 @@
       
         <tags>
             
-            <tag> Commands </tag>
-            
             <tag> nc </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
@@ -93,9 +93,9 @@
       
         <tags>
             
-            <tag> sar </tag>
-            
             <tag> Commands </tag>
+            
+            <tag> sar </tag>
             
         </tags>
       
@@ -740,6 +740,25 @@
             <tag> JSP </tag>
             
             <tag> Campus </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>常见代码许可证对比</title>
+      <link href="/2016/12/10/licence/"/>
+      <url>/2016/12/10/licence/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p>目前主流的许可证为GPL、LGPL、AGPL、MIT、Apache、BSD、Mozilla</p><h2 id="二-协议内容"><a class="header-anchor" href="#二-协议内容"> </a>二、协议内容</h2><h3 id="gpl"><a class="header-anchor" href="#gpl"> </a>GPL</h3><p>GPL全称为<code>GNU General Public License</code>（GNU通用公共许可协议），缩写为<code>GNU GPL</code> 或 <code>GPL</code>，<code>GPL</code> 保证了所有开发者的权利，同时为使用者提供了足够的复制，分发，修改的权利，但是新增代码只能使用相同的许可证。</p><p>目前GPL协议存在三个不同的版本，关于不同版本的详细协议内存，请参考：<a href="%5Bhttps://zh.wikipedia.org/wiki/GNU%E9%80%9A%E7%94%A8%E5%85%AC%E5%85%B1%E8%AE%B8%E5%8F%AF%E8%AF%81#GPLv1%5D(https://zh.wikipedia.org/wiki/GNU%E9%80%9A%E7%94%A8%E5%85%AC%E5%85%B1%E8%AE%B8%E5%8F%AF%E8%AF%81#GPLv1)">GPL V1</a>、<a href="%5Bhttps://zh.wikipedia.org/wiki/GNU%E9%80%9A%E7%94%A8%E5%85%AC%E5%85%B1%E8%AE%B8%E5%8F%AF%E8%AF%81#GPLv2%5D(https://zh.wikipedia.org/wiki/GNU%E9%80%9A%E7%94%A8%E5%85%AC%E5%85%B1%E8%AE%B8%E5%8F%AF%E8%AF%81#GPLv2)">GPL V2</a>、<a href="%5Bhttps://zh.wikipedia.org/wiki/GNU%E9%80%9A%E7%94%A8%E5%85%AC%E5%85%B1%E8%AE%B8%E5%8F%AF%E8%AF%81#GPLv3%5D(https://zh.wikipedia.org/wiki/GNU%E9%80%9A%E7%94%A8%E5%85%AC%E5%85%B1%E8%AE%B8%E5%8F%AF%E8%AF%81#GPLv3)">GPL V3</a></p><p><strong>采用该协议的代表作品</strong>：EMACS、部分Linux核心代码、GCC</p><h3 id="lgpl"><a class="header-anchor" href="#lgpl"> </a>LGPL</h3><p><code>LGPL</code>的全称为<code>GNU Lesser General Public License</code>（GNU 宽通用公共许可证），旧称为<code>GNU Library General Public License</code>（GNU 库通用公共许可证）。允许商业软件通过类库引用（link）方式使用LGPL类库而不需要开源商业软件的代码。这使得采用LGPL协议的开源代码可以被商业软件作为类库引用并发布和销售。</p><p><strong>采用该协议的代表作品</strong>：Checkstyle、GTK等</p><h3 id="mit"><a class="header-anchor" href="#mit"> </a>MIT</h3><p><code>MIT</code>全称为<code>The MIT License</code>（MIT许可协议），又称<code>X License</code>（X许可协议）或 <code>X11 License</code>（X11许可协议），MIT 协议是所有开源许可中最宽松的一个，除了必须包含许可声明外，再无任何限制，核心条款如下：</p><p>该软件及其相关文档对所有人免费，可以任意处置，包括使用，复制，修改，合并，发表，分发，再授权，或者销售。唯一的限制是，软件中必须包含上述版 权和许可提示，这意味着：</p><ul><li>你可以自由使用，复制，修改，可以用于自己的项目；</li><li>可以免费分发或用来盈利；</li><li>唯一的限制是必须包含许可声明；</li></ul><p><strong>采用该协议的代表作品</strong>：PuTTY、X Window、Expat、Ruby on Rails、Lua等</p><h3 id="apache"><a class="header-anchor" href="#apache"> </a>Apache</h3><p><code>Apache</code>全称为<code>Apache License</code>（Apache许可证），兼容<code>GPL V3</code>，<code>Apache 协议 2.0</code> 和别的开源协议相比，除了为用户提供版权许可之外，还有专利许可。Apache 协议还有以下需要说明的地方：</p><ul><li><code>永久权利</code>：一旦被授权，永久拥有；</li><li><code>全球范围的权利</code>：在一个国家获得授权，适用于所有国家。假如你在美国，许可是从印度授权的，也没有问题；</li><li><code>授权免费，且无版税</code>：前期，后期均无任何费用；</li><li><code>授权无排他性</code>：任何人都可以获得授权；</li><li><code>授权不可撤消</code>：一旦获得授权，没有任何人可以取消。比如，你基于该产品代码开发了衍生产品，你不用担心会在某一天被禁止使用该代码；</li></ul><p><strong>采用该协议的代表作品</strong>：PyCharm、Kubernetes、TensorFlow、TypeScript、MathJax等</p><h3 id="mozilla"><a class="header-anchor" href="#mozilla"> </a>Mozilla</h3><p><code>Mozilla</code>全称为<code>Mozilla Public License</code>（Mozilla公共许可证），简称为MPL</p><h3 id="bsd"><a class="header-anchor" href="#bsd"> </a>BSD</h3><p><code>BSD</code>在软件分发方面的限制比别的开源协议（如 <code>GNU GPL</code>）要少。该协议有多种版本，最主要的版本有两个：</p><ul><li><code>新BSD协议</code>：<ul><li>在软件分发方面，除需要包含一份版权提示和免责声明之外，没有任何限制；</li><li>禁止拿开发者的名义为衍生产品背书，但简单 BSD 协议删除了这一条款</li></ul></li><li><code>简单BSD协议</code>：<ul><li>在软件分发方面，除需要包含一份版权提示和免责声明之外，没有任何限制；</li></ul></li></ul><p><strong>采用该协议的代表作品</strong>：React、Tor、Go、V8（JavaScript引擎）、Homebrew等</p><h2 id="三-选择拓扑图"><a class="header-anchor" href="#三-选择拓扑图"> </a>三、选择拓扑图</h2><p><img src="https://cdn.bugwz.com/licence-topology.png" alt="协议选择拓扑图"></p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Licence </tag>
             
         </tags>
       
