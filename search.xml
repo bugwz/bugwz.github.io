@@ -3,6 +3,25 @@
   
     
     <entry>
+      <title>Yum源的优先级配置之yum-priorities</title>
+      <link href="/2019/12/01/yum-priorities/"/>
+      <url>/2019/12/01/yum-priorities/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p>Linux 发行版比较多，同时还有很多个人或组织维护了某些特定用途的安装/升级源。<strong>Yum Priorities</strong> 插件可以用来强制保护源。它通过给各个源设定不同的优先级，使得系统管理员可以将某些源设定为最高优先级，从而保证系统的稳定性。</p><h2 id="二-yum-priorities"><a class="header-anchor" href="#二-yum-priorities"> </a>二、yum-priorities</h2><h3 id="2-1-安装"><a class="header-anchor" href="#2-1-安装"> </a>2.1、安装</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">yum install -y yum-priorities</span><br></pre></td></tr></table></figure><h3 id="2-2-配置验证"><a class="header-anchor" href="#2-2-配置验证"> </a>2.2、配置验证</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">cat /etc/yum/pluginconf.d/product-id.conf</span><br></pre></td></tr></table></figure><p>需要确认的是，如果<code>enabled</code>的配置为<code>1</code>，代表已经启用了yum源的配置优先级；</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">[main]</span><br><span class="line">enabled=1</span><br></pre></td></tr></table></figure><h3 id="2-3-配置优先级调整"><a class="header-anchor" href="#2-3-配置优先级调整"> </a>2.3、配置优先级调整</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">[Example 1]</span><br><span class="line">name=Example_1</span><br><span class="line">baseurl=http://mirror.centos.org/centos/<span class="variable">$releasever</span>/example_1/<span class="variable">$basearch</span>/</span><br><span class="line">priority=10</span><br><span class="line">gpgcheck=0</span><br><span class="line">enabled=1</span><br><span class="line"></span><br><span class="line">[Example 2]</span><br><span class="line">name=Example_2</span><br><span class="line">baseurl=http://mirror.centos.org/centos/<span class="variable">$releasever</span>/example_2/<span class="variable">$basearch</span>/</span><br><span class="line">priority=20</span><br><span class="line">gpgcheck=0</span><br><span class="line">enabled=1</span><br></pre></td></tr></table></figure><p>关于上述配置的解释为：</p><ul><li>其中<code>priority=N</code>，<code>N</code>的值为：<code>1-99</code>，当数字越大，优先级越低；</li><li>当<code>Example_1</code>与<code>Example_2</code>的源中存在同名同版本的软件包时，优先安装<code>Example_1</code>中的安装包；</li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> yum </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>转-高效的多维空间点索引算法 GeoHash和GoogleS2</title>
       <link href="/2019/11/27/geohash-s2/"/>
       <url>/2019/11/27/geohash-s2/</url>
