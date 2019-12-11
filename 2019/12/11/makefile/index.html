@@ -43,7 +43,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h2 id="二-流程实战"><a class="header-anchor" href="#二-流程实战"> </a>二、流程实战</h2>
 <h3 id="2-1-环境准备"><a class="header-anchor" href="#2-1-环境准备"> </a>2.1、环境准备</h3>
-<p>安装依赖的软件包</p>
+<p>安装依赖的软件包<a href="https://www.gnu.org/software/automake/manual/automake.html" target="_blank" rel="noopener">automake</a>与<a href="https://www.gnu.org/savannah-checkouts/gnu/autoconf/manual/autoconf-2.69/index.html" target="_blank" rel="noopener">autoconf</a>；</p>
 <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">yum -y install automake autoconf</span><br></pre></td></tr></table></figure>
 <ul>
 <li><code>automake</code>：包括<code>aclocal</code>、<code>automake</code>等；</li>
@@ -63,10 +63,8 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <ul>
 <li>
 <p><code>AC_PREREQ</code>：宏声明本文件要求的<code>autoconf</code>版本，本例使用的版本为2.69；</p>
-</li>
-<li>
-<p><code>AC_INIT</code>：宏用来定义软件的名称和版本等信息</p>
 <ul>
+<li><code>AC_INIT</code>：宏用来定义软件的名称和版本等信息；</li>
 <li><code>FULL-PACKAGE-NAME</code>：软件包名称；</li>
 <li><code>VERSION</code>：软件版本号；</li>
 <li><code>BUG-REPORT-ADDRESS</code>：BUG报告地址（一般为软件作者邮件地址）；</li>
