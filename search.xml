@@ -3,6 +3,25 @@
   
     
     <entry>
+      <title>Linux下查看文件的创建时间</title>
+      <link href="/2019/12/12/linux-ext4-crtime/"/>
+      <url>/2019/12/12/linux-ext4-crtime/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p><code>Linux</code>的文件能否找到文件的创建时间取决于文件系统类型，在<a href="https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout" target="_blank" rel="noopener">ext4</a>之前的早期文件系统中（<code>ext</code>、<code>ext2</code>、<code>ext3</code>），文件的元数据不会记录文件的创建时间，它只会记录访问时间、修改时间、更改时间（状态更改时间）。典型的文件的基础信息如下所示：</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">[root@bugwz ～]<span class="comment"># stat test.file</span></span><br><span class="line">  File: ‘test.file’</span><br><span class="line">  Size: 2         Blocks: 8          IO Block: 4096   regular file</span><br><span class="line">Device: 807h/2055dInode: 5255117     Links: 1</span><br><span class="line">Access: (0755/-rwxr-xr-x)  Uid: (    0/    root)   Gid: (    0/    root)</span><br><span class="line">Access: 2019-12-12 19:11:33.175841399 +0800</span><br><span class="line">Modify: 2019-12-12 19:11:37.564970487 +0800</span><br><span class="line">Change: 2019-12-12 19:11:43.079132663 +0800</span><br><span class="line"> Birth: -</span><br></pre></td></tr></table></figure><ul><li><code>Access</code>：访问时间，文件数据的最后访问时间（例如：读文件内容）；</li><li><code>Modify</code>：修改时间，文件数据的最后修改时间。（例如：修改文件内容）；</li><li><code>Change</code>：状态更改时间，这个跟 Modify 时间很容易混淆，文件的属性（权限，大小等）的变更时间；</li></ul><h2 id="二-实践"><a class="header-anchor" href="#二-实践"> </a>二、实践</h2><h3 id="2-1-获取文件的创建时间"><a class="header-anchor" href="#2-1-获取文件的创建时间"> </a>2.1、获取文件的创建时间</h3><ul><li>获取文件<code>inode</code>号，如下所示，拿到<code>inode</code>号为：<code>5255117</code>；</li></ul><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">[root@bugwz data]<span class="comment"># stat /data/test.file</span></span><br><span class="line">  File: ‘/data/test.file’</span><br><span class="line">  Size: 2         Blocks: 8          IO Block: 4096   regular file</span><br><span class="line">Device: 807h/2055dInode: 5255117     Links: 1</span><br><span class="line">Access: (0755/-rwxr-xr-x)  Uid: (    0/    root)   Gid: (    0/    root)</span><br><span class="line">Access: 2019-12-12 19:11:33.175841399 +0800</span><br><span class="line">Modify: 2019-12-12 19:11:37.564970487 +0800</span><br><span class="line">Change: 2019-12-12 19:11:43.079132663 +0800</span><br><span class="line"> Birth: -</span><br></pre></td></tr></table></figure><ul><li>查找文件所在的磁盘路径，如下所示，拿到磁盘路径为：<code>/dev/sda7</code></li></ul><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">[root@bugwz data]<span class="comment"># df -h</span></span><br><span class="line">Filesystem      Size  Used Avail Use% Mounted on</span><br><span class="line">/dev/sda3       3.9G  2.5G  1.2G  70% /</span><br><span class="line">devtmpfs         16G     0   16G   0% /dev</span><br><span class="line">tmpfs            16G     0   16G   0% /dev/shm</span><br><span class="line">tmpfs            16G  1.7G   14G  11% /run</span><br><span class="line">tmpfs            16G     0   16G   0% /sys/fs/cgroup</span><br><span class="line">/dev/sda1        12G   11G  787M  94% /usr</span><br><span class="line">/dev/sda5       7.8G  4.2G  3.2G  57% /tmp</span><br><span class="line">/dev/sda7       235G  180G   44G  81% /data</span><br><span class="line">/dev/sda6       7.8G  2.1G  5.3G  29% /var</span><br></pre></td></tr></table></figure><ul><li>使用<code>debugfs</code>查看文件的创建时间，发现创建时间<code>crtime</code>为：<code>Thu Dec 12 19:05:23 2019</code></li></ul><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">[root@bugwz data1]<span class="comment"># debugfs -R 'stat &lt;5255117&gt;' /dev/sda7</span></span><br><span class="line">debugfs 1.42.9 (28-Dec-2013)</span><br><span class="line">Inode: 5255117   Type: regular    Mode:  0755   Flags: 0x80000</span><br><span class="line">Generation: 758605841    Version: 0x00000000:00000001</span><br><span class="line">User:     0   Group:     0   Size: 2</span><br><span class="line">File ACL: 0    Directory ACL: 0</span><br><span class="line">Links: 1   Blockcount: 8</span><br><span class="line">Fragment:  Address: 0    Number: 0    Size: 0</span><br><span class="line"> ctime: 0x5df2206f:12dddfdc -- Thu Dec 12 19:11:43 2019</span><br><span class="line"> atime: 0x5df22065:29ec81dc -- Thu Dec 12 19:11:33 2019</span><br><span class="line"> mtime: 0x5df22069:86b30fdc -- Thu Dec 12 19:11:37 2019</span><br><span class="line">crtime: 0x5df21ef3:d586ca44 -- Thu Dec 12 19:05:23 2019</span><br><span class="line">Size of extra inode fields: 28</span><br><span class="line">EXTENTS:</span><br><span class="line">(0):16949121</span><br></pre></td></tr></table></figure><h3 id="2-2-集成脚本："><a class="header-anchor" href="#2-2-集成脚本："> </a>2.2、集成脚本：</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="meta">#!/bin/sh</span></span><br><span class="line">[ <span class="variable">$#</span> -ne 1 ] &amp;&amp; <span class="built_in">echo</span> <span class="string">"Usage:     <span class="variable">$0</span> &#123;FILENAME&#125;"</span> &amp;&amp; <span class="built_in">exit</span> 1</span><br><span class="line"></span><br><span class="line">INODE=`ls -i <span class="variable">$1</span> |awk <span class="string">'&#123;print $1&#125;'</span>`</span><br><span class="line">FILENAME=<span class="variable">$1</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 如果传入参数带/，则获取这个传入参数的目录路径并进入目录</span></span><br><span class="line">`<span class="built_in">echo</span> <span class="variable">$FILENAME</span> | grep / 1&gt; /dev/null`  &amp;&amp;  &#123; FPWD=<span class="variable">$&#123;FILENAME%/*&#125;</span>;FPWD=<span class="variable">$&#123;FPWD:=/&#125;</span>;<span class="built_in">cd</span> <span class="variable">$&#123;FPWD&#125;</span>;FPWD=`<span class="built_in">pwd</span>`; &#125;  || FPWD=`<span class="built_in">pwd</span>`</span><br><span class="line"></span><br><span class="line">array=(`<span class="built_in">echo</span> <span class="variable">$&#123;FPWD&#125;</span> | sed <span class="string">'s@/@ @g'</span>`)</span><br><span class="line">array_length=<span class="variable">$&#123;#array[@]&#125;</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> ((i=<span class="variable">$&#123;array_length&#125;</span>;i&gt;=0;i--)); <span class="keyword">do</span></span><br><span class="line">  <span class="built_in">unset</span> array[<span class="variable">$i</span>]</span><br><span class="line">  SUBPWD=`<span class="built_in">echo</span> <span class="string">" "</span><span class="variable">$&#123;array[@]&#125;</span> | sed <span class="string">'s@ @/@g'</span>`</span><br><span class="line">  DISK=`df -h |grep <span class="variable">$&#123;SUBPWD&#125;</span>$ |awk <span class="string">'&#123;print $1&#125;'</span>`</span><br><span class="line">  [[ -n <span class="variable">$DISK</span> ]] &amp;&amp; <span class="built_in">break</span></span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 文件系统非ext4则退出</span></span><br><span class="line">[[ <span class="string">"`df -T | grep <span class="variable">$&#123;DISK&#125;</span> |awk '&#123;print <span class="variable">$2</span>&#125;'`"</span> != <span class="string">"ext4"</span> ]] &amp;&amp; &#123; <span class="built_in">echo</span> <span class="variable">$&#123;DISK&#125;</span> is not mount on <span class="built_in">type</span> ext4! Only ext4 file system support!;<span class="built_in">exit</span> 2; &#125;</span><br><span class="line"></span><br><span class="line">debugfs -R <span class="string">"stat &lt;<span class="variable">$&#123;INODE&#125;</span>&gt;"</span> <span class="variable">$&#123;DISK&#125;</span></span><br></pre></td></tr></table></figure><p>参考地址：<a href="https://www.qingtingip.com/h_375642.html" target="_blank" rel="noopener">https://www.qingtingip.com/h_375642.html</a></p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> debugfs </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>lsof指令的使用 - 每周指令</title>
       <link href="/2019/12/12/command-lsof/"/>
       <url>/2019/12/12/command-lsof/</url>
@@ -750,6 +769,25 @@
     </entry>
     
     <entry>
+      <title>Mac下的常用指令</title>
+      <link href="/2018/01/01/commands-mac/"/>
+      <url>/2018/01/01/commands-mac/</url>
+      
+        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Mac </tag>
+            
+            <tag> Commands </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>Linux下的常用指令</title>
       <link href="/2018/01/01/commands-linux/"/>
       <url>/2018/01/01/commands-linux/</url>
@@ -763,25 +801,6 @@
             <tag> Linux </tag>
             
             <tag> Commands </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
-      <title>Mac下的常用指令</title>
-      <link href="/2018/01/01/commands-mac/"/>
-      <url>/2018/01/01/commands-mac/</url>
-      
-        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Commands </tag>
-            
-            <tag> Mac </tag>
             
         </tags>
       
