@@ -135,9 +135,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Algorithm </tag>
+            
+            <tag> Linux </tag>
             
             <tag> Base </tag>
             
@@ -384,6 +384,25 @@
     </entry>
     
     <entry>
+      <title>Bloom Filter和Cuckoo Filter对比解析</title>
+      <link href="/2019/08/12/bloom-and-cuckoo-filter/"/>
+      <url>/2019/08/12/bloom-and-cuckoo-filter/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-bloom-filter"><a class="header-anchor" href="#一-bloom-filter"> </a>一、Bloom Filter</h2><p><code>Bloom Filter</code>（布隆过滤器）是<code>1970</code>年由布隆提出的，它由一个二进制向量数组和一系列随机映射函数组成。它可以用于检索一个元素是否<strong>一定在一个集合中</strong>或者<strong>可能存在一个集合中</strong>。</p><ul><li><a href="http://www.dragonwins.com/domains/getteched/bbc/literature/Bloom70.pdf" target="_blank" rel="noopener">《Space/Time Trade-offs in Hash Coding with Allowable Errors》</a></li></ul><h3 id="1-1-实现原理"><a class="header-anchor" href="#1-1-实现原理"> </a>1.1、实现原理</h3><ul><li><strong>初始化内存区域</strong>：在内存中开辟一块储存空间，并将里面的比特位全部初始化为<code>0</code>；</li><li><strong>设置k个hash函数</strong>：初始化<code>k</code>个<code>hash</code>函数，用于元素的数据映射；</li><li><strong>比特位映射</strong>：通过<code>k</code>个<code>hash</code>函数，将元素映射到存储空间对应的比特位，并将对应的比特位设置为<code>1</code>；</li></ul><p><img src="https://cdn.bugwz.com/bloom-filter-principle.png" alt="原理图"></p><h3 id="1-2-优缺点"><a class="header-anchor" href="#1-2-优缺点"> </a>1.2、优缺点</h3><ul><li><strong>优点</strong>：<ul><li>散列函数相互之间没有关系，方便由硬件并行实现；</li><li>不需要存储元素本身，在某些对保密要求非常严格的场合有优势；</li></ul></li><li><strong>缺点</strong>：<ul><li>布隆过滤器存储空间和插入/查询时间都是<code>O(k)</code>，导致查询性能较弱；</li><li>误算率随着存入的元素数量增多而不断增加；</li><li>由于不能确定某个元素是否一定存在，因此无法删除元素；</li><li>空间利用效率低；</li></ul></li></ul><h2 id="二-cuckoo-filter"><a class="header-anchor" href="#二-cuckoo-filter"> </a>二、Cuckoo Filter</h2><p><code>Cuckoo Filter</code>（布谷鸟过滤器）使用一维数组存储元素的指纹信息（会存在误判率），同时使用两个 hash 函数获得指纹的<code>位置id</code>，在每个位置可以放置多个座位。这两个 <code>hash 函数</code>选择的比较特殊，因为过滤器中只能存储指纹信息。当这个位置上的指纹被挤兑之后，它需要计算出另一个对偶位置，下面会单独对这<code>两个hash函数</code>进行解析。</p><ul><li><p><a href="https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf" target="_blank" rel="noopener">《Cuckoo Filter: Practically Better Than Bloom》</a></p></li><li><p><a href="https://github.com/efficient/cuckoofilter" target="_blank" rel="noopener">Cuckoo Filter C 库</a></p></li></ul><h3 id="2-1-实现原理"><a class="header-anchor" href="#2-1-实现原理"> </a>2.1、实现原理</h3><ul><li><strong>初始化内存</strong>：初始化一块内存给一维数组<code>Buckets</code>，其中每个<code>Bucket</code>有<code>n</code>个位置可供使用，每个位置存储对应元素的指纹信息，即每个<code>Bucket</code>中可供存储<code>n</code>个元素的指纹信息；</li><li><strong>Bucket映射</strong>：通过<code>两个Hash</code>函数得到两个对应的位置点（<code>p1</code>和<code>p2</code>）信息，尝试将对应元素的指纹信息存入指定的Bucket中，如果<code>p1</code>对应的<code>Bucket</code>已经填充满了，则尝试填充到<code>p2</code>对应的<code>Bucket</code>中；</li><li><strong>元素指纹挤兑</strong>：当两个位置点（<code>p1</code>和<code>p2</code>）对应的<code>Bucket</code>都已经填充满了就会触发填充挤兑，从<code>p1</code>和<code>p2</code>对应的<code>Bucket</code>中随机选择一个进行挤兑操作，将<code>Bucket</code>中的已经存在的指纹信息踢除（被踢除的指纹信息会存储到它可存储的另一个<code>Bucket</code>中，如果另一个<code>Bucket</code>中也没有了位置，则又会触发挤兑操作，直到达到挤兑操作的上限），然后将该指纹信息存储到当前的<code>Bucket</code>中；</li></ul><h4 id="2-1-1-一维数组的特性"><a class="header-anchor" href="#2-1-1-一维数组的特性"> </a>2.1.1、一维数组的特性</h4><p>布谷鸟过滤器强制一维数组的长度必须是 <code>2 的指数</code>，所以对数组的长度取模等价于取 hash 值的最后 n 位。在进行异或运算时，忽略掉低 n 位 之外的其它位就行。将计算出来的位置 p 保留低 n 位就是最终的对偶位置。</p><h4 id="2-1-2-两个hash函数的特性"><a class="header-anchor" href="#2-1-2-两个hash函数的特性"> </a>2.1.2、两个hash函数的特性</h4><p>因为布谷鸟过滤器中只存储指纹信息，当这个位置上的指纹被挤兑之后，它需要计算出另一个对偶位置，而计算这个对偶位置是需要元素本身的，但是布谷鸟过滤器巧妙的设计了一个独特的 <code>hash函数</code>，使得可以根据 <code>p1</code> 和 <code>元素指纹</code> 直接计算出 <code>p2</code>，而不需要完整的 <code>x 元素</code>。</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">fp = fingerprint(x)</span><br><span class="line">p1 = <span class="built_in">hash</span>(x)</span><br><span class="line">p2 = p1 ^ <span class="built_in">hash</span>(fp)  // 异或</span><br></pre></td></tr></table></figure><p><img src="https://cdn.bugwz.com/cuckoo-filter-principle.png" alt="原理图"></p><h3 id="2-2-优缺点"><a class="header-anchor" href="#2-2-优缺点"> </a>2.2、优缺点</h3><ul><li><strong>优点</strong>：<ul><li>查询性能较高；</li><li>空间利用率较高；</li><li>保证了一个比特只被一个元素映射，所以允许删除操作；</li></ul></li><li><strong>缺点</strong>：<ul><li>不能完美的支持删除，存在误删的情况；</li><li>存储空间的大小必须为2的指数的限制让空间效率打了折扣；</li></ul></li></ul><h3 id="2-3-场景分析"><a class="header-anchor" href="#2-3-场景分析"> </a>2.3、场景分析</h3><h4 id="2-3-1-相同元素多次连续插入"><a class="header-anchor" href="#2-3-1-相同元素多次连续插入"> </a>2.3.1、相同元素多次连续插入</h4><p>假设每个<code>Bucket</code>的可供存储的座位为<code>4</code>，那么当相同的元素多次连续插入之后，<code>Cuckoo Filter</code>会对同一个元素进行了挤兑循环操作，导致同一个元素的指纹会占用<code>两个</code>位置上的所有的<code>8个座位</code>，导致空间利用率较低。</p><h4 id="2-3-2-误删情况"><a class="header-anchor" href="#2-3-2-误删情况"> </a>2.3.2、误删情况</h4><p>由于存在不同元素被hash到同一个位置的情况，以及不同元素指纹相同的情况，所以会存在一定的误判率。</p><p>参考链接：<a href="https://juejin.im/post/5cfb9c74e51d455d6d5357db" target="_blank" rel="noopener">https://juejin.im/post/5cfb9c74e51d455d6d5357db</a></p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Algorithm </tag>
+            
+            <tag> Linux </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>记一次nf_conntrack模块导致的丢包问题</title>
       <link href="/2019/08/10/nf-conntrack/"/>
       <url>/2019/08/10/nf-conntrack/</url>
@@ -478,9 +497,9 @@
       
         <tags>
             
-            <tag> C/C++ </tag>
-            
             <tag> Tools </tag>
+            
+            <tag> C/C++ </tag>
             
             <tag> Format </tag>
             
@@ -562,9 +581,9 @@
       
         <tags>
             
-            <tag> Memory </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> Memory </tag>
             
         </tags>
       
@@ -699,30 +718,11 @@
             
             <tag> Notes </tag>
             
+            <tag> Tools </tag>
+            
             <tag> C/C++ </tag>
             
-            <tag> Tools </tag>
-            
             <tag> GDB </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
-      <title>Tmux使用记录</title>
-      <link href="/2018/11/25/tmux/"/>
-      <url>/2018/11/25/tmux/</url>
-      
-        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p>Tmux是Linux中一款终端窗口复用的工具。对比与iTerm来说，iTerm只是作为一款GUI软件，在一个窗口中只能显示一个Shell的内容，但是Tmux却可以在一个窗口中显示多个Shell内容；对比与Screen来说，Screen是GNU 软件，而 Tmux 使用的是 BSD 协议，最为重要的是 Tmux 支持 Vi/Emacs 风格的键盘映射，更好的接口和文档，以及更好的脚本控制。</p><h2 id="二-基本概念"><a class="header-anchor" href="#二-基本概念"> </a>二、基本概念</h2><p>Tmux的主要元素分为三层：</p><ul><li><code>Session</code> ：一组窗口的集合，通常用来概括同一个任务，可以设置不同的名字以便于任务之间的切换；</li><li><code>Window</code>： 单个可见窗口，Window有自己的编号，也可以认为和 iTerm2 中的 Tab 类似；</li><li><code>Pane</code>： 窗格，被划分成小块的窗口，类似于 Vim 中 C-w +v 后的效果；</li></ul><p><img src="https://cdn.bugwz.com/concept.jpg" alt="Tmux概念设计"></p><h2 id="三-安装与使用"><a class="header-anchor" href="#三-安装与使用"> </a>三、安装与使用</h2><h3 id="3-1-安装"><a class="header-anchor" href="#3-1-安装"> </a>3.1、安装</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">brew install tmux       <span class="comment"># OSX</span></span><br><span class="line">pacman -S tmux          <span class="comment"># archlinux</span></span><br><span class="line">apt-get install tmux    <span class="comment"># Ubuntu</span></span><br><span class="line">yum install tmux        <span class="comment"># Centos</span></span><br></pre></td></tr></table></figure><h3 id="3-2-基本操作"><a class="header-anchor" href="#3-2-基本操作"> </a>3.2、基本操作</h3><h4 id="3-2-1-信息查询"><a class="header-anchor" href="#3-2-1-信息查询"> </a>3.2.1、信息查询</h4><ul><li><code>tmux list-keys</code> 列出所有可以的快捷键和其运行的 tmux 命令</li><li><code>tmux list-commands</code> 列出所有的 tmux 命令及其参数</li><li><code>tmux info</code> 流出所有的 session, window, pane, 运行的进程号，等。</li></ul><h4 id="3-2-2-未进入tmux的操作"><a class="header-anchor" href="#3-2-2-未进入tmux的操作"> </a>3.2.2、未进入Tmux的操作</h4><ul><li><code>session 会话</code>：session是一个特定的终端组合，输入tmux就可以打开一个新的session<ul><li><code>tmux new -s session_name</code> 创建一个叫做 <code>session_name</code> 的 tmux session</li><li><code>tmux attach -t session_name</code> 重新开启叫做 <code>session_name</code> 的 tmux session</li><li><code>tmux switch -t session_name</code> 转换到叫做 <code>session_name</code> 的 tmux session</li><li><code>tmux list-sessions</code> / <code>tmux ls</code> 列出现有的所有 session</li><li><code>tmux detach</code> 离开当前开启的 session</li><li><code>tmux kill-server</code> 关闭所有 session</li></ul></li><li><code>window 窗口</code>：session 中可以有不同的 window（但是同时只能看到一个 window）<ul><li><code>tmux new-window</code> 创建一个新的 window</li><li><code>tmux list-windows</code></li><li><code>tmux select-window -t :0-9</code> 根据索引转到该 window</li><li><code>tmux rename-window</code> 重命名当前 window</li></ul></li><li><code>pane 面板</code>：window 中可以有不同的 pane（可以把 window 分成不同的部分）<ul><li><code>tmux split-window</code> 将 window 垂直划分为两个 pane</li><li><code>tmux split-window -h</code> 将 window 水平划分为两个 pane</li><li><code>tmux swap-pane -[UDLR]</code> 在指定的方向交换 pane</li><li><code>tmux select-pane -[UDLR]</code> 在指定的方向选择下一个 pane</li></ul></li></ul><h4 id="3-2-3-进入tmux的操作"><a class="header-anchor" href="#3-2-3-进入tmux的操作"> </a>3.2.3、进入Tmux的操作</h4><p>常用的是在 tmux 中直接通过默认前缀 <code>ctrl + b</code> 之后输入对应命令来操作，具体如下：</p><h5 id="3-2-3-1-基本操作"><a class="header-anchor" href="#3-2-3-1-基本操作"> </a>3.2.3.1、基本操作</h5><ul><li><code>?</code> 列出所有快捷键；按q返回</li><li><code>d</code> 脱离当前会话,可暂时返回Shell界面</li><li><code>s</code> 选择并切换会话；在同时开启了多个会话时使用</li><li><code>D</code> 选择要脱离的会话；在同时开启了多个会话时使用</li><li><code>:</code> 进入命令行模式；此时可输入支持的命令，例如 <code>kill-server</code> 关闭所有tmux会话</li><li><code>[</code> 复制模式，光标移动到复制内容位置，空格键开始，方向键选择复制，回车确认，q/Esc退出</li><li><code>]</code> 进入粘贴模式，粘贴之前复制的内容，按q/Esc退出</li><li><code>~</code> 列出提示信息缓存；其中包含了之前tmux返回的各种提示信息</li><li><code>t</code> 显示当前的时间</li><li><code>ctrl + z</code> 挂起当前会话</li></ul><h5 id="3-2-3-2-窗口操作"><a class="header-anchor" href="#3-2-3-2-窗口操作"> </a>3.2.3.2、窗口操作</h5><ul><li><code>c</code> 创建新窗口</li><li><code>&amp;</code> 关闭当前窗口</li><li><code>[0-9]</code> 数字键切换到指定窗口</li><li><code>p</code> 切换至上一窗口</li><li><code>n</code> 切换至下一窗口</li><li><code>l</code> 前后窗口间互相切换</li><li><code>w</code> 通过窗口列表切换窗口</li><li><code>,</code> 重命名当前窗口，便于识别</li><li><code>.</code> 修改当前窗口编号，相当于重新排序</li><li><code>f</code> 在所有窗口中查找关键词，便于窗口多了切换</li></ul><h5 id="3-2-3-3-面板操作"><a class="header-anchor" href="#3-2-3-3-面板操作"> </a>3.2.3.3、面板操作</h5><ul><li><code>&quot;</code> 将当前面板上下分屏（我自己改成了 <code>|</code>）</li><li><code>%</code> 将当前面板左右分屏（我自己改成了 <code>-</code>）</li><li><code>x</code> 关闭当前分屏</li><li><code>!</code> 将当前面板置于新窗口,即新建一个窗口,其中仅包含当前面板</li><li><code>ctrl+方向键</code> 以1个单元格为单位移动边缘以调整当前面板大小</li><li><code>alt+方向键</code> 以5个单元格为单位移动边缘以调整当前面板大小</li><li><code>q</code> 显示面板编号</li><li><code>o</code> 选择当前窗口中下一个面板</li><li><code>方向键</code> 移动光标选择对应面板</li><li><code>{</code> 向前置换当前面板</li><li><code>}</code> 向后置换当前面板</li><li><code>alt+o</code> 逆时针旋转当前窗口的面板</li><li><code>ctrl+o</code> 顺时针旋转当前窗口的面板</li><li><code>z</code> 最大化当前所在面板</li><li><code>page up</code> 向上滚动屏幕，q 退出</li><li><code>page down</code> 向下滚动屏幕，q 退出</li></ul><h2 id="四-配置文件"><a class="header-anchor" href="#四-配置文件"> </a>四、配置文件</h2>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Tmux </tag>
-            
-            <tag> Tools </tag>
             
         </tags>
       
@@ -739,11 +739,30 @@
       
         <tags>
             
-            <tag> Hexo </tag>
-            
             <tag> GitHub Pages </tag>
             
+            <tag> Hexo </tag>
+            
             <tag> Blog </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Tmux使用记录</title>
+      <link href="/2018/11/25/tmux/"/>
+      <url>/2018/11/25/tmux/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p>Tmux是Linux中一款终端窗口复用的工具。对比与iTerm来说，iTerm只是作为一款GUI软件，在一个窗口中只能显示一个Shell的内容，但是Tmux却可以在一个窗口中显示多个Shell内容；对比与Screen来说，Screen是GNU 软件，而 Tmux 使用的是 BSD 协议，最为重要的是 Tmux 支持 Vi/Emacs 风格的键盘映射，更好的接口和文档，以及更好的脚本控制。</p><h2 id="二-基本概念"><a class="header-anchor" href="#二-基本概念"> </a>二、基本概念</h2><p>Tmux的主要元素分为三层：</p><ul><li><code>Session</code> ：一组窗口的集合，通常用来概括同一个任务，可以设置不同的名字以便于任务之间的切换；</li><li><code>Window</code>： 单个可见窗口，Window有自己的编号，也可以认为和 iTerm2 中的 Tab 类似；</li><li><code>Pane</code>： 窗格，被划分成小块的窗口，类似于 Vim 中 C-w +v 后的效果；</li></ul><p><img src="https://cdn.bugwz.com/concept.jpg" alt="Tmux概念设计"></p><h2 id="三-安装与使用"><a class="header-anchor" href="#三-安装与使用"> </a>三、安装与使用</h2><h3 id="3-1-安装"><a class="header-anchor" href="#3-1-安装"> </a>3.1、安装</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">brew install tmux       <span class="comment"># OSX</span></span><br><span class="line">pacman -S tmux          <span class="comment"># archlinux</span></span><br><span class="line">apt-get install tmux    <span class="comment"># Ubuntu</span></span><br><span class="line">yum install tmux        <span class="comment"># Centos</span></span><br></pre></td></tr></table></figure><h3 id="3-2-基本操作"><a class="header-anchor" href="#3-2-基本操作"> </a>3.2、基本操作</h3><h4 id="3-2-1-信息查询"><a class="header-anchor" href="#3-2-1-信息查询"> </a>3.2.1、信息查询</h4><ul><li><code>tmux list-keys</code> 列出所有可以的快捷键和其运行的 tmux 命令</li><li><code>tmux list-commands</code> 列出所有的 tmux 命令及其参数</li><li><code>tmux info</code> 流出所有的 session, window, pane, 运行的进程号，等。</li></ul><h4 id="3-2-2-未进入tmux的操作"><a class="header-anchor" href="#3-2-2-未进入tmux的操作"> </a>3.2.2、未进入Tmux的操作</h4><ul><li><code>session 会话</code>：session是一个特定的终端组合，输入tmux就可以打开一个新的session<ul><li><code>tmux new -s session_name</code> 创建一个叫做 <code>session_name</code> 的 tmux session</li><li><code>tmux attach -t session_name</code> 重新开启叫做 <code>session_name</code> 的 tmux session</li><li><code>tmux switch -t session_name</code> 转换到叫做 <code>session_name</code> 的 tmux session</li><li><code>tmux list-sessions</code> / <code>tmux ls</code> 列出现有的所有 session</li><li><code>tmux detach</code> 离开当前开启的 session</li><li><code>tmux kill-server</code> 关闭所有 session</li></ul></li><li><code>window 窗口</code>：session 中可以有不同的 window（但是同时只能看到一个 window）<ul><li><code>tmux new-window</code> 创建一个新的 window</li><li><code>tmux list-windows</code></li><li><code>tmux select-window -t :0-9</code> 根据索引转到该 window</li><li><code>tmux rename-window</code> 重命名当前 window</li></ul></li><li><code>pane 面板</code>：window 中可以有不同的 pane（可以把 window 分成不同的部分）<ul><li><code>tmux split-window</code> 将 window 垂直划分为两个 pane</li><li><code>tmux split-window -h</code> 将 window 水平划分为两个 pane</li><li><code>tmux swap-pane -[UDLR]</code> 在指定的方向交换 pane</li><li><code>tmux select-pane -[UDLR]</code> 在指定的方向选择下一个 pane</li></ul></li></ul><h4 id="3-2-3-进入tmux的操作"><a class="header-anchor" href="#3-2-3-进入tmux的操作"> </a>3.2.3、进入Tmux的操作</h4><p>常用的是在 tmux 中直接通过默认前缀 <code>ctrl + b</code> 之后输入对应命令来操作，具体如下：</p><h5 id="3-2-3-1-基本操作"><a class="header-anchor" href="#3-2-3-1-基本操作"> </a>3.2.3.1、基本操作</h5><ul><li><code>?</code> 列出所有快捷键；按q返回</li><li><code>d</code> 脱离当前会话,可暂时返回Shell界面</li><li><code>s</code> 选择并切换会话；在同时开启了多个会话时使用</li><li><code>D</code> 选择要脱离的会话；在同时开启了多个会话时使用</li><li><code>:</code> 进入命令行模式；此时可输入支持的命令，例如 <code>kill-server</code> 关闭所有tmux会话</li><li><code>[</code> 复制模式，光标移动到复制内容位置，空格键开始，方向键选择复制，回车确认，q/Esc退出</li><li><code>]</code> 进入粘贴模式，粘贴之前复制的内容，按q/Esc退出</li><li><code>~</code> 列出提示信息缓存；其中包含了之前tmux返回的各种提示信息</li><li><code>t</code> 显示当前的时间</li><li><code>ctrl + z</code> 挂起当前会话</li></ul><h5 id="3-2-3-2-窗口操作"><a class="header-anchor" href="#3-2-3-2-窗口操作"> </a>3.2.3.2、窗口操作</h5><ul><li><code>c</code> 创建新窗口</li><li><code>&amp;</code> 关闭当前窗口</li><li><code>[0-9]</code> 数字键切换到指定窗口</li><li><code>p</code> 切换至上一窗口</li><li><code>n</code> 切换至下一窗口</li><li><code>l</code> 前后窗口间互相切换</li><li><code>w</code> 通过窗口列表切换窗口</li><li><code>,</code> 重命名当前窗口，便于识别</li><li><code>.</code> 修改当前窗口编号，相当于重新排序</li><li><code>f</code> 在所有窗口中查找关键词，便于窗口多了切换</li></ul><h5 id="3-2-3-3-面板操作"><a class="header-anchor" href="#3-2-3-3-面板操作"> </a>3.2.3.3、面板操作</h5><ul><li><code>&quot;</code> 将当前面板上下分屏（我自己改成了 <code>|</code>）</li><li><code>%</code> 将当前面板左右分屏（我自己改成了 <code>-</code>）</li><li><code>x</code> 关闭当前分屏</li><li><code>!</code> 将当前面板置于新窗口,即新建一个窗口,其中仅包含当前面板</li><li><code>ctrl+方向键</code> 以1个单元格为单位移动边缘以调整当前面板大小</li><li><code>alt+方向键</code> 以5个单元格为单位移动边缘以调整当前面板大小</li><li><code>q</code> 显示面板编号</li><li><code>o</code> 选择当前窗口中下一个面板</li><li><code>方向键</code> 移动光标选择对应面板</li><li><code>{</code> 向前置换当前面板</li><li><code>}</code> 向后置换当前面板</li><li><code>alt+o</code> 逆时针旋转当前窗口的面板</li><li><code>ctrl+o</code> 顺时针旋转当前窗口的面板</li><li><code>z</code> 最大化当前所在面板</li><li><code>page up</code> 向上滚动屏幕，q 退出</li><li><code>page down</code> 向下滚动屏幕，q 退出</li></ul><h2 id="四-配置文件"><a class="header-anchor" href="#四-配置文件"> </a>四、配置文件</h2>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Tools </tag>
+            
+            <tag> Tmux </tag>
             
         </tags>
       
@@ -760,9 +779,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Algorithm </tag>
+            
+            <tag> Linux </tag>
             
         </tags>
       
