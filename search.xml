@@ -135,9 +135,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Algorithm </tag>
+            
+            <tag> Linux </tag>
             
             <tag> Base </tag>
             
@@ -394,9 +394,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Algorithm </tag>
+            
+            <tag> Linux </tag>
             
         </tags>
       
@@ -581,9 +581,9 @@
       
         <tags>
             
-            <tag> Memory </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> Memory </tag>
             
         </tags>
       
@@ -779,28 +779,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Algorithm </tag>
             
-        </tags>
-      
-    </entry>
-    
-    <entry>
-      <title>Mac下的常用指令</title>
-      <link href="/2018/01/01/commands-mac/"/>
-      <url>/2018/01/01/commands-mac/</url>
-      
-        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Commands </tag>
-            
-            <tag> Mac </tag>
+            <tag> Linux </tag>
             
         </tags>
       
@@ -820,6 +801,25 @@
             <tag> Linux </tag>
             
             <tag> Commands </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Mac下的常用指令</title>
+      <link href="/2018/01/01/commands-mac/"/>
+      <url>/2018/01/01/commands-mac/</url>
+      
+        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Commands </tag>
+            
+            <tag> Mac </tag>
             
         </tags>
       
