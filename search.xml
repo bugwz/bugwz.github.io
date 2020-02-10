@@ -207,6 +207,23 @@
     </entry>
     
     <entry>
+      <title>正向/反向/透明代理服务器对比</title>
+      <link href="/2019/10/12/proxy/"/>
+      <url>/2019/10/12/proxy/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-正向代理"><a class="header-anchor" href="#一-正向代理"> </a>一、正向代理</h2><p>正向代理是一个位于客户端和目标服务器之间的服务器，为了从目标服务器取得内容，客户端需要向代理服务器发送一个请求并指定目标服务器，然后代理服务器向目标服务器转交请求并将获得的内容返回给客户端。</p><p><img src="https://cdn.bugwz.com/proxy-forward.png" alt="正向代理"></p><h3 id="1-1-特点"><a class="header-anchor" href="#1-1-特点"> </a>1.1、特点</h3><ul><li>用户无法直接访问目标服务器；</li><li>客户端明确知道自己访问的是代理服务器；</li><li>隐藏真实的客户端IP；</li></ul><h3 id="1-2-使用场景"><a class="header-anchor" href="#1-2-使用场景"> </a>1.2、使用场景</h3><ul><li>为防火墙（局域网）内的客户端提供访问互联网的途径；</li><li>客户端的鉴权；</li><li>提供数据缓存，访问加速服务；</li></ul><h3 id="1-3-相关软件"><a class="header-anchor" href="#1-3-相关软件"> </a>1.3、相关软件</h3><ul><li><p>Nginx</p></li><li><p>Apache Traffic Server</p></li><li><p>Tinyproxy</p></li><li><p>Squid Cache</p></li></ul><h2 id="二-反向代理"><a class="header-anchor" href="#二-反向代理"> </a>二、反向代理</h2><p>反向代理服务器位于客户端与目标服务器之间，但是对于客户端而言，反向代理服务器就相当于目标服务器，即客户端直接访问反向代理服务器就可以获得目标服务器的资源。同时，客户端不需要知道目标服务器的地址，也无须在客户端作任何设定。</p><p><img src="https://cdn.bugwz.com/proxy-reverse.png" alt="反向代理"></p><h3 id="2-1-特点"><a class="header-anchor" href="#2-1-特点"> </a>2.1、特点</h3><ul><li>客户端不知道访问的是代理服务器，客户端认为访问的就是实际的目标服务器；</li><li>目标服务器不知道访问请求来源于代理服务器。目标服务器认为发送请求的就是普通的客户端；</li></ul><h3 id="2-2-使用场景"><a class="header-anchor" href="#2-2-使用场景"> </a>2.2、使用场景</h3><ul><li>网络的负载均衡；</li><li>保护和隐藏目标服务器；</li></ul><h3 id="2-3-相关软件"><a class="header-anchor" href="#2-3-相关软件"> </a>2.3、相关软件</h3><ul><li>Nginx</li><li>Apache HTTP Server</li><li>IIS</li><li>Traffic Server</li><li>HAProxy</li><li>Squid</li></ul><h2 id="三-透明代理"><a class="header-anchor" href="#三-透明代理"> </a>三、透明代理</h2><p>客户端根本不知道有代理服务器的存在，它改变客户端/目标服务器的报文信息，并会传送真实IP。</p><p><img src="https://cdn.bugwz.com/proxy-transparent.png" alt="透明代理"></p><h3 id="3-1-特点"><a class="header-anchor" href="#3-1-特点"> </a>3.1、特点</h3><ul><li>客户端不知道代理服务的存在；</li></ul><h3 id="3-2-使用场景"><a class="header-anchor" href="#3-2-使用场景"> </a>3.2、使用场景</h3><ul><li>路由器的NAT转发；</li></ul><h3 id="3-3-相关软件"><a class="header-anchor" href="#3-3-相关软件"> </a>3.3、相关软件</h3><ul><li><p>Squid</p></li><li><p>Polipo</p></li><li><p>Tinyproxy</p></li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Proxy </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>Docker多阶段构建的理解与使用</title>
       <link href="/2019/10/11/docker-multi-stage-builds/"/>
       <url>/2019/10/11/docker-multi-stage-builds/</url>
@@ -1129,6 +1146,25 @@
     </entry>
     
     <entry>
+      <title>初次使用Servlet-JSP笔记-1</title>
+      <link href="/2016/11/29/jsp-1/"/>
+      <url>/2016/11/29/jsp-1/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-环境"><a class="header-anchor" href="#一-环境"> </a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二-课堂学习目标"><a class="header-anchor" href="#二-课堂学习目标"> </a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三-开始"><a class="header-anchor" href="#三-开始"> </a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择&quot;源码&quot;,然后选择&quot;覆盖/实现方法&quot;中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a class="header-anchor" href="#题外话：什么是web-xml文件？"> </a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。</p><h1 id="继续"><a class="header-anchor" href="#继续"> </a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为&quot;servlet所属包名.servlet的类名&quot;，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Notes </tag>
+            
+            <tag> JSP </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
       <link href="/2016/11/29/jsp-2/"/>
       <url>/2016/11/29/jsp-2/</url>
@@ -1144,25 +1180,6 @@
             <tag> JSP </tag>
             
             <tag> Campus </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
-      <title>初次使用Servlet-JSP笔记-1</title>
-      <link href="/2016/11/29/jsp-1/"/>
-      <url>/2016/11/29/jsp-1/</url>
-      
-        <content type="html"><![CDATA[<h2 id="一-环境"><a class="header-anchor" href="#一-环境"> </a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二-课堂学习目标"><a class="header-anchor" href="#二-课堂学习目标"> </a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三-开始"><a class="header-anchor" href="#三-开始"> </a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择&quot;源码&quot;,然后选择&quot;覆盖/实现方法&quot;中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a class="header-anchor" href="#题外话：什么是web-xml文件？"> </a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。</p><h1 id="继续"><a class="header-anchor" href="#继续"> </a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为&quot;servlet所属包名.servlet的类名&quot;，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Notes </tag>
-            
-            <tag> JSP </tag>
             
         </tags>
       
