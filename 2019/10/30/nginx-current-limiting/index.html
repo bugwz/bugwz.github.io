@@ -25,8 +25,8 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <li>
 <p>对客户端的限流模块：</p>
 <ul>
-<li><a href="http://nginx.org/en/docs/http/ngx_http_limit_conn_module.html" target="_blank" rel="noopener">ngx_http_limit_conn_module</a>：限制每个Client的连接数（即单个IP地址的并发连接数）；</li>
-<li><a href="http://nginx.org/en/docs/http/ngx_http_limit_req_module.html" target="_blank" rel="noopener">ngx_http_limit_req_module</a>：使用令牌桶的方式限制每个Client的请求处理速率；</li>
+<li><a href="http://nginx.org/en/docs/http/ngx_http_limit_conn_module.html" target="_blank" rel="noopener">ngx_http_limit_conn_module</a>：按照连接数限流，限制单个IP的并发连接数；</li>
+<li><a href="http://nginx.org/en/docs/http/ngx_http_limit_req_module.html" target="_blank" rel="noopener">ngx_http_limit_req_module</a>：按照请求速率限流，使用漏桶的方式限制请求的处理速率；</li>
 </ul>
 </li>
 <li>
