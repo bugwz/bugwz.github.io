@@ -477,6 +477,27 @@
     </entry>
     
     <entry>
+      <title>漏桶与令牌桶速率限制算法</title>
+      <link href="/2019/07/01/leaky-and-token-bucket/"/>
+      <url>/2019/07/01/leaky-and-token-bucket/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-漏桶算法"><a class="header-anchor" href="#一-漏桶算法"> </a>一、漏桶算法</h2><p>漏桶算法(<code>Leaky Bucket</code>)是网络世界中流量整形（<code>Traffic Shaping</code>）或速率限制（<code>Rate Limiting</code>）时经常使用的一种算法，它的主要目的是控制数据注入到网络的速率，平滑网络上的突发流量。漏桶算法提供了一种机制，通过它，突发流量可以被整形以便为网络提供一个稳定的流量。示意图如下所示：</p><p><img src="https://cdn.bugwz.com/Leaky-Bucket.png" alt="Leaky Bucket"></p><h3 id="1-1-算法过程"><a class="header-anchor" href="#1-1-算法过程"> </a>1.1、算法过程</h3><ul><li><code>数据包入队列</code>：数据包按照一定的顺序存储入用于临时存储的缓存队列（数据桶）中；</li><li><code>数据包等待或溢出</code>：数据包在缓存队列（数据桶）中等待一段时间，或者如果此时缓存队列（数据桶）已经达到存储的上限，数据包溢出（被丢弃）；</li><li><code>数据包出队列</code>：将缓存队列（数据桶）中的数据包按照固定的速率依次出队列并进行处理；</li></ul><h3 id="1-2-特点"><a class="header-anchor" href="#1-2-特点"> </a>1.2、特点</h3><ul><li>优点：<ul><li>能够强行限制数据的传输速率；</li><li>保证严格的延迟界限；</li></ul></li><li>缺点：<ul><li>对突发性的流量缺乏处理效率；</li></ul></li></ul><h3 id="1-3-相关项目"><a class="header-anchor" href="#1-3-相关项目"> </a>1.3、相关项目</h3><ul><li>Nginx中关于漏桶的设计与实现：<code>ngx_http_limit_req_module</code> 模块中的<code>ngx_http_limit_req_lookup</code>函数（位于<code>./src/http/modules/ngx_http_limit_req_module.c</code>）；</li></ul><h2 id="二-令牌桶算法"><a class="header-anchor" href="#二-令牌桶算法"> </a>二、令牌桶算法</h2><p>令牌桶算法（<code>Token Bucket</code>）是网络流量整形（<code>Traffic Shaping</code>）和速率限制（<code>Rate Limiting</code>）中最常使用的一种算法。典型情况下，令牌桶算法用来控制发送到网络上的数据的数目，并允许突发数据的发送。示意图如下所示：</p><p><img src="https://cdn.bugwz.com/Token-Bucket.png" alt="Token Bucket"></p><h3 id="2-1-算法过程"><a class="header-anchor" href="#2-1-算法过程"> </a>2.1、算法过程</h3><ul><li><p><code>产生令牌</code>：周期性的以速率CIR/EIR向令牌桶中增加令牌，桶中的令牌不断增多，如果桶中令牌数已到达CBS/EBS，则丢弃多余令牌；</p></li><li><p><code>消耗令牌</code>：输入数据包会消耗桶中的令牌，在网络传输中，数据包的大小通常不一致，大的数据包相较于小的数据包消耗的令牌要多；</p></li><li><p><code>判断是否通过</code>：输入数据包经过令牌桶后的结果包括输出的数据包和丢弃的数据包，当桶中的令牌数量可以满足数据包对令牌的需求，则将数据包输出，否则将其丢弃；</p></li></ul><h3 id="2-2-特点"><a class="header-anchor" href="#2-2-特点"> </a>2.2、特点</h3><ul><li><p>优点：</p><ul><li>允许一定程度突发流量传输；</li></ul></li><li><p>缺点：</p><ul><li>可能会存在一些误判；</li></ul></li></ul><h3 id="2-3-相关项目"><a class="header-anchor" href="#2-3-相关项目"> </a>2.3、相关项目</h3><ul><li><a href="https://github.com/google/guava" target="_blank" rel="noopener">Guava</a>中的<a href="https://guava.dev/releases/19.0/api/docs/index.html?com/google/common/util/concurrent/RateLimiter.html" target="_blank" rel="noopener">RateLimiter</a>；</li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Algorithm </tag>
+            
+            <tag> SpeedLimit </tag>
+            
+            <tag> Nginx </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>Redis的Memory命令讲解</title>
       <link href="/2019/01/24/memory-redis/"/>
       <url>/2019/01/24/memory-redis/</url>
@@ -841,25 +862,6 @@
     </entry>
     
     <entry>
-      <title>Linux下的常用指令</title>
-      <link href="/2018/01/01/commands-linux/"/>
-      <url>/2018/01/01/commands-linux/</url>
-      
-        <content type="html"><![CDATA[<h3 id="cpu相关"><a class="header-anchor" href="#cpu相关"> </a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'physical id'</span> | sort -u | wc -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'cpu cores'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'processor'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a class="header-anchor" href="#内存相关"> </a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line">cat /proc/meminfo | grep <span class="string">'Huge'</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag'</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled'</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="docker相关"><a class="header-anchor" href="#docker相关"> </a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Linux </tag>
-            
-            <tag> Commands </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>Mac下的常用指令</title>
       <link href="/2018/01/01/commands-mac/"/>
       <url>/2018/01/01/commands-mac/</url>
@@ -873,6 +875,25 @@
             <tag> Commands </tag>
             
             <tag> Mac </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Linux下的常用指令</title>
+      <link href="/2018/01/01/commands-linux/"/>
+      <url>/2018/01/01/commands-linux/</url>
+      
+        <content type="html"><![CDATA[<h3 id="cpu相关"><a class="header-anchor" href="#cpu相关"> </a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'physical id'</span> | sort -u | wc -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'cpu cores'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'processor'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a class="header-anchor" href="#内存相关"> </a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line">cat /proc/meminfo | grep <span class="string">'Huge'</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag'</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled'</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="docker相关"><a class="header-anchor" href="#docker相关"> </a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
