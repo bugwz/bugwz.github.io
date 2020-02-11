@@ -165,6 +165,23 @@
     </entry>
     
     <entry>
+      <title>Ngxin的限流方式</title>
+      <link href="/2019/10/30/nginx-current-limiting/"/>
+      <url>/2019/10/30/nginx-current-limiting/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p><a href="https://nginx.org/en/" target="_blank" rel="noopener">Nginx</a>的限流的实现，可以保证高并发场景下的服务的可用性，控制网络以及CPU/内存负载，极端场景下还可以减小暴力破解对系统的危害性。Nginx本身自带了几个限流模块 ：</p><ul><li><p>对客户端的限流模块：</p><ul><li><a href="http://nginx.org/en/docs/http/ngx_http_limit_conn_module.html" target="_blank" rel="noopener">ngx_http_limit_conn_module</a>：限制每个Client的连接数（即单个IP地址的并发连接数）；</li><li><a href="http://nginx.org/en/docs/http/ngx_http_limit_req_module.html" target="_blank" rel="noopener">ngx_http_limit_req_module</a>：使用令牌桶的方式限制每个Client的请求处理速率；</li></ul></li><li><p>对服务端的限流模块：</p><ul><li><a href="http://nginx.org/en/docs/http/ngx_http_upstream_module.html" target="_blank" rel="noopener">ngx_http_upstream_module</a>：用于定义可以由<code>proxy_pass</code>， <code>fastcgi_pass</code>， <code>uwsgi_pass</code>， <code>scgi_pass</code>， <code>memcached_pass</code>和 <code>grpc_pass</code>指令引用的服务器组；</li></ul></li></ul><h2 id="二-限流模块"><a class="header-anchor" href="#二-限流模块"> </a>二、限流模块</h2><h3 id="2-1-ngx-http-limit-conn-module"><a class="header-anchor" href="#2-1-ngx-http-limit-conn-module"> </a>2.1、ngx_http_limit_conn_module</h3><p>用于设置单IP最大允许的连接数，当超过该连接数，服务器将返回错误信息（默认错误码为<code>503</code>）。</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">http &#123;</span><br><span class="line">    limit_conn_zone <span class="variable">$binary_remote_addr</span> zone=one:10m;</span><br><span class="line">    ...</span><br><span class="line">    server &#123;</span><br><span class="line">        ...</span><br><span class="line">        location /download/ &#123;</span><br><span class="line">            limit_conn one 10;</span><br><span class="line">        &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><ul><li><p><code>limit_conn_zone</code>：</p><ul><li>语法：<code>limit_conn_zone key zone=name:size;</code></li><li>示例解释：设置共享内存的大小，用于存储各Client的状态，其中<code>zone</code>配置对应的值可以自定义；</li><li>配置位置：可配置于<code>http</code>中；</li></ul></li><li><p><code>limit_conn</code>：</p><ul><li>语法：<code>limit_conn zone number;</code></li><li>示例解释：访问<code>/download/</code>地址的IP可以允许同时存在<code>10</code>个连接，其中<code>one</code>可以为其他值，需要保持与<code>limit_conn_zone</code>配置中的<code>zone</code>后的信息对应；</li><li>配置位置：可配置于<code>http</code>、<code>server</code>、<code>location</code>中；</li></ul></li><li><p>更多参数请参考<code>ngx_http_limit_conn_module</code>模块的<a href="http://nginx.org/en/docs/http/ngx_http_limit_conn_module.html" target="_blank" rel="noopener">官方文档</a>；</p></li></ul><h3 id="2-2-ngx-http-limit-req-module"><a class="header-anchor" href="#2-2-ngx-http-limit-req-module"> </a>2.2、ngx_http_limit_req_module</h3><p>使用令牌桶的方式限制每个Client的请求处理速率，如果请求的速率超过限制则会被延迟处理，当数量超过突发值时会返回错误信息（默认错误码为<code>503</code>）。</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">http &#123;</span><br><span class="line">    limit_req_zone <span class="variable">$binary_remote_addr</span> zone=one:10m rate=1r/s;</span><br><span class="line">    ...</span><br><span class="line">    server &#123;</span><br><span class="line">        ...</span><br><span class="line">        location /search/ &#123;</span><br><span class="line">            limit_req zone=one burst=5;</span><br><span class="line">        &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><ul><li><p><code>limit_req_zone</code>：</p><ul><li>语法：<code>limit_req_zone key zone=name:size rate=rate[sync];</code></li><li>示例解释：分配<code>10m</code>大小的共享内存存储客户端的状态，每个地址每秒只能请求<code>1</code>次；</li><li>配置位置：可配置于<code>http</code>中；</li></ul></li><li><p><code>limit_req</code>：</p><ul><li>语法：<code>limit_req zone=name [burst=number] [nodelay | delay=number]</code>；</li><li>示例解释：令牌桶一共有<code>5</code>块令牌，并且每秒钟只新增<code>1</code>块令牌，5块令牌发完后，多出来的请求就会返回<code>503</code>；</li><li>配置位置：可配置于<code>http</code>、<code>server</code>、<code>location</code>中；</li></ul></li><li><p>更多参数请参考<code>ngx_http_limit_req_module</code>模块的<a href="http://nginx.org/en/docs/http/ngx_http_limit_req_module.html" target="_blank" rel="noopener">官方文档</a>；</p></li></ul><h3 id="2-3-ngx-http-upstream-module"><a class="header-anchor" href="#2-3-ngx-http-upstream-module"> </a>2.3、ngx_http_upstream_module</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">upstream backend &#123;</span><br><span class="line">    server backend1.example1.com:8083 max_conns=10;</span><br><span class="line">    server backend2.example2.com:8084 max_conns=10;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">server &#123;</span><br><span class="line">    location / &#123;</span><br><span class="line">        proxy_pass http://backend;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><ul><li><p>max_conns：从1.5.9版本后开支持该参数（商业版本中），从1.11.5版本之后非商业版本也可以使用；</p><ul><li>语法：<code>max_conns=number</code></li><li>示例解释：限制连接后端服务器的最大连接数为<code>10</code>；</li><li>配置位置：可配置于<code>upstream</code>中；</li></ul></li><li><p>更多参数请参考<code>ngx_http_upstream_module</code>模块的<a href="http://nginx.org/en/docs/http/ngx_http_upstream_module.html" target="_blank" rel="noopener">官方文档</a>；</p></li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Nginx </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>rsync指令的使用与算法解析 - 每周指令</title>
       <link href="/2019/10/20/command-rsync/"/>
       <url>/2019/10/20/command-rsync/</url>
@@ -824,25 +841,6 @@
     </entry>
     
     <entry>
-      <title>Mac下的常用指令</title>
-      <link href="/2018/01/01/commands-mac/"/>
-      <url>/2018/01/01/commands-mac/</url>
-      
-        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Commands </tag>
-            
-            <tag> Mac </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>Linux下的常用指令</title>
       <link href="/2018/01/01/commands-linux/"/>
       <url>/2018/01/01/commands-linux/</url>
@@ -856,6 +854,25 @@
             <tag> Linux </tag>
             
             <tag> Commands </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Mac下的常用指令</title>
+      <link href="/2018/01/01/commands-mac/"/>
+      <url>/2018/01/01/commands-mac/</url>
+      
+        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Commands </tag>
+            
+            <tag> Mac </tag>
             
         </tags>
       
