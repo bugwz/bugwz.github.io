@@ -902,19 +902,19 @@
     </entry>
     
     <entry>
-      <title>Mac下的常用指令</title>
-      <link href="/2018/01/01/commands-mac/"/>
-      <url>/2018/01/01/commands-mac/</url>
+      <title>TCP状态转换详解</title>
+      <link href="/2018/05/20/tcp-state-transition/"/>
+      <url>/2018/05/20/tcp-state-transition/</url>
       
-        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+        <content type="html"><![CDATA[<h2 id="一-tcp的状态转换图示"><a class="header-anchor" href="#一-tcp的状态转换图示"> </a>一、TCP的状态转换图示</h2><p><img src="https://cdn.bugwz.com/tcp-state-transition.png" alt="状态转换图解"></p><h3 id="1-1-tcp标志位"><a class="header-anchor" href="#1-1-tcp标志位"> </a>1.1、TCP标志位</h3><ul><li><code>SYN</code>：置1时用来发起一个连接；</li><li><code>ACK</code>：置1时表示确认号为合法，为0的时候表示数据段不包含确认信息，确认号被忽略；</li><li><code>PSH</code>：置1时请求的数据段在接收方得到后就可直接送到应用程序，而不必等到缓冲区满时才传送；</li><li><code>FIN</code>：置1时表示发端完成发送任务。用来释放连接，表明发送方已经没有数据发送了；</li><li><code>RST</code>：置1时重建连接。如果接收到RST位时候，通常发生了某些错误；</li><li><code>URG</code>：紧急指针，告诉接收TCP模块紧要指针域指着紧要数据；</li></ul><h3 id="1-2-tcp的状态含义"><a class="header-anchor" href="#1-2-tcp的状态含义"> </a>1.2、TCP的状态含义</h3><ul><li><code>CLOSED</code>：虚拟的起始点，在连接超时或者关闭时候进入此状态，这并不是一个真正的状态，而是一个假想的起点和终点；</li><li><code>LISTEN</code>：表示服务器端的某个 SOCKET 处于监听状态，可以接受客户端的连接；</li><li><code>SYN_SENT</code>：表示客户端已经发送了<code>SYN</code>报文。当客户端 SOCKET 执行 <code>connect()</code> 进行连接时，它首先发送 <code>SYN</code> 报文，然后随即进入到 <code>SYN_SENT</code> 状态，该状态</li><li><code>SYN_RCVD</code>：表示服务器已经接收到了 <code>SYN</code> 报文，并且已经向客户端发送了<code>SYN</code>和<code>ACK</code>报文。在正常情况下，这是服务器端的一个短暂的中间状态，基本上用 <code>netstat</code> 很难看到这种状态。当 TCP 连接处于此状态时，再收到客户端的<code>ACK</code> 报文，它就会进入到 <code>ESTABLISHED</code> 状态；</li><li><code>ESTABLISHED</code>：表示 TCP 连接已经成功建立，数据可以进行传输；</li><li><code>FIN_WAIT_1</code>：表示主动关闭连接的一方已经向对方发送了<code>FIN</code>报文；</li><li><code>FIN_WAIT_2</code>：表示主动关闭连接的一方已经收到了对方发送的<code>ACK</code>报文。该状态有时可以用 netstat 看到；</li><li><code>CLOSE_WAIT</code>：表示被动关闭连接的一方已经收到了对方发送的<code>FIN</code>报文，并且自己已经发送了一个<code>ACK</code>报文给对方。接下来需要检查自己是否还有数据要发送给对方，如果没有的话就可以执行 <code>close()</code> 关闭这个 SOCKET 并发送 <code>FIN</code> 报文给对方，即关闭自己到对方这个方向的连接。有数据的话依据具体的策略（继续发送或者丢弃）去执行；</li><li><code>CLOSING</code>：表示主动关闭连接的一方收到了对方发送的<code>FIN</code>报文，并没有收到对方的<code>ACK</code>报文，表示双方都正在关闭 SOCKET 连接。这种状态比较少见，但当双方几乎在同时 <code>close()</code> 一个 SOCKET 的话，就出现了双方同时发送 <code>FIN</code> 报文的情况，这时就会出现 <code>CLOSING</code> 状态；</li><li><code>LAST_ACK</code>：表示被动关闭连接的一方已经发送了<code>FIN</code>报文，正在等待对方的<code>ACK</code>报文；</li><li><code>TIME_WAIT</code>：表示主动关闭的一方已经收到了对方的<code>FIN</code>报文，并且也已经发送出了<code>ACK</code>报文。<code>TIME_WAIT</code>状态下的 TCP 连接会等待 <code>2*MSL</code>（<code>Max Segment Lifetime</code>，最大分段生存期，指一个 TCP 报文在 Internet 上的最长生存时间。每个具体的 TCP 协议实现都必须选择一个确定的 <code>MSL</code> 值，<code>RFC 1122</code> 建议是 <code>2 分钟</code>，但 <code>BSD</code> 传统实现采用了 <code>30 秒</code>，Linux 可以 <code>cat /proc/sys/net/ipv4/tcp_fin_timeout</code> 看到本机的这个值）;</li></ul><h2 id="二-tcp的握手与挥手"><a class="header-anchor" href="#二-tcp的握手与挥手"> </a>二、TCP的握手与挥手</h2><p><img src="https://cdn.bugwz.com/tcp-communication.png" alt="TCP通信过程"></p><h3 id="三-一些问题"><a class="header-anchor" href="#三-一些问题"> </a>三、一些问题</h3><h3 id="3-1-为什么建立连接协议是三次握手-而关闭连接却是四次握手呢？"><a class="header-anchor" href="#3-1-为什么建立连接协议是三次握手-而关闭连接却是四次握手呢？"> </a>3.1、为什么建立连接协议是三次握手，而关闭连接却是四次握手呢？</h3><p>服务端的 LISTEN 状态下的 SOCKET 当收到 SYN 报文的连接请求后，它可以把 ACK 和 SYN（ACK 起应答作用，而 SYN 起同步作用）放在一个报文里来发送。但关闭连接时，当收到对方的 FIN 报文通知时，它仅仅表示对方没有数据发送给你了；但未必你所有的数据都全部发送给对方了，所以你可以未必会马上会关闭 SOCKET，也即你可能还需要发送一些数据给对方之后，再发送 FIN 报文给对方来表示你同意现在可以关闭连接了，所以它这里的 ACK 报文和 FIN 报文多数情况下都是分开发送的。</p><h3 id="3-2-为什么-time-wait-状态还需要等-2msl-后才能返回到-closed-状态？"><a class="header-anchor" href="#3-2-为什么-time-wait-状态还需要等-2msl-后才能返回到-closed-状态？"> </a>3.2、为什么 TIME_WAIT 状态还需要等 2MSL 后才能返回到 CLOSED 状态？</h3><ul><li><p>**可靠的实现 TCP 全双工连接的终止：**TCP 协议在关闭连接的四次握手过程中，最终的 ACK 是由主动关闭连接的一端（后面统称 A 端）发出的，如果这个<code>ACK</code> 丢失，对方（后面统称 B 端）将重发出最终的 <code>FIN</code>，因此 A 端必须维护状态信息（TIME_WAIT）允许它重发最终的 <code>ACK</code>。如果 A 端不维持 <code>TIME_WAIT</code>状态，而是处于 <code>CLOSED</code>状态，那么 A 端将响应 <code>RST</code> 分节，B 端收到后将此分节解释成一个错误。因而，要实现 TCP 全双工连接的正常终止，必须处理终止过程中四个分节任何一个分节的丢失情况，主动关闭连接的 A 端必须维持 <code>TIME_WAIT</code> 状态 。</p></li><li><p>**允许老的重复分节在网络中消逝（<code>避免同一端口对应多个套接字</code>）：**TCP 分节可能由于路由器异常而迷途，在迷途期间，TCP 发送端可能因确认超时而重发这个分节，迷途的分节在路由器修复后也会被送到最终目的地，这个迟到的迷途分节到达时可能会引起问题。在关闭前一个连接之后，马上又重新建立起一个相同的 IP 和端口之间的新连接，前一个连接的迷途重复分组在前一个连接终止后到达，而被新连接收到了。为了避免这个情况，TCP 协议不允许处于 <code>TIME_WAIT</code> 状态的连接启动一个新的可用连接，因为 <code>TIME_WAIT</code> 状态持续 <code>2MSL</code>，就可以保证当成功建立一个新 TCP 连接的时候，来自旧连接重复分组已经在网络中消逝；</p></li></ul><h3 id="3-3-关闭-tcp-连接一定需要四次挥手吗？"><a class="header-anchor" href="#3-3-关闭-tcp-连接一定需要四次挥手吗？"> </a>3.3、关闭 TCP 连接一定需要四次挥手吗？</h3><p>不一定，四次挥手关闭 TCP 连接是最安全的做法。但在有些时候，我们不喜欢 <code>TIME_WAIT</code> 状态（如当 <code>MSL</code> 数值设置过大导致服务器端有太多<code>TIME_WAIT</code> 状态的 TCP 连接，减少这些条目数可以更快地关闭连接，为新连接释放更多资源），这时我们可以通过设置 SOCKET 变量的 <code>SO_LINGER</code> 标志来避免 SOCKET 在 close() 之后进入 <code>TIME_WAIT</code> 状态，这时将通过发送 <code>RST</code> 强制终止 <code>TCP</code> 连接（取代正常的 TCP 四次握手的终止方式）；</p>]]></content>
       
       
       
         <tags>
             
-            <tag> Commands </tag>
+            <tag> Network </tag>
             
-            <tag> Mac </tag>
+            <tag> TCP/IP </tag>
             
         </tags>
       
@@ -934,6 +934,25 @@
             <tag> Linux </tag>
             
             <tag> Commands </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Mac下的常用指令</title>
+      <link href="/2018/01/01/commands-mac/"/>
+      <url>/2018/01/01/commands-mac/</url>
+      
+        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Commands </tag>
+            
+            <tag> Mac </tag>
             
         </tags>
       
@@ -1224,25 +1243,6 @@
     </entry>
     
     <entry>
-      <title>初次使用Servlet-JSP笔记-1</title>
-      <link href="/2016/11/29/jsp-1/"/>
-      <url>/2016/11/29/jsp-1/</url>
-      
-        <content type="html"><![CDATA[<h2 id="一-环境"><a class="header-anchor" href="#一-环境"> </a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二-课堂学习目标"><a class="header-anchor" href="#二-课堂学习目标"> </a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三-开始"><a class="header-anchor" href="#三-开始"> </a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择&quot;源码&quot;,然后选择&quot;覆盖/实现方法&quot;中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a class="header-anchor" href="#题外话：什么是web-xml文件？"> </a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。</p><h1 id="继续"><a class="header-anchor" href="#继续"> </a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为&quot;servlet所属包名.servlet的类名&quot;，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Notes </tag>
-            
-            <tag> JSP </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
       <link href="/2016/11/29/jsp-2/"/>
       <url>/2016/11/29/jsp-2/</url>
@@ -1258,6 +1258,25 @@
             <tag> JSP </tag>
             
             <tag> Campus </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>初次使用Servlet-JSP笔记-1</title>
+      <link href="/2016/11/29/jsp-1/"/>
+      <url>/2016/11/29/jsp-1/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-环境"><a class="header-anchor" href="#一-环境"> </a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二-课堂学习目标"><a class="header-anchor" href="#二-课堂学习目标"> </a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三-开始"><a class="header-anchor" href="#三-开始"> </a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择&quot;源码&quot;,然后选择&quot;覆盖/实现方法&quot;中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a class="header-anchor" href="#题外话：什么是web-xml文件？"> </a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。</p><h1 id="继续"><a class="header-anchor" href="#继续"> </a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为&quot;servlet所属包名.servlet的类名&quot;，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Notes </tag>
+            
+            <tag> JSP </tag>
             
         </tags>
       
