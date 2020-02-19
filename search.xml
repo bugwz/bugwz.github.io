@@ -3,6 +3,25 @@
   
     
     <entry>
+      <title>SSD存储结构对比分析</title>
+      <link href="/2020/02/01/ssd-storage-structure/"/>
+      <url>/2020/02/01/ssd-storage-structure/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p>SSD的存储单元包含如下几种：SLC、MLC、TLC和QLC，下面对比分析一下这几种存储颗粒的差异。</p><h2 id="二-slc-single-level-cell"><a class="header-anchor" href="#二-slc-single-level-cell"> </a>二、SLC（Single-Level Cell）</h2><p>每个<code>Cell</code>单元存储<code>1bit</code>信息，也就是只有<code>0</code>、<code>1</code>两种电压变化，结构简单，电压控制也快速；</p><h3 id="2-1-优缺点"><a class="header-anchor" href="#2-1-优缺点"> </a>2.1、优缺点</h3><ul><li><p><strong>优点：</strong></p><ul><li>寿命长，性能强；</li><li>读写速度最快的NAND闪存芯片规格；</li><li>与任何其他类型的闪存相比，擦写寿命和读写循环的周期最长；</li><li>读取/写入错误的发生几率更小，并可在跨度更大的温度范围内正常运行；</li></ul></li><li><p><strong>缺点：</strong></p><ul><li>容量低，成本高；</li><li>市场上最昂贵的NAND闪存类型；</li><li>通常只有较小的容量；</li></ul></li></ul><h3 id="2-2-适用对象"><a class="header-anchor" href="#2-2-适用对象"> </a>2.2、适用对象</h3><ul><li>需要大量读取/写入周期的工业级负载，例如服务器；</li></ul><h2 id="三-mlc-multi-level-cell"><a class="header-anchor" href="#三-mlc-multi-level-cell"> </a>三、MLC（Multi-Level Cell）</h2><p>每个<code>cell</code>单元存储<code>2bit</code>信息，需要更复杂的电压控制，有<code>00</code>，<code>01</code>，<code>10</code>，<code>11</code>四种变化，这也意味着写入性能、可靠性能降低了。其P/E寿命根据不同制程在3000-5000次不等。</p><h3 id="3-1-优缺点"><a class="header-anchor" href="#3-1-优缺点"> </a>3.1、优缺点</h3><ul><li><p><strong>优点：</strong></p><ul><li>扩展的SSD的容量，也拥有合理的性价比；</li><li>比TLC闪存表现更加稳定；</li></ul></li><li><p><strong>缺点：</strong></p><ul><li>不如SLC闪存那般耐用可靠；</li></ul></li></ul><h3 id="3-2-适用对象"><a class="header-anchor" href="#3-2-适用对象"> </a>3.2、适用对象</h3><ul><li>较频繁地使用计算机的用户或游戏玩家；</li></ul><h2 id="四-tlc-trinary-level-cell"><a class="header-anchor" href="#四-tlc-trinary-level-cell"> </a>四、TLC（Trinary-Level Cell）</h2><p>每个<code>cell</code>单元存储<code>3bit</code>信息，电压从<code>000</code>到<code>111</code>有8种变化，容量比<code>MLC</code>再次增加<code>1/3</code>，成本更低，但是架构更复杂，P/E编程时间长，写入速度慢，P/E寿命也降至1000-3000次，部分情况会更低。寿命短只是相对而言的，通常来讲，经过重度测试的TLC颗粒正常使用5年以上是没有问题的。</p><h3 id="4-1-优缺点"><a class="header-anchor" href="#4-1-优缺点"> </a>4.1、优缺点</h3><ul><li><strong>优点：</strong><ul><li>较低的生产成本开启了廉价大容量SSD市场；</li></ul></li><li><strong>缺点：</strong><ul><li>与SLC、MLC相比，TLC储存单元的擦写寿命要短得多；</li><li>理论上读写速度与SLC、MLC相比较慢；</li></ul></li></ul><h3 id="4-2-适用对象"><a class="header-anchor" href="#4-2-适用对象"> </a>4.2、适用对象</h3><ul><li>对存储需求不大的轻度使用需求的计算机用户，比如只使用上网、邮件等简单功能的上网本、平板；</li></ul><h2 id="五-qlc-4bit-mlc"><a class="header-anchor" href="#五-qlc-4bit-mlc"> </a>五、QLC（4bit MLC）</h2><p>电压有<code>16</code>种变化，但是容量能增加<code>33%</code>，就是写入性能、P/E寿命与TLC相比会进一步降低。具体的性能测试上，美光有做过实验。读取速度方面，SATA接口中的二者都可以达到540MB/S，QLC表现差在写入速度上，因为其P/E编程时间就比MLC、TLC更长，速度更慢，连续写入速度从520MB/s降至360MB/s，随机性能更是从9500 IOPS降至5000 IOPS，损失将近一半。</p><h3 id="5-1-优缺点"><a class="header-anchor" href="#5-1-优缺点"> </a>5.1、优缺点</h3><ul><li><strong>优点：</strong><ul><li>总成本更低，进行存储时依靠更少驱动器来实现；</li><li>具有更多容量，储存密度高，从而获得更好的效益；</li></ul></li><li><strong>缺点：</strong><ul><li>与SLC、MLC相比，QLC的性能和写入寿命有所降低，但与TLC相当；</li></ul></li></ul><h3 id="5-2-适用对象"><a class="header-anchor" href="#5-2-适用对象"> </a>5.2、适用对象</h3><ul><li>比较适合把SSD作为数据仓库的用户；</li><li>对数据存储量的需求较大、平时对计算机进行轻度使用（写入操作少）、或者追求较低价格，建议选用；</li></ul><h2 id="六-性能对比"><a class="header-anchor" href="#六-性能对比"> </a>六、性能对比</h2><p>在客观限制条件一致的前提下理论的对比数据以及存储单元结构如下所示；</p><table><thead><tr><th style="text-align:center">对比项目</th><th style="text-align:center">SLC</th><th style="text-align:center">MLC</th><th style="text-align:center">TLC</th><th style="text-align:center">QLC</th></tr></thead><tbody><tr><td style="text-align:center">读写性能</td><td style="text-align:center">最好</td><td style="text-align:center">好</td><td style="text-align:center">差</td><td style="text-align:center">最差</td></tr><tr><td style="text-align:center">价格</td><td style="text-align:center">最高</td><td style="text-align:center">高</td><td style="text-align:center">低</td><td style="text-align:center">最低</td></tr><tr><td style="text-align:center">存储空间</td><td style="text-align:center">最小</td><td style="text-align:center">小</td><td style="text-align:center">大</td><td style="text-align:center">最大</td></tr><tr><td style="text-align:center">擦写寿命</td><td style="text-align:center">最长</td><td style="text-align:center">长</td><td style="text-align:center">短</td><td style="text-align:center">最短</td></tr></tbody></table><p><img src="https://cdn.bugwz.com/ssd-storage-structure.png" alt="存储结构对比"></p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> SSD </tag>
+            
+            <tag> Hardware </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>HAProxy的学习与使用</title>
       <link href="/2020/01/01/haproxy/"/>
       <url>/2020/01/01/haproxy/</url>
@@ -883,25 +902,6 @@
     </entry>
     
     <entry>
-      <title>Linux下的常用指令</title>
-      <link href="/2018/01/01/commands-linux/"/>
-      <url>/2018/01/01/commands-linux/</url>
-      
-        <content type="html"><![CDATA[<h3 id="cpu相关"><a class="header-anchor" href="#cpu相关"> </a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'physical id'</span> | sort -u | wc -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'cpu cores'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'processor'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a class="header-anchor" href="#内存相关"> </a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line">cat /proc/meminfo | grep <span class="string">'Huge'</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag'</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled'</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="docker相关"><a class="header-anchor" href="#docker相关"> </a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Linux </tag>
-            
-            <tag> Commands </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>Mac下的常用指令</title>
       <link href="/2018/01/01/commands-mac/"/>
       <url>/2018/01/01/commands-mac/</url>
@@ -915,6 +915,25 @@
             <tag> Commands </tag>
             
             <tag> Mac </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Linux下的常用指令</title>
+      <link href="/2018/01/01/commands-linux/"/>
+      <url>/2018/01/01/commands-linux/</url>
+      
+        <content type="html"><![CDATA[<h3 id="cpu相关"><a class="header-anchor" href="#cpu相关"> </a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'physical id'</span> | sort -u | wc -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'cpu cores'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'processor'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a class="header-anchor" href="#内存相关"> </a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line">cat /proc/meminfo | grep <span class="string">'Huge'</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag'</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled'</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="docker相关"><a class="header-anchor" href="#docker相关"> </a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
