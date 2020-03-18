@@ -53,9 +53,9 @@
             
             <tag> Linux </tag>
             
-            <tag> Commands </tag>
-            
             <tag> lsof </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
@@ -653,11 +653,11 @@
             
             <tag> Linux </tag>
             
-            <tag> hashlimit </tag>
-            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
+            
+            <tag> hashlimit </tag>
             
         </tags>
       
@@ -1090,6 +1090,25 @@
         <tags>
             
             <tag> Notes </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Hash表数据分布及冲突解决方法</title>
+      <link href="/2017/03/01/hash/"/>
+      <url>/2017/03/01/hash/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-hash表基本概念"><a class="header-anchor" href="#一-hash表基本概念"> </a>一、Hash表基本概念</h2><h3 id="1-1-装填因子"><a class="header-anchor" href="#1-1-装填因子"> </a>1.1、装填因子</h3><p>装填因子 = （哈希表中的记录数） /  （哈希表的长度）</p><p>装填因子是哈希表装满程度的标记因子。值越大，填入表中的数据元素越多，产生冲突的可能性越大。</p><h2 id="二-hash函数"><a class="header-anchor" href="#二-hash函数"> </a>二、Hash函数</h2><h3 id="2-1-直接寻址法"><a class="header-anchor" href="#2-1-直接寻址法"> </a>2.1、直接寻址法</h3><p>将某个关键字或者关键字的某个线性函数值作为哈希地址，即<code>Func(Key)=a*Key+b</code>，其中a和b为整数；这种散列函数也叫做自身函数，如果<code>Func(Key)</code>的哈希地址上已经有值了，那么就往下一个位置找，直到找到<code>Func(Key)</code>的位置没有值了就把元素放进去。</p><h3 id="2-2-数字分析法"><a class="header-anchor" href="#2-2-数字分析法"> </a>2.2、数字分析法</h3><p>分析要写入的数据，依据数据的特性，选择数字出现冲突率较低的部分列来构造哈希地址，因此数字分析法就是找出数字的规律，尽可能利用这些数据来构造冲突几率较低的散列地址。</p><h3 id="2-3-平方取中法"><a class="header-anchor" href="#2-3-平方取中法"> </a>2.3、平方取中法</h3><p>取一个数平方后的中间几位作为散列地址，一个数的平方值的中间几位和数的每一位都有关。因此，利用平方取中法得到的哈希地址同数字的每一位都有关，这样的哈希地址具有较好的分散性。该方法适用于关键字中的每一位取值都不够分散或者较分散的位数小于哈希地址所需要的位数的情况。</p><h3 id="2-4-折叠法"><a class="header-anchor" href="#2-4-折叠法"> </a>2.4、折叠法</h3><p>折叠法即将关键字分割成位数相同的几部分，最后一部分位数可以不同，然后取这几部分的叠加和（注意：叠加和时去除进位）作为散列地址，数位叠加可以有<code>移位叠加</code>和<code>间界叠加</code>两种方法：</p><ul><li><code>移位叠加</code>：将分割后的每一部分的最低位对齐，然后相加;</li><li><code>间界叠加</code>：从一端向另一端沿分割界来回折叠，然后对齐相加；</li></ul><h3 id="2-5-随机数法"><a class="header-anchor" href="#2-5-随机数法"> </a>2.5、随机数法</h3><p>选择一个随机数，去关键字的随机值作为散列地址，通常用于关键字长度不同的场合。</p><h3 id="2-6-取余数法-比较常用"><a class="header-anchor" href="#2-6-取余数法-比较常用"> </a>2.6、取余数法（比较常用）</h3><p>取关键字被某个不大于散列表长度的基数p，除后所得的余数为散列地址，即<code>Func(Key)=Key MOD p</code>，其中<code>p&lt;=m</code>。不仅可以对关键字直接取模，也可在折叠、平方取中等运算之后取模。对<code>p</code>的选择很重要，一般取<code>素数</code>，若<code>p</code>选得不好，则很容易产生冲突，一般<code>p</code>取值为哈希表的长度。</p><h2 id="三-hash冲突解决方法"><a class="header-anchor" href="#三-hash冲突解决方法"> </a>三、Hash冲突解决方法</h2><h3 id="3-1-开放定址法-线性探测法"><a class="header-anchor" href="#3-1-开放定址法-线性探测法"> </a>3.1、开放定址法（线性探测法）</h3><p>线性探测法的地址增量<code>di = 1, 2, ... , m-1</code>，其中<code>i</code>为探测次数。该方法一次探测一个地址（上次探测的下一个地址），直到有空的地址后插入，若整个空间都找不到空余的地址，则产生溢出。</p><p>线性探测容易产生<code>聚集现象</code>，当表中的第<code>i</code>、<code>i+1</code>、<code>i+2</code>的位置上已经存储某些关键字，则下一次哈希地址为<code>i</code>、<code>i+1</code>、<code>i+2</code>、<code>i+3</code>的关键字都将企图填入到<code>i+3</code>的位置上，这种多个哈希地址不同的关键字争夺同一个后继哈希地址的现象称为<code>聚集</code>。聚集对查找效率有很大影响。</p><h3 id="3-2-链地址法-拉链法"><a class="header-anchor" href="#3-2-链地址法-拉链法"> </a>3.2、链地址法（拉链法）</h3><p>将所有具有相同哈希地址的而不同关键字的数据元素连接到同一个单链表中。如果选定的哈希表长度为<code>m</code>，则可将哈希表定义为一个有<code>m</code>个头指针组成的指针数组<code>T[0..m-1]</code>，凡是哈希地址为<code>i</code>的数据元素，均以节点的形式插入到<code>T[i]</code>为头指针的单链表中。并且新的元素插入到链表的前端（通常新插入的元素可能不久又会被访问）。</p><p><strong>特点：</strong></p><ul><li>处理冲突简单，且无堆积现象，即非同义词决不会发生冲突，因此平均查找长度较短；</li><li>由于各链表上的节点空间是动态申请的，因此它更适合于造表前无法确定表长的情况；</li><li>开放定址法为减少冲突，要求装填因子<code>α</code>较小，故当结点规模较大时会浪费很多空间，而拉链法中可取<code>α≥1</code>，且结点较大时，拉链法中增加的指针域可忽略不计，因此节省空间；</li><li>删除结点的操作易于实现，只要简单地删去链表上相应的结点即可。对于使用开放定址法构造的散列表，删除结点不能简单地将被删节点的空间置为空，否则将截断在它之后填入哈希表的同义词节点的查找路径。这是因为在开放定址法中，空地址单元(即开放地址)都是查找失败的条件。因此在用开放定址法处理冲突的散列表上执行删除操作，只能在被删结点上做删除标记，而不能真正删除结点。</li></ul><h3 id="3-3-再哈希法-二次哈希法"><a class="header-anchor" href="#3-3-再哈希法-二次哈希法"> </a>3.3、再哈希法（二次哈希法）</h3><p>同时构造多个不同的哈希函数： <code>Func1 = RH1(key)</code>  ， <code>Func2 = RH2(key)</code> ，当<code>Func1 = RH1(key)</code>  发生冲突时，再用<code>Func2 = RH2(key)</code> 进行计算，直到冲突不再产生，这种方法不易产生聚集，但是增加了计算时间。</p><h2 id="四-平均查找长度计算"><a class="header-anchor" href="#四-平均查找长度计算"> </a>四、平均查找长度计算</h2><h3 id="4-1-公式"><a class="header-anchor" href="#4-1-公式"> </a>4.1、公式</h3><table><thead><tr><th style="text-align:center">处理冲突的方法</th><th style="text-align:center">平均查找长度【查找成功】</th><th style="text-align:center">平均查找长度【查找失败】</th></tr></thead><tbody><tr><td style="text-align:center">线性探测法</td><td style="text-align:center">$S_(nl) \approx \frac{1}{2}(1+\frac{1}{1-\alpha})$</td><td style="text-align:center">$U_(nl) \approx \frac{1}{2}(1+\frac{1} {(1-\alpha)^2})$</td></tr><tr><td style="text-align:center">二次探测法和双哈希法</td><td style="text-align:center">$S_(nr) \approx-\frac{1}{\alpha}\ln(1-\alpha)$</td><td style="text-align:center">$U_(nr) \approx \frac{1}{1-\alpha}$</td></tr><tr><td style="text-align:center">链地址法</td><td style="text-align:center">$S_(nc) \approx 1+\frac{\alpha}{2}$</td><td style="text-align:center">$U_(nc) \approx \alpha + e^{-\alpha} $</td></tr></tbody></table><h3 id="4-2-示例"><a class="header-anchor" href="#4-2-示例"> </a>4.2、示例</h3><p>假设散列表的长度是<code>13</code>，散列函数为<code>H(K) = k % 13</code>，给定的关键字序列为<code>{32， 14， 23， 01， 42， 20， 45， 27， 55， 24， 10， 53}</code>。分别画出用线性探测法和拉链法解决冲突时构造的哈希表，并求出在等概率情况下，这两种方法的查找成功和查找不成功的平均查找长度。</p><h4 id="4-2-1-线性探测法"><a class="header-anchor" href="#4-2-1-线性探测法"> </a>4.2.1、线性探测法</h4><p><img src="https://cdn.bugwz.com/hash-linear-detection.png" alt="线性探测法计算"></p><h4 id="4-2-2-链地址法"><a class="header-anchor" href="#4-2-2-链地址法"> </a>4.2.2、链地址法</h4><p><img src="https://cdn.bugwz.com/hash-chain-address.png" alt="链地址法计算"></p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Algorithm </tag>
+            
+            <tag> Hash </tag>
             
         </tags>
       
