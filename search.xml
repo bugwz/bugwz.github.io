@@ -91,9 +91,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> C/C++ </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Makefile </tag>
             
@@ -567,9 +567,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> C/C++ </tag>
+            
+            <tag> Notes </tag>
             
             <tag> Redis </tag>
             
@@ -630,9 +630,9 @@
       
         <tags>
             
-            <tag> Tools </tag>
-            
             <tag> C/C++ </tag>
+            
+            <tag> Tools </tag>
             
             <tag> Format </tag>
             
@@ -653,11 +653,11 @@
             
             <tag> Linux </tag>
             
+            <tag> hashlimit </tag>
+            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
-            
-            <tag> hashlimit </tag>
             
         </tags>
       
@@ -794,9 +794,9 @@
             
             <tag> Linux </tag>
             
-            <tag> Notes </tag>
-            
             <tag> C/C++ </tag>
+            
+            <tag> Notes </tag>
             
         </tags>
       
@@ -849,11 +849,11 @@
       
         <tags>
             
+            <tag> C/C++ </tag>
+            
             <tag> Notes </tag>
             
             <tag> Tools </tag>
-            
-            <tag> C/C++ </tag>
             
             <tag> GDB </tag>
             
@@ -940,25 +940,6 @@
     </entry>
     
     <entry>
-      <title>Linux下的常用指令</title>
-      <link href="/2018/01/01/commands-linux/"/>
-      <url>/2018/01/01/commands-linux/</url>
-      
-        <content type="html"><![CDATA[<h3 id="cpu相关"><a class="header-anchor" href="#cpu相关"> </a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'physical id'</span> | sort -u | wc -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'cpu cores'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'processor'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a class="header-anchor" href="#内存相关"> </a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line">cat /proc/meminfo | grep <span class="string">'Huge'</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag'</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled'</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="docker相关"><a class="header-anchor" href="#docker相关"> </a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Linux </tag>
-            
-            <tag> Commands </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>Mac下的常用指令</title>
       <link href="/2018/01/01/commands-mac/"/>
       <url>/2018/01/01/commands-mac/</url>
@@ -972,6 +953,25 @@
             <tag> Commands </tag>
             
             <tag> Mac </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Linux下的常用指令</title>
+      <link href="/2018/01/01/commands-linux/"/>
+      <url>/2018/01/01/commands-linux/</url>
+      
+        <content type="html"><![CDATA[<h3 id="cpu相关"><a class="header-anchor" href="#cpu相关"> </a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'physical id'</span> | sort -u | wc -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'cpu cores'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'processor'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a class="header-anchor" href="#内存相关"> </a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line">cat /proc/meminfo | grep <span class="string">'Huge'</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag'</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled'</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="docker相关"><a class="header-anchor" href="#docker相关"> </a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
@@ -1035,6 +1035,25 @@
             <tag> Notes </tag>
             
             <tag> Tools </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>C语言中有趣的烫烫烫</title>
+      <link href="/2017/06/04/c-encoding-problem/"/>
+      <url>/2017/06/04/c-encoding-problem/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-现象"><a class="header-anchor" href="#一-现象"> </a>一、现象</h2><p>在学校使用Windows下的Visual Studio 2017进行课堂C的学习过程中遇到过很多类似于<code>烫烫烫烫烫烫</code>，<code>锟斤拷</code>，<code>屯屯屯</code>等比较有意思的乱码，也闹出了一些比较有意思的事情。</p><p>以下是部分乱码在不同的编码类型下的编码值：</p><table><thead><tr><th style="text-align:center">字符</th><th style="text-align:center">简体中文(GB2312)</th><th style="text-align:center">Unicode</th><th style="text-align:center">Unicode (UTF-8)</th></tr></thead><tbody><tr><td style="text-align:center">烫</td><td style="text-align:center">CCCC</td><td style="text-align:center">EB70</td><td style="text-align:center">E783AB</td></tr><tr><td style="text-align:center">锟</td><td style="text-align:center">EFBF</td><td style="text-align:center">1F95</td><td style="text-align:center">E9949F</td></tr><tr><td style="text-align:center">斤</td><td style="text-align:center">BDEF</td><td style="text-align:center">A465</td><td style="text-align:center">E696A4</td></tr><tr><td style="text-align:center">拷</td><td style="text-align:center">BFBD</td><td style="text-align:center">F762</td><td style="text-align:center">E68BB7</td></tr><tr><td style="text-align:center">屯</td><td style="text-align:center">CDCD</td><td style="text-align:center">6F5C</td><td style="text-align:center">E5B1AF</td></tr><tr><td style="text-align:center">锘</td><td style="text-align:center">EFBB</td><td style="text-align:center">1895</td><td style="text-align:center">E99498</td></tr><tr><td style="text-align:center">傻</td><td style="text-align:center">C9B5</td><td style="text-align:center">BB50</td><td style="text-align:center">E582BB</td></tr></tbody></table><h2 id="二-分析"><a class="header-anchor" href="#二-分析"> </a>二、分析</h2><p>以上比较有意思的乱码情况仅出现在使用Visual Studio或者VC6.0自带的MSVC编译器进行编译时才会出现，也就是说通常只有在Windows环境下使用Visual Studio或者VC6.0进行代码开发，并且处于Debug的运行模式才会出现。</p><h3 id="2-1-烫-0xcccc"><a class="header-anchor" href="#2-1-烫-0xcccc"> </a>2.1、烫（0xCCCC）</h3><p>MSVC编译器会将<strong>未被初始化的栈内存</strong>使用<code>0XCC</code>进行填充，导致我们在使用为初始化的栈内存时便会出现<code>烫烫烫</code>的错误提示；</p><p><img src="https://cdn.bugwz.com/0xcccc.png" alt="烫（0xCCCC）"></p><h3 id="2-2-屯-0xcdcd"><a class="header-anchor" href="#2-2-屯-0xcdcd"> </a>2.2、屯（0xCDCD）</h3><p><strong>MSVC编译器会将</strong>未被初始化的堆内存使用<code>0XCD</code>进行填充，导致我们在使用为初始化的栈内存时便会出现<code>屯屯屯</code>的错误提示；</p><p><img src="https://cdn.bugwz.com/0xcdcd.png" alt="屯（0xCDCD）"></p><h3 id="2-3-锟斤拷"><a class="header-anchor" href="#2-3-锟斤拷"> </a>2.3、锟斤拷</h3><p><strong>锟斤拷</strong>涉及<code>Unicode</code>字符集转换问题，在编码转化你的过程中，当Unicode无法表示一个字符的时候，它会用一个占位符（U+FFFD REPLACEMENT CHARACTER）来表示这些文字。U+FFFD的UTF-8编码是<code>0xEFBFBD</code>，如果重复多次形成<strong>锟斤拷</strong>的盛状。</p><p><img src="https://cdn.bugwz.com/0xefbfbdefbfbd.png" alt="锟斤拷"></p><h3 id="2-4-锘"><a class="header-anchor" href="#2-4-锘"> </a>2.4、锘</h3><p>微软在 <code>UTF-8</code> 文件头部加上了 <code>EF BB BF BOM</code> 标志。在不支持 BOM 的环境下对其停止 UTF-8 解码失掉<strong>锘</strong>字，</p><p><code>BOM</code> 是 <code>Byte Order Mark</code> 的缩写。是UTF编码方案里用于标识编码的标准标记，在<code>UTF-16</code>里本来是<code>FF FE</code>，变成<code>UTF-8</code>就成了<code>EF BB BF</code>。这个标记是可选的，因为<code>UTF8</code>字节没有顺序，所以它可以被用来检测一个字节流是否是<code>UTF-8</code>编码的。</p><p><img src="https://cdn.bugwz.com/0xefbb.png" alt="锘"></p><p>参考地址：<a href="https://zhuanlan.zhihu.com/p/27253604" target="_blank" rel="noopener">https://zhuanlan.zhihu.com/p/27253604</a></p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> C/C++ </tag>
+            
+            <tag> Windows </tag>
             
         </tags>
       
@@ -1125,11 +1144,11 @@
       
         <tags>
             
+            <tag> Windows </tag>
+            
             <tag> Notions </tag>
             
             <tag> C# </tag>
-            
-            <tag> Windows </tag>
             
         </tags>
       
