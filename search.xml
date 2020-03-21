@@ -194,9 +194,9 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> Algorithm </tag>
             
             <tag> Base </tag>
             
@@ -447,9 +447,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> C/C++ </tag>
+            
+            <tag> Linux </tag>
             
             <tag> Redis </tag>
             
@@ -506,9 +506,9 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> Algorithm </tag>
             
         </tags>
       
@@ -609,9 +609,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> C/C++ </tag>
+            
+            <tag> Linux </tag>
             
             <tag> Redis </tag>
             
@@ -714,9 +714,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Memory </tag>
+            
+            <tag> Linux </tag>
             
         </tags>
       
@@ -754,9 +754,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> C/C++ </tag>
+            
+            <tag> Linux </tag>
             
         </tags>
       
@@ -792,9 +792,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> C/C++ </tag>
+            
+            <tag> Linux </tag>
             
             <tag> Notes </tag>
             
@@ -912,9 +912,9 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> Algorithm </tag>
             
         </tags>
       
@@ -940,25 +940,6 @@
     </entry>
     
     <entry>
-      <title>Mac下的常用指令</title>
-      <link href="/2018/01/01/commands-mac/"/>
-      <url>/2018/01/01/commands-mac/</url>
-      
-        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Commands </tag>
-            
-            <tag> Mac </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>Linux下的常用指令</title>
       <link href="/2018/01/01/commands-linux/"/>
       <url>/2018/01/01/commands-linux/</url>
@@ -972,6 +953,25 @@
             <tag> Linux </tag>
             
             <tag> Commands </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Mac下的常用指令</title>
+      <link href="/2018/01/01/commands-mac/"/>
+      <url>/2018/01/01/commands-mac/</url>
+      
+        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Commands </tag>
+            
+            <tag> Mac </tag>
             
         </tags>
       
@@ -1035,6 +1035,27 @@
             <tag> Notes </tag>
             
             <tag> Tools </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Linux的信号与信号量机制</title>
+      <link href="/2017/07/12/singnal-semaphore/"/>
+      <url>/2017/07/12/singnal-semaphore/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-信号-signal-机制"><a class="header-anchor" href="#一-信号-signal-机制"> </a>一、信号(Signal)机制</h2><p>Signal，又简称为信号（软中断信号）用来通知进程发生了异步事件，<strong>是一种处理异步事件的方式</strong>。一个进程不必通过任何操作来等待信号的到达，事实上，进程也不知道信号到底什么时候到达。进程之间可以互相通过系统调用kill发送软中断信号。内核也可以因为内部事件而给进程发送信号，通知进程发生了某个事件。信号机制除了基本通知功能外，还可以传递附加信息。</p><p>按照不同的分类角度（可靠性方面，与时间的关系上）可以对信号进行区分：</p><ul><li><strong>可靠信号（实时信号）</strong>：支持排队, 信号不会丢失，发多少次进程就可会收到多少次，信号值取值区间为<code>34</code>~<code>64</code>；</li><li><strong>不可靠信号（非实时信号）</strong>：不支持排队，信号可能会丢失，比如发送多次相同的信号，进程只能收到一次，信号值取值区间为<code>1</code>~<code>31</code>；</li></ul><h3 id="2-1-信号表"><a class="header-anchor" href="#2-1-信号表"> </a>2.1、信号表</h3><h4 id="2-1-1-不可靠信号-非实时信号-表"><a class="header-anchor" href="#2-1-1-不可靠信号-非实时信号-表"> </a>2.1.1、不可靠信号（非实时信号）表</h4><table><thead><tr><th style="text-align:center">取值</th><th style="text-align:center">名称</th><th style="text-align:center">解释</th><th style="text-align:center">取值</th><th style="text-align:center">名称</th><th style="text-align:center">解释</th></tr></thead><tbody><tr><td style="text-align:center">1</td><td style="text-align:center">SIGHUP</td><td style="text-align:center">挂起</td><td style="text-align:center">2</td><td style="text-align:center">SIGINT</td><td style="text-align:center">中断</td></tr><tr><td style="text-align:center">3</td><td style="text-align:center">SIGQUIT</td><td style="text-align:center">退出</td><td style="text-align:center">4</td><td style="text-align:center">SIGILL</td><td style="text-align:center">非法指令</td></tr><tr><td style="text-align:center">5</td><td style="text-align:center">SIGTRAP</td><td style="text-align:center">断点或陷阱指令</td><td style="text-align:center">6</td><td style="text-align:center">SIGABRT</td><td style="text-align:center">abort发出的信号</td></tr><tr><td style="text-align:center">7</td><td style="text-align:center">SIGBUS</td><td style="text-align:center">非法内存访问</td><td style="text-align:center">8</td><td style="text-align:center">SIGFPE</td><td style="text-align:center">浮点异常</td></tr><tr><td style="text-align:center">9</td><td style="text-align:center">SIGKILL</td><td style="text-align:center">kill信号</td><td style="text-align:center">10</td><td style="text-align:center">SIGUSR1</td><td style="text-align:center">用户信号1</td></tr><tr><td style="text-align:center">11</td><td style="text-align:center">SIGSEGV</td><td style="text-align:center">无效内存访问</td><td style="text-align:center">12</td><td style="text-align:center">SIGUSR2</td><td style="text-align:center">用户信号2</td></tr><tr><td style="text-align:center">13</td><td style="text-align:center">SIGPIPE</td><td style="text-align:center">管道破损，没有读端的管道写数据</td><td style="text-align:center">14</td><td style="text-align:center">SIGALRM</td><td style="text-align:center">alarm发出的信号</td></tr><tr><td style="text-align:center">15</td><td style="text-align:center">SIGTERM</td><td style="text-align:center">终止信号</td><td style="text-align:center">16</td><td style="text-align:center">SIGSTKFLT</td><td style="text-align:center">栈溢出</td></tr><tr><td style="text-align:center">17</td><td style="text-align:center">SIGCHLD</td><td style="text-align:center">子进程退出</td><td style="text-align:center">18</td><td style="text-align:center">SIGCONT</td><td style="text-align:center">进程继续</td></tr><tr><td style="text-align:center">19</td><td style="text-align:center">SIGSTOP</td><td style="text-align:center">进程停止</td><td style="text-align:center">20</td><td style="text-align:center">SIGTSTP</td><td style="text-align:center">进程停止</td></tr><tr><td style="text-align:center">21</td><td style="text-align:center">SIGTTIN</td><td style="text-align:center">进程停止，后台进程从终端读数据时</td><td style="text-align:center">22</td><td style="text-align:center">SIGTTOU</td><td style="text-align:center">进程停止，后台进程向终端写数据时</td></tr><tr><td style="text-align:center">23</td><td style="text-align:center">SIGURG</td><td style="text-align:center">I/O有紧急数据到达当前进程</td><td style="text-align:center">24</td><td style="text-align:center">SIGXCPU</td><td style="text-align:center">进程的CPU时间片到期</td></tr><tr><td style="text-align:center">25</td><td style="text-align:center">SIGXFSZ</td><td style="text-align:center">文件大小的超出上限</td><td style="text-align:center">26</td><td style="text-align:center">SIGVTALRM</td><td style="text-align:center">虚拟时钟超时</td></tr><tr><td style="text-align:center">27</td><td style="text-align:center">SIGPROF</td><td style="text-align:center">profile时钟超时</td><td style="text-align:center">28</td><td style="text-align:center">SIGWINCH</td><td style="text-align:center">窗口大小改变</td></tr><tr><td style="text-align:center">29</td><td style="text-align:center">SIGIO</td><td style="text-align:center">I/O相关</td><td style="text-align:center">30</td><td style="text-align:center">SIGPWR</td><td style="text-align:center">关机</td></tr><tr><td style="text-align:center">31</td><td style="text-align:center">SIGSYS</td><td style="text-align:center">系统调用异常</td><td style="text-align:center"></td><td style="text-align:center"></td><td style="text-align:center"></td></tr></tbody></table><h4 id="2-1-2-可靠信号-实时信号-表"><a class="header-anchor" href="#2-1-2-可靠信号-实时信号-表"> </a>2.1.2、可靠信号（实时信号）表</h4><table><thead><tr><th style="text-align:center">取值</th><th style="text-align:center">名称</th><th style="text-align:center">取值</th><th style="text-align:center">名称</th><th style="text-align:center">取值</th><th style="text-align:center">名称</th></tr></thead><tbody><tr><td style="text-align:center">34</td><td style="text-align:center">SIGRTMIN</td><td style="text-align:center">35</td><td style="text-align:center">SIGRTMIN+1</td><td style="text-align:center">36</td><td style="text-align:center">SIGRTMIN+2</td></tr><tr><td style="text-align:center">37</td><td style="text-align:center">SIGRTMIN+3</td><td style="text-align:center">38</td><td style="text-align:center">SIGRTMIN+4</td><td style="text-align:center">39</td><td style="text-align:center">SIGRTMIN+5</td></tr><tr><td style="text-align:center">40</td><td style="text-align:center">SIGRTMIN+6</td><td style="text-align:center">41</td><td style="text-align:center">SIGRTMIN+7</td><td style="text-align:center">42</td><td style="text-align:center">SIGRTMIN+8</td></tr><tr><td style="text-align:center">43</td><td style="text-align:center">SIGRTMIN+9</td><td style="text-align:center">44</td><td style="text-align:center">SIGRTMIN+10</td><td style="text-align:center">45</td><td style="text-align:center">SIGRTMIN+11</td></tr><tr><td style="text-align:center">46</td><td style="text-align:center">SIGRTMIN+12</td><td style="text-align:center">47</td><td style="text-align:center">SIGRTMIN+13</td><td style="text-align:center">48</td><td style="text-align:center">SIGRTMIN+14</td></tr><tr><td style="text-align:center">49</td><td style="text-align:center">SIGRTMIN+15</td><td style="text-align:center">50</td><td style="text-align:center">SIGRTMAX-14</td><td style="text-align:center">51</td><td style="text-align:center">SIGRTMAX-13</td></tr><tr><td style="text-align:center">52</td><td style="text-align:center">SIGRTMAX-12</td><td style="text-align:center">53</td><td style="text-align:center">SIGRTMAX-11</td><td style="text-align:center">54</td><td style="text-align:center">SIGRTMAX-10</td></tr><tr><td style="text-align:center">55</td><td style="text-align:center">SIGRTMAX-9</td><td style="text-align:center">56</td><td style="text-align:center">SIGRTMAX-8</td><td style="text-align:center">57</td><td style="text-align:center">SIGRTMAX-7</td></tr><tr><td style="text-align:center">58</td><td style="text-align:center">SIGRTMAX-6</td><td style="text-align:center">59</td><td style="text-align:center">SIGRTMAX-5</td><td style="text-align:center">60</td><td style="text-align:center">SIGRTMAX-4</td></tr><tr><td style="text-align:center">61</td><td style="text-align:center">SIGRTMAX-3</td><td style="text-align:center">62</td><td style="text-align:center">SIGRTMAX-2</td><td style="text-align:center">63</td><td style="text-align:center">SIGRTMAX-1</td></tr><tr><td style="text-align:center">64</td><td style="text-align:center">SIGRTMAX</td><td style="text-align:center"></td><td style="text-align:center"></td><td style="text-align:center"></td><td style="text-align:center"></td></tr></tbody></table><h3 id="2-2-信号触发"><a class="header-anchor" href="#2-2-信号触发"> </a>2.2、信号触发</h3><ul><li><strong>硬件方式：</strong><ul><li>终端输入：例如， <code>Ctrl + C(SIGINT)</code>、<code>Ctrl + \(SIGQUIT)</code>、<code>Ctrl + Z(SIGTSTP)</code>；</li><li>硬件检测异常：由硬件检测到并通知内核并由内核向当前进程发送适当的信号。例如除 0 导致 CPU 产生异常，内核将该异常解释为 <code>SIGFPE</code> 信号发送给进程，访问非法内存地址导致 MMU 产生异常，内核将该异常解释为 <code>SIGSEGV</code> 信号发送给进程；</li></ul></li><li><strong>软件方式：</strong><ul><li>使用如下指令给进程发送信号：<code>kill()</code>，<code>raise()</code>，<code>sigqueue()</code>，<code>alarm()</code>，<code>abort()</code>等；</li></ul></li></ul><h3 id="2-3-信号处理"><a class="header-anchor" href="#2-3-信号处理"> </a>2.3、信号处理</h3><ul><li><strong>默认</strong>：默认的处理方式；</li><li><strong>自定义</strong>：使用自定义的信号捕获函数捕获信号后进行处理；</li><li><strong>忽略</strong>：对指定信号不做处理；</li></ul><h2 id="二-信号量-semaphore-机制"><a class="header-anchor" href="#二-信号量-semaphore-机制"> </a>二、信号量（Semaphore）机制</h2><p>信号量在创建时需要设置一个初始值，表示同时可以有几个任务可以访问该信号量保护的共享资源，初始值为<code>1</code>就变成互斥锁（Mutex），即同时只能有一个任务可以访问信号量保护的共享资源，<strong>是进程间通信处理同步互斥的机制</strong>。</p><p>一个任务要想访问共享资源，首先必须得到信号量，获取信号量的操作将把信号量的值<code>减1</code>，若当前信号量的值为<code>负数</code>，表明无法获得信号量，该任务必须挂起在该信号量的等待队列等待该信号量可用；若当前信号量的值为<code>非负数</code>，表示可以获得信号量，因而可以立刻访问被该信号量保护的共享资源。</p><p>当任务访问完被信号量保护的共享资源后，必须释放信号量，释放信号量通过把信号量的值<code>加1</code>实现，如果信号量的值为<code>非正数</code>，表明有任务等待当前信号量，因此它也唤醒所有等待该信号量的任务。</p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Signal </tag>
+            
+            <tag> Semaphore </tag>
             
         </tags>
       
