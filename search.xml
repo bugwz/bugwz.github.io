@@ -653,11 +653,11 @@
             
             <tag> Linux </tag>
             
+            <tag> hashlimit </tag>
+            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
-            
-            <tag> hashlimit </tag>
             
         </tags>
       
@@ -940,25 +940,6 @@
     </entry>
     
     <entry>
-      <title>Mac下的常用指令</title>
-      <link href="/2018/01/01/commands-mac/"/>
-      <url>/2018/01/01/commands-mac/</url>
-      
-        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Commands </tag>
-            
-            <tag> Mac </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>Linux下的常用指令</title>
       <link href="/2018/01/01/commands-linux/"/>
       <url>/2018/01/01/commands-linux/</url>
@@ -972,6 +953,25 @@
             <tag> Linux </tag>
             
             <tag> Commands </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Mac下的常用指令</title>
+      <link href="/2018/01/01/commands-mac/"/>
+      <url>/2018/01/01/commands-mac/</url>
+      
+        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Commands </tag>
+            
+            <tag> Mac </tag>
             
         </tags>
       
@@ -1416,6 +1416,25 @@
             <tag> JSP </tag>
             
             <tag> Campus </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>GiB与GB等单位的转换问题</title>
+      <link href="/2016/03/01/unit-conversion/"/>
+      <url>/2016/03/01/unit-conversion/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-两个标准"><a class="header-anchor" href="#一-两个标准"> </a>一、两个标准</h2><ul><li><p><code>十进制标准</code>：由国际单位制（<code>SI</code>）指定；</p><blockquote><p>1999年，国际电工委员会（IEC）公布了修正2：“IEC 60027-2：电工技术应用的字母符号 — 第二部分：通信和电子。”，这个标准，在1998年通过，介绍了词头&quot;kibi-<br>&quot;、“mebi-”、“gibi-”、“tebi-”、“pebi-”、“exbi-”，作为二进制乘幂的计数方法。</p></blockquote></li><li><p><code>二进制标准</code>：由国际电工委员会（<code>IEC</code>）指定；</p></li></ul><p><strong>十进制标准单位换算</strong>（其中<code>KB</code>是<code>kilobyte</code>的缩写，指的是<code>千字节</code>）</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">1KB = 1000Byte</span><br><span class="line">1MB = 1000KB</span><br><span class="line">1GB = 1000MB</span><br><span class="line">1TB = 1000GB</span><br></pre></td></tr></table></figure><p><strong>二进制标准单位换算</strong>（其中<code>KiB</code>是<code>kilo binary byte</code>的缩写，指的是<code>千位二进制字节</code>）</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">1KiB = 1024Byte</span><br><span class="line">1MiB = 1024KiB</span><br><span class="line">1GiB = 1024MiB</span><br><span class="line">1TiB = 1024GiB</span><br></pre></td></tr></table></figure><h2 id="二-磁盘容量问题"><a class="header-anchor" href="#二-磁盘容量问题"> </a>二、磁盘容量问题</h2><ul><li>硬盘制造商使用<code>十进制标准</code>；</li><li>电脑软件使用<code>二进制标准</code>；</li></ul><h2 id="三-大b与小b"><a class="header-anchor" href="#三-大b与小b"> </a>三、大B与小b</h2><p>因为在网络传输的时候，我们传输的实际上是一个个二进制数，可以俗称为<code>比特流</code>，传输二进制数的时候不需要管这是什么字，使用的什么编码，我只管自己传输了多少二进制位，因此在网络中，我们普遍使用小b作为网络传输单位。</p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Hardware </tag>
             
         </tags>
       
