@@ -653,11 +653,11 @@
             
             <tag> Linux </tag>
             
-            <tag> hashlimit </tag>
-            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
+            
+            <tag> hashlimit </tag>
             
         </tags>
       
@@ -940,25 +940,6 @@
     </entry>
     
     <entry>
-      <title>Linux下的常用指令</title>
-      <link href="/2018/01/01/commands-linux/"/>
-      <url>/2018/01/01/commands-linux/</url>
-      
-        <content type="html"><![CDATA[<h3 id="cpu相关"><a class="header-anchor" href="#cpu相关"> </a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'physical id'</span> | sort -u | wc -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'cpu cores'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'processor'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a class="header-anchor" href="#内存相关"> </a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line">cat /proc/meminfo | grep <span class="string">'Huge'</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag'</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled'</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="docker相关"><a class="header-anchor" href="#docker相关"> </a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Linux </tag>
-            
-            <tag> Commands </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>Mac下的常用指令</title>
       <link href="/2018/01/01/commands-mac/"/>
       <url>/2018/01/01/commands-mac/</url>
@@ -972,6 +953,25 @@
             <tag> Commands </tag>
             
             <tag> Mac </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Linux下的常用指令</title>
+      <link href="/2018/01/01/commands-linux/"/>
+      <url>/2018/01/01/commands-linux/</url>
+      
+        <content type="html"><![CDATA[<h3 id="cpu相关"><a class="header-anchor" href="#cpu相关"> </a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'physical id'</span> | sort -u | wc -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'cpu cores'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line">cat /proc/cpuinfo | grep <span class="string">'processor'</span> | wc -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a class="header-anchor" href="#内存相关"> </a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line">cat /proc/meminfo | grep <span class="string">'Huge'</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag'</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">'echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled'</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="docker相关"><a class="header-anchor" href="#docker相关"> </a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
@@ -1094,6 +1094,25 @@
             <tag> Blog </tag>
             
             <tag> Ghost </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>树、二叉树、完全/满/平衡二叉树的理解与对比</title>
+      <link href="/2017/05/01/tree/"/>
+      <url>/2017/05/01/tree/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-树"><a class="header-anchor" href="#一-树"> </a>一、树</h2><p>树是一种重要的非线性数据结构，直观地看，它是数据元素（在树中称为结点）按分支关系组织起来的结构，很像自然界中的树那样。树型结构也是信息的重要组织形式之一，一切具有层次关系的问题都可用树来描述。</p><h3 id="1-1-相关概念"><a class="header-anchor" href="#1-1-相关概念"> </a>1.1、相关概念</h3><ul><li><p><code>路径</code>：顺着节点的边从一个节点走到另一个节点，所经过的节点的顺序排列就称为路径；</p></li><li><p><code>根</code>：树顶端的节点称为根，一棵树只有一个根，如果要把一个节点和边的集合称为树，那么从根到其他任何一个节点都必须有且只有一条路径；</p></li><li><p><code>父节点</code>：若一个节点含有子节点，则这个节点称为其子节点的父节点；</p></li><li><p><code>子节点</code>：一个节点含有的子树的根节点称为该节点的子节点；</p></li><li><p><code>兄弟节点</code>：具有相同父节点的节点互称为兄弟节点；</p></li><li><p><code>叶节点</code>：没有子节点的节点称为叶节点，也叫叶子节点；</p></li><li><p><code>子树</code>：每个节点都可以作为子树的根，它和它所有的子节点、子节点的子节点等都包含在子树中；</p></li><li><p><code>节点的层次</code>：从根开始定义，根为第一层，根的子节点为第二层，以此类推；</p></li><li><p><code>深度</code>：对于任意节点n，n的深度为从根到n的唯一路径长，根的深度为0；</p></li><li><p><code>高度</code>：对于任意节点n，n的高度为从n到一片树叶的最长路径长，所有树叶的高度为0；</p></li><li><p><code>森林</code>：0个或多个不相交的树组成，对森林加上一个根，森林即成为树；删去根，树即成为森林；</p></li><li><p><code>节点的度</code>：节点拥有的子树的数目；</p></li><li><p><code>树的度</code>：树中节点的最大的度；</p></li></ul><ul><li><code>叶子节点</code>：度为零的节点；</li><li><code>分支节点</code>：度不为零的节点；</li><li><code>层次</code>：根节点的层次为<code>1</code>，其余节点的层次等于该节点的双亲节点的层次加<code>1</code>；</li><li><code>树的高度</code>：树中节点的最大层次；</li><li><code>无序树</code>：树中节点的各子树之间的次序是不重要的，可以交换位置；</li><li><code>有序树</code>：树中节点的各子树之间的次序是重要的，不可以交换位置；</li></ul><h3 id="1-2-定义"><a class="header-anchor" href="#1-2-定义"> </a>1.2、定义</h3><ul><li>树是由一个或多个节点组成的有限集合；</li><li>树中必有一个特定的称为根的节点；</li><li>剩下的节点被分成 <code>n&gt;=0</code> 个互不相交的集合<code>T1</code>、<code>T2</code>、…<code>Tn</code>，并且这些每个集合又都是一个树。树<code>T1</code>、<code>T2</code>、…<code>Tn</code>被称作根的子树；</li></ul><h3 id="1-3-特点"><a class="header-anchor" href="#1-3-特点"> </a>1.3、特点</h3><ul><li><strong>对比二叉树</strong><ul><li>树中节点的最大度数（节点的分叉）没有限制，而二叉树节点的最大度数（节点的分叉）数量为2；</li><li>树的节点无左、右之分，而二叉树的节点有左、右之分；</li></ul></li></ul><h3 id="1-4-表示方法"><a class="header-anchor" href="#1-4-表示方法"> </a>1.4、表示方法</h3><p>树的表示方法有许多，常用的方法是用<strong>括号</strong>：</p><ul><li>先将根结点放入一对圆括号中，然后把它的子树由左至右的顺序放入括号中，而对子树也采用同样的方法处理；</li><li>同层子树与它的根节点用圆括号括起来，同层子树之间用逗号隔开，最后用闭括号括起来；</li></ul><h3 id="1-5-示例图"><a class="header-anchor" href="#1-5-示例图"> </a>1.5、示例图</h3><p><img src="https://cdn.bugwz.com/tree.png" alt="树"></p><p>如上图可使用<strong>括号表示法</strong>写成：<code>(A(B(E,F),C(G),D(H,M)))</code></p><h2 id="二-二叉树"><a class="header-anchor" href="#二-二叉树"> </a>二、二叉树</h2><p>二叉树（Binary Tree）是包含<code>n</code>个节点的有限集合，当n为零时该集合为空集，或者该集合由一个根节点和两棵互不相交的、分别称为根节点的左子树和右子树的二叉树组成。</p><h3 id="2-1-定义"><a class="header-anchor" href="#2-1-定义"> </a>2.1、定义</h3><ul><li>树中每个节点最多有两个子树，不存在度（分叉）大于2的节点；</li><li>子树有左右之分，次序不能颠倒；</li></ul><h3 id="2-2-基本形态"><a class="header-anchor" href="#2-2-基本形态"> </a>2.2、基本形态</h3><ul><li><p>空二叉树</p></li><li><p>只有一个根结点的二叉树</p></li><li><p>只有右子树</p></li><li><p>只有左子树</p></li><li><p>完全二叉树：除了树的最后一层外，其他的节点既有左子树又有右子树；</p></li></ul><h3 id="2-3-示例图"><a class="header-anchor" href="#2-3-示例图"> </a>2.3、示例图</h3><p><img src="https://cdn.bugwz.com/tree-binary-tree.png" alt="二叉树"></p><h2 id="三-完全二叉树"><a class="header-anchor" href="#三-完全二叉树"> </a>三、完全二叉树</h2><p>对于深度为 $k$ ，有 $n$ 个结点的二叉树，当且仅当其每一个结点都与深度为 $k$的满二叉树中编号从<code>1</code>至<code>n</code>的结点一一对应时称之为完全二叉树。</p><h3 id="3-1-定义"><a class="header-anchor" href="#3-1-定义"> </a>3.1、定义</h3><ul><li>符合二叉树的定义规则；</li><li>除二叉树的最高层<code>h</code>外，其它各层 (<code>1</code>～<code>h-1</code>) 的节点数都达到最大个数；</li><li>第<code>h</code>层有叶子结点，并且叶子结点都是从左到右依次排布；</li></ul><h3 id="3-2-示例图"><a class="header-anchor" href="#3-2-示例图"> </a>3.2、示例图</h3><p><img src="https://cdn.bugwz.com/tree-complete-binary-tree.png" alt="完全二叉树"></p><h2 id="四-满二叉树"><a class="header-anchor" href="#四-满二叉树"> </a>四、满二叉树</h2><p>一个二叉树，如果每一个层的结点数都达到最大值，则这个二叉树就是满二叉树。也就是说，如果一个二叉树的层数为 $k$，且结点总数是 $2^k -1$ ，则它就是满二叉树。</p><h3 id="4-1-定义"><a class="header-anchor" href="#4-1-定义"> </a>4.1、定义</h3><ul><li>符合完全二叉树的定义；</li><li>每个节点都有左右子叶并且叶子节点都处于最底层；</li></ul><h3 id="4-2-特点"><a class="header-anchor" href="#4-2-特点"> </a>4.2、特点</h3><ul><li>满二叉树一定是平衡二叉树，平衡二叉树不一定是满二叉树；</li></ul><h3 id="4-3-示例图"><a class="header-anchor" href="#4-3-示例图"> </a>4.3、示例图</h3><p><img src="https://cdn.bugwz.com/tree-full-binary-tree.png" alt="满二叉树"></p><h2 id="五-平衡二叉树-avl树"><a class="header-anchor" href="#五-平衡二叉树-avl树"> </a>五、平衡二叉树（AVL树）</h2><p>平衡二叉树（又称<code>平衡二叉查找树</code>），由前苏联的数学家 <code>Adelse-Velskil</code> 和 <code>Landis</code> 在 <code>1962年</code>提出的高度平衡的二叉树，根据科学家的英文名也称为 <code>AVL树</code>。平衡二叉树的常用实现方法有<code>红黑树</code>、<code>AVL</code>、<code>替罪羊树</code>、<code>Treap</code>、<code>伸展树</code>等。</p><p>最小二叉平衡树的节点的公式为<code>F(n)=F(n-1)+F(n-2)+1</code>，这个类似于一个递归的数列，可参考<code>Fibonacci数列</code>，公式解释为：</p><ul><li><code>1</code>是根节点；</li><li><code>F(n-1)</code>是左子树的节点数量；</li><li><code>F(n-2)</code>是右子树的节点数量；</li></ul><h3 id="5-1-特点"><a class="header-anchor" href="#5-1-特点"> </a>5.1、特点</h3><ul><li>可以为空树；</li><li>左右子树的高度相差<code>不超过 1</code> （<code>平衡因子</code>的绝对值不超过<code>1</code>）的树，并且左右子数都是一个平衡二叉树；</li></ul><h3 id="5-2-平衡因子"><a class="header-anchor" href="#5-2-平衡因子"> </a>5.2、平衡因子</h3><ul><li><code>-1</code>：表示左子树比右子树高；</li><li><code>0</code>：表示右子树比左子树高；</li><li><code>1</code>：表示左子树和右子树等高；</li></ul><h3 id="5-3-示例图"><a class="header-anchor" href="#5-3-示例图"> </a>5.3、示例图</h3><p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree.png" alt="平衡二叉树"></p><h3 id="5-4-失衡调整"><a class="header-anchor" href="#5-4-失衡调整"> </a>5.4、失衡调整</h3><p>平衡二叉树调整后，它的中序遍历的顺序是不会改变的。</p><h4 id="5-4-1-插入时的失衡调整"><a class="header-anchor" href="#5-4-1-插入时的失衡调整"> </a>5.4.1、插入时的失衡调整</h4><p>所有的不平衡情况中，都是按照<code>寻找最小不平衡树</code>  =&gt; <code>寻找所属的不平衡类别</code>  =&gt; <code>根据4种类别进行固定化程序的操作</code>；</p><h5 id="5-4-1-1-ll型调整-左子树过高"><a class="header-anchor" href="#5-4-1-1-ll型调整-左子树过高"> </a>5.4.1.1、LL型调整（左子树过高）</h5><ul><li>首先找到最小不平衡的子树，再以其根节点向右旋转（向右旋转后相当于右面的子数的树高加1，而左面的子数的树高减1）；</li><li>旋转之后源根节点的左孩子作为新的根节点，<strong>原来根节点的左孩子作为新的根节点</strong>；</li><li>中序遍历对比：调整前：<code>123</code>；调整后：<code>123</code>；</li></ul><p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-ll.png" alt="LL型调整"></p><h5 id="5-4-1-2-rr型调整-右子树过高"><a class="header-anchor" href="#5-4-1-2-rr型调整-右子树过高"> </a>5.4.1.2、RR型调整（右子树过高）</h5><ul><li>首先找到最小不平衡的子树，再以其根节点向左旋转（向右旋转后相当于左面的子数的树高加1，而右面的子数的树高减1）；</li><li>旋转之后源根节点的右孩子作为新的根节点，<strong>原来根节点的右孩子作为新的根节点</strong>；</li><li>中序遍历对比：调整前：<code>123</code>；调整后：<code>123</code>；</li></ul><p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-rr.png" alt="RR型调整"></p><h5 id="5-4-1-3-lr型调整-左子树过高"><a class="header-anchor" href="#5-4-1-3-lr型调整-左子树过高"> </a>5.4.1.3、LR型调整（左子树过高）</h5><ul><li><p>以较高子树的根节点为中心向左进行旋转（示例图中为左子树较高，左子树的根为<code>节点1</code>），可以理解成先转换为<code>LL型</code>；</p></li><li><p>以原根节点为中心，向右旋转（实例图中以<code>节点3</code>为中心，向右旋转）；</p></li><li><p>调整之后，<strong>原来根节点的左孩子的右孩子作为新的根节点</strong>；</p></li><li><p>中序遍历对比：调整前：<code>123</code>；调整后：<code>123</code>；</p></li></ul><p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-lr.png" alt="LR调整"></p><h5 id="5-4-1-4-rl型调整-右子树过高"><a class="header-anchor" href="#5-4-1-4-rl型调整-右子树过高"> </a>5.4.1.4、RL型调整（右子树过高）</h5><ul><li><p>以根节点的右孩子为中心向右进行旋转（示例图中为右子树较高，右子树的根为<code>节点3</code>），可以理解成先转换为<code>RR型</code>；</p></li><li><p>以原根节点为中心，向右旋转（示例图中以<code>节点1</code>为中心，向左旋转）；</p></li><li><p>调整之后，<strong>原来根节点的右孩子的左孩子作为新的根节点</strong>；</p></li><li><p>中序遍历对比：调整前：<code>123</code>；调整后：<code>123</code>；</p></li></ul><p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-rl.png" alt="RL调整"></p><h4 id="5-4-2-删除时的失衡调整"><a class="header-anchor" href="#5-4-2-删除时的失衡调整"> </a>5.4.2、删除时的失衡调整</h4><h5 id="5-4-2-1-le型-左子树过高"><a class="header-anchor" href="#5-4-2-1-le型-左子树过高"> </a>5.4.2.1、LE型（左子树过高）</h5><ul><li>以下初始场景只会在删除时才会出现，删除后可按照<code>LL型</code>的调整策略进行调整；</li></ul><p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-le.png" alt="LE调整"></p><h5 id="5-4-2-2-re型-右子树过高"><a class="header-anchor" href="#5-4-2-2-re型-右子树过高"> </a>5.4.2.2、RE型（右子树过高）</h5><ul><li>以下初始场景只会在删除时才会出现，删除后可按照<code>RR型</code>的调整策略进行调整；</li></ul><p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-re.png" alt="RE调整"></p><h2 id="六-数据对比"><a class="header-anchor" href="#六-数据对比"> </a>六、数据对比</h2><table><thead><tr><th style="text-align:center">种类</th><th style="text-align:center">第 $n$ 层的节点数</th><th style="text-align:center">深度为 $n$ 的树节点数</th><th style="text-align:center">节点数为 $n$ 的树的高度</th></tr></thead><tbody><tr><td style="text-align:center">二叉树</td><td style="text-align:center">$2^{n-1}$ (最多)</td><td style="text-align:center">$2^n-1$ (最多)</td><td style="text-align:center">$\log_2(n+1)$ (最少)</td></tr><tr><td style="text-align:center">完全二叉树</td><td style="text-align:center">$2^{n-1}$ (最多)</td><td style="text-align:center">$2^n-1$ (最多)</td><td style="text-align:center"></td></tr><tr><td style="text-align:center">满二叉树</td><td style="text-align:center">$2^{n-1}$</td><td style="text-align:center">$2^n-1$</td><td style="text-align:center">$\log_2(n+1)$</td></tr><tr><td style="text-align:center">平衡二叉树</td><td style="text-align:center">$2^{n-1}$ (最多)，1 (最少)</td><td style="text-align:center">$2^n-1$ (最多)，$2^{n-1}-1+1$ (最少)</td><td style="text-align:center"></td></tr></tbody></table>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Tree </tag>
             
         </tags>
       
