@@ -4,588 +4,595 @@
   <url>
     <loc>https://bugwz.com/2019/09/06/redis-cluster-slots-num/</loc>
     
-    <lastmod>2020-05-23T15:07:18.286Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.428Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
     
-    <lastmod>2020-05-23T15:07:18.285Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.427Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2018/11/25/tmux/</loc>
     
-    <lastmod>2020-05-23T15:07:18.284Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.427Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/11/29/jsp-3/</loc>
     
-    <lastmod>2020-05-23T15:07:18.283Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.426Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/08/12/bloom-and-cuckoo-filter/</loc>
     
-    <lastmod>2020-05-23T15:07:18.281Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.425Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/10/12/proxy/</loc>
     
-    <lastmod>2020-05-23T15:07:18.278Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.425Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/09/01/redis-multithreading/</loc>
     
-    <lastmod>2020-05-23T15:07:18.278Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.425Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     
-    <lastmod>2020-05-23T15:07:18.277Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.424Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/10/15/docker-3/</loc>
     
-    <lastmod>2020-05-23T15:07:18.273Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.421Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/03/netfilter/</loc>
     
-    <lastmod>2020-05-23T15:07:18.273Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.421Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/11/27/geohash-s2/</loc>
     
-    <lastmod>2020-05-23T15:07:18.271Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.420Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/06/04/c-encoding-problem/</loc>
     
-    <lastmod>2020-05-23T15:07:18.268Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.419Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/07/01/leaky-and-token-bucket/</loc>
     
-    <lastmod>2020-05-23T15:07:18.267Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.418Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
     
-    <lastmod>2020-05-23T15:07:18.267Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.418Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/10/20/command-rsync/</loc>
     
-    <lastmod>2020-05-23T15:07:18.265Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.417Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/10/02/memcached-memory-layout/</loc>
     
-    <lastmod>2020-05-23T15:07:18.264Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.416Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/11/29/jsp-homework-1/</loc>
     
-    <lastmod>2020-05-23T15:07:18.262Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/2016/01/01/redhat-note/</loc>
-    
-    <lastmod>2020-05-23T15:07:18.261Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.416Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/11/29/jsp-2/</loc>
     
-    <lastmod>2020-05-23T15:07:18.260Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.415Z</lastmod>
     
   </url>
   
   <url>
-    <loc>https://bugwz.com/2017/05/01/tree/</loc>
+    <loc>https://bugwz.com/2016/01/01/redhat-note/</loc>
     
-    <lastmod>2020-05-23T15:07:18.259Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.415Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/11/30/network-multi-queue/</loc>
     
-    <lastmod>2020-05-23T15:07:18.255Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.414Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/2017/05/01/tree/</loc>
+    
+    <lastmod>2020-05-25T16:04:39.414Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2020/02/01/ssd-storage-structure/</loc>
     
-    <lastmod>2020-05-23T15:07:18.254Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.413Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/09/13/charles/</loc>
     
-    <lastmod>2020-05-23T15:07:18.253Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.412Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/11/25/raidX/</loc>
     
-    <lastmod>2020-05-23T15:07:18.253Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.412Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/04/26/web-performance-http2/</loc>
     
-    <lastmod>2020-05-23T15:07:18.252Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.411Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/01/05/ip-address-modifier/</loc>
     
-    <lastmod>2020-05-23T15:07:18.250Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/2019/08/10/nf-conntrack/</loc>
-    
-    <lastmod>2020-05-23T15:07:18.249Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.410Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/01/iptables/</loc>
     
-    <lastmod>2020-05-23T15:07:18.248Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.409Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/2019/08/10/nf-conntrack/</loc>
+    
+    <lastmod>2020-05-25T16:04:39.409Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/12/01/jsp-problem/</loc>
     
-    <lastmod>2020-05-23T15:07:18.247Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.408Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/12/10/licence/</loc>
     
-    <lastmod>2020-05-23T15:07:18.244Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.408Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/03/01/hash/</loc>
     
-    <lastmod>2020-05-23T15:07:18.242Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.407Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/11/29/jsp-1/</loc>
     
-    <lastmod>2020-05-23T15:07:18.241Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.406Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/12/11/makefile/</loc>
     
-    <lastmod>2020-05-23T15:07:18.240Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.405Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/04/27/ngrok-secure-tunnels-to-localhost/</loc>
     
-    <lastmod>2020-05-23T15:07:18.239Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.404Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/01/cache-and-buffer/</loc>
     
-    <lastmod>2020-05-23T15:07:18.238Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.403Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2020/05/23/bloom-filter-summary-cache-paper/</loc>
     
-    <lastmod>2020-05-23T15:07:18.237Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.403Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/12/02/jsp-4/</loc>
     
-    <lastmod>2020-05-23T15:07:18.235Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.401Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/12/01/yum-priorities/</loc>
     
-    <lastmod>2020-05-23T15:07:18.201Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/2016/01/22/vsftpd-ftp/</loc>
-    
-    <lastmod>2020-05-23T15:07:18.198Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.380Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/08/27/use-fpm-to-mkrpm/</loc>
     
-    <lastmod>2020-05-23T15:07:18.197Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.378Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/2016/01/22/vsftpd-ftp/</loc>
+    
+    <lastmod>2020-05-25T16:04:39.378Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/03/01/unit-conversion/</loc>
     
-    <lastmod>2020-05-23T15:07:18.196Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.377Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2015/11/08/ubuntu-openvpn/</loc>
     
-    <lastmod>2020-05-23T15:07:18.194Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.376Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/09/22/typora-picgo/</loc>
     
-    <lastmod>2020-05-23T15:07:18.193Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.375Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/13/tcl-first/</loc>
     
-    <lastmod>2020-05-23T15:07:18.187Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.372Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2018/11/27/store-website/</loc>
     
-    <lastmod>2020-05-23T15:07:18.186Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.370Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/10/09/ssh-proxycommand/</loc>
     
-    <lastmod>2020-05-23T15:07:18.185Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.368Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/02/01/ss-panel-v2/</loc>
     
-    <lastmod>2020-05-23T15:07:18.182Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.366Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/01/snoopy/</loc>
     
-    <lastmod>2020-05-23T15:07:18.181Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.365Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/07/12/singnal-semaphore/</loc>
     
-    <lastmod>2020-05-23T15:07:18.179Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.364Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2018/08/10/shuffle/</loc>
     
-    <lastmod>2020-05-23T15:07:18.177Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.362Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/01/23/shadowsocks-script/</loc>
     
-    <lastmod>2020-05-23T15:07:18.176Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.361Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/02/python-prettytable/</loc>
     
-    <lastmod>2020-05-23T15:07:18.172Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.356Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/01/01/pptpd-vpn/</loc>
     
-    <lastmod>2020-05-23T15:07:18.170Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.354Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
     
-    <lastmod>2020-05-23T15:07:18.168Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.353Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/10/30/nginx-current-limiting/</loc>
     
-    <lastmod>2020-05-23T15:07:18.166Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.351Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/24/memory-redis/</loc>
     
-    <lastmod>2020-05-23T15:07:18.161Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.343Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/2020/05/24/memcached-slab-calcification/</loc>
+    
+    <lastmod>2020-05-25T16:04:39.340Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/02/28/markdown/</loc>
     
-    <lastmod>2020-05-23T15:07:18.158Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.338Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/09/14/markdown-latex/</loc>
     
-    <lastmod>2020-05-23T15:07:18.157Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.336Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/01/make-rpm/</loc>
     
-    <lastmod>2020-05-23T15:07:18.155Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.332Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/12/localtime/</loc>
     
-    <lastmod>2020-05-23T15:07:18.153Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.330Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2018/12/12/linux-tools-notes/</loc>
     
-    <lastmod>2020-05-23T15:07:18.152Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.328Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/01/22/linux-interesting/</loc>
     
-    <lastmod>2020-05-23T15:07:18.151Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.326Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/12/12/linux-ext4-crtime/</loc>
     
-    <lastmod>2020-05-23T15:07:18.150Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.324Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/01/ld-preload/</loc>
     
-    <lastmod>2020-05-23T15:07:18.146Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.322Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/11/30/jsp-homework-2/</loc>
     
-    <lastmod>2020-05-23T15:07:18.144Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.319Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/12/14/jsp-7/</loc>
     
-    <lastmod>2020-05-23T15:07:18.142Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.317Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/12/11/jsp-6/</loc>
     
-    <lastmod>2020-05-23T15:07:18.141Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.316Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2016/12/02/jsp-5/</loc>
     
-    <lastmod>2020-05-23T15:07:18.140Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.315Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/04/iptables-hashlimit/</loc>
     
-    <lastmod>2020-05-23T15:07:18.135Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.309Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/09/17/hexo-markdown-renderer/</loc>
     
-    <lastmod>2020-05-23T15:07:18.133Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/2020/01/01/haproxy/</loc>
-    
-    <lastmod>2020-05-23T15:07:18.130Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.307Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2018/11/25/github-pages-hexo/</loc>
     
-    <lastmod>2020-05-23T15:07:18.129Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.305Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/2020/01/01/haproxy/</loc>
+    
+    <lastmod>2020-05-25T16:04:39.305Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/05/27/ghost-0-11-9/</loc>
     
-    <lastmod>2020-05-23T15:07:18.127Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.303Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2018/11/26/gdb-tools/</loc>
     
-    <lastmod>2020-05-23T15:07:18.124Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.299Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/10/11/docker-multi-stage-builds/</loc>
     
-    <lastmod>2020-05-23T15:07:18.121Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.296Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/10/10/docker-2/</loc>
     
-    <lastmod>2020-05-23T15:07:18.119Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.295Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2017/10/01/docker-1/</loc>
     
-    <lastmod>2020-05-23T15:07:18.118Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.293Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2018/01/01/commands-mac/</loc>
     
-    <lastmod>2020-05-23T15:07:18.116Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.292Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
     
-    <lastmod>2020-05-23T15:07:18.115Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.291Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/09/28/command-nc/</loc>
     
-    <lastmod>2020-05-23T15:07:18.112Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.287Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/12/12/command-lsof/</loc>
     
-    <lastmod>2020-05-23T15:07:18.111Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.286Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2020/05/21/codis-slots-rebalance/</loc>
     
-    <lastmod>2020-05-23T15:07:18.110Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.285Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/01/08/clang-format/</loc>
     
-    <lastmod>2020-05-23T15:07:18.108Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.284Z</lastmod>
     
   </url>
   
   <url>
     <loc>https://bugwz.com/2019/11/18/baseX/</loc>
     
-    <lastmod>2020-05-23T15:07:18.093Z</lastmod>
+    <lastmod>2020-05-25T16:04:39.275Z</lastmod>
     
   </url>
   
