@@ -3,6 +3,25 @@
   
     
     <entry>
+      <title>LVS的四种工作模式</title>
+      <link href="/2020/06/10/lvs-4-models/"/>
+      <url>/2020/06/10/lvs-4-models/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-dr模式"><a class="header-anchor" href="#一-dr模式"> </a>一、DR模式</h2><p><img src="https://cdn.bugwz.com/lvs-dr.png" alt="LVS-DR"></p><h3 id="1-1-原理"><a class="header-anchor" href="#1-1-原理"> </a>1.1、原理</h3><ul><li>客户端将访问VIP报文发送给<code>LVS</code>；</li><li>LVS将客户端请求报文的MAC地址改为后端真实服务器的MAC地址；</li><li>后端真实服务器得到访问报文后进行IP查看，在确认自己有对应的VIP之后进行请求处理；</li><li>后端真实服务器在处理完数据请求后，直接响应客户端；</li></ul><p><strong>数据包流转过程：</strong></p><p><img src="https://cdn.bugwz.com/lvs-dr-process.png" alt="LVS-DR-Process"></p><h3 id="1-2-特点"><a class="header-anchor" href="#1-2-特点"> </a>1.2、特点</h3><ul><li>工作在数据链路层（OSI网络模型中的第二层），需要由LVS修改客户端请求的二层数据包的目标MAC地址；</li><li>LVS和后端真实的服务器需要处在一个广播域（VLan）中；</li><li>LVS和后端真实的服务器上都需要配置VIP，并且后端真实的服务不应该响应网络中对于该VIP的ARP请求；</li></ul><h3 id="1-3-优缺点"><a class="header-anchor" href="#1-3-优缺点"> </a>1.3、优缺点</h3><ul><li><strong>优点：</strong><ul><li><code>LVS</code>只是修改了<code>MAC地址</code>，所以非常快速，并且<code>LVS</code>不会成为瓶颈；</li><li>不需要使用隧道结构，绝大多数操作系统都可以用于服务；</li></ul></li><li><strong>缺点：</strong><ul><li><code>LVS</code>必须和后端真实服务器处于同一<code>VLan</code>中；</li><li>后端真实服务器直接响应客户端，对于后端真实服务器来说，并不安全；</li></ul></li></ul><h3 id="1-4-软件应用"><a class="header-anchor" href="#1-4-软件应用"> </a>1.4、软件应用</h3><ul><li>待补充；</li></ul><h2 id="二-tunnel模式"><a class="header-anchor" href="#二-tunnel模式"> </a>二、TUNNEL模式</h2><p><img src="https://cdn.bugwz.com/lvs-tunnel.png" alt="LVS-TUNNEL"></p><h3 id="2-1-原理"><a class="header-anchor" href="#2-1-原理"> </a>2.1、原理</h3><ul><li>客户端将访问<code>VIP报文</code>发送给<code>LVS</code>；</li><li>LVS收到豹纹后，发现请求的IP是在规则里面存在的地址，那么它将在客户端请求报文的首部再封装一层 IP 报文,将源地址改为LVS机器的IP，目标地址改为后端真实的服务器IP ,并将此包发送给对应的后端真实的服务器；</li><li>后端真实服务器将请求报文后，会首先拆开第一层封装,然后发现里面还有一层 IP 首部的目标地址是自己 lo 接口上的 <code>VIP</code> ，所以会处理次请求报文；</li><li>后端真实服务器在处理完数据请求后，直接响应客户端；</li></ul><h3 id="2-2-特点"><a class="header-anchor" href="#2-2-特点"> </a>2.2、特点</h3><ul><li>工作在网络层（OSI网络模型中的第三层），需要由<code>LVS</code>进行二次封装报文；</li><li><code>LVS</code>和后端真实服务器上都要有<code>VIP</code>；</li><li>由于会存在二次报文封装，所以请求的报文不能太大；</li></ul><h3 id="2-3-优缺点"><a class="header-anchor" href="#2-3-优缺点"> </a>2.3、优缺点</h3><ul><li><strong>优点：</strong><ul><li>可处理巨大的请求量；</li></ul></li><li><strong>缺点：</strong><ul><li>服务器需要支持<code>IP Tunneling</code>协议；</li></ul></li></ul><h3 id="2-4-软件应用"><a class="header-anchor" href="#2-4-软件应用"> </a>2.4、软件应用</h3><ul><li>待补充；</li></ul><h2 id="三-nat模式"><a class="header-anchor" href="#三-nat模式"> </a>三、NAT模式</h2><p><img src="https://cdn.bugwz.com/lvs-nat.png" alt="LVS-NAT"></p><h3 id="3-1-原理"><a class="header-anchor" href="#3-1-原理"> </a>3.1、原理</h3><ul><li>客户端将访问<code>VIP报文</code>发送给<code>LVS</code>；</li><li>当用户请求到达 <code>DirectorServer</code> ，此时请求的数据报文会先到内核空间的 <code>PREROUTING链</code>， 此时报文的<code>源IP</code> 为 <code>CIP</code>，<code>目标IP</code>为 <code>VIP</code> ；</li><li><code>PREROUTING</code> 检查发现数据包的<code>目标IP</code> 是本机，将数据包送至<code>INPUT链</code>；</li><li><code>IPVS</code> 比对数据包请求的服务是否为集群服务，若是，修改数据包的<code>目标IP</code> 地址为 <code>后端服务器IP</code>，然后将数据包发至 <code>POSTROUTING 链</code>， 此时报文的 <code>源IP</code> 为 <code>CIP</code>，<code>目标IP</code> 为 <code>RIP</code> ，在这个过程完成了 <code>目标IP</code> 的转换；</li><li><code>POSTROUTING链</code> 通过选路，将数据包发送给 <code>Real Server</code>；</li><li><code>Real Server</code> 比对发现目标为<code>自己的IP</code>，开始构建响应报文发回给 <code>Director Server</code>。 此时报文的<code>源IP</code> 为 <code>RIP</code>，<code>目标IP</code> 为 <code>CIP</code> ；</li><li><code>Director Server</code> 在响应客户端前，此时会将 <code>源IP</code> 地址修改为 <code>自己的VIP地址</code>，然后响应给客户端。 此时报文的 <code>源IP</code> 为 <code>VIP</code>，<code>目标IP</code> 为 <code>CIP</code>；</li></ul><h3 id="3-2-特点"><a class="header-anchor" href="#3-2-特点"> </a>3.2、特点</h3><ul><li>LVS服务器需要有不同的网段；</li><li>真实服务器的网关必须设置为LVS的ip地址；</li></ul><h3 id="3-3-优缺点"><a class="header-anchor" href="#3-3-优缺点"> </a>3.3、优缺点</h3><ul><li><strong>优点：</strong><ul><li>节省IP地址；</li><li>能够对内部的请求链路进行伪装；</li></ul></li><li><strong>缺点：</strong><ul><li>由于返回给请求方的数据需要经过调度器，因此执行效率较低；</li></ul></li></ul><h3 id="3-4-软件应用"><a class="header-anchor" href="#3-4-软件应用"> </a>3.4、软件应用</h3><ul><li>待补充；</li></ul><h2 id="四-fullnat模式"><a class="header-anchor" href="#四-fullnat模式"> </a>四、FULLNAT模式</h2><p><img src="https://cdn.bugwz.com/lvs-fullnat.png" alt="LVS-FULLNAT"></p><h3 id="4-1-原理"><a class="header-anchor" href="#4-1-原理"> </a>4.1、原理</h3><ul><li>客户端将访问<code>VIP报文</code>发送给<code>LVS</code>；</li><li><code>Director</code> 接过请求，发现是请求后端的集群服务；</li><li><code>Director</code> 对请求进行 <code>FULL NAT</code>，把<code>源IP</code>修改为<code>DIP</code>，把<code>目标IP</code>修改为任意<code>后端RS</code>的<code>RIP</code>，然后发送给后端；</li><li><code>RS</code>收到请求后进行处理并响应，响应报文的<code>源IP</code>为<code>RIP</code>，<code>目标IP</code>还是<code>DIP</code>，经过内部路由，将响应报文回复给 <code>Director</code>；</li><li><code>Director</code> 接受到响应报文后，进行 <code>FULL NAT</code>，把<code>源IP</code>修改为<code>VIP</code>，<code>目标IP</code>修改为<code>CIP</code>；</li></ul><h3 id="4-2-特点"><a class="header-anchor" href="#4-2-特点"> </a>4.2、特点</h3><ul><li><code>RIP</code>，<code>DIP</code>可以使用私有地址；</li><li><code>RIP</code>和<code>DIP</code>可以不再同一个网络中，且<code>RIP</code>的网关未必需要指向<code>DIP</code>；</li><li>支持端口映射；</li><li><code>RS</code> 的操作系统可以使用任意类型；</li><li>请求报文经由 <code>Director</code>，响应报文也经由 <code>Director</code>；</li><li>抗攻击，可跨 <code>VLAN</code>，需要重新编译内核；</li></ul><h3 id="4-3-优缺点"><a class="header-anchor" href="#4-3-优缺点"> </a>4.3、优缺点</h3><ul><li><strong>优点：</strong><ul><li>解决了跨<code>VLAN</code>的问题；</li><li><code>LVS</code>和<code>RS</code>的部署在<code>VLAN</code>上将不再有任何限制，大大提高了运维部署的便利性；</li></ul></li><li><strong>缺点：</strong><ul><li>需要做4次地址转换；</li></ul></li></ul><h3 id="4-4-软件应用"><a class="header-anchor" href="#4-4-软件应用"> </a>4.4、软件应用</h3><ul><li>待补充；</li></ul><h2 id="五-相关网址"><a class="header-anchor" href="#五-相关网址"> </a>五、相关网址</h2><ul><li><a href="http://www.linuxvirtualserver.org/" target="_blank" rel="noopener">Linux Virtual Server</a></li><li><a href="http://element-ui.cn/news/show-337453.aspx" target="_blank" rel="noopener">负载均衡集群——LVS之四种模式</a></li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> LVS </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>Memcached的钙化及相关解决方案</title>
       <link href="/2020/05/24/memcached-slab-calcification/"/>
       <url>/2020/05/24/memcached-slab-calcification/</url>
@@ -997,25 +1016,6 @@
     </entry>
     
     <entry>
-      <title>Mac下的常用指令</title>
-      <link href="/2018/01/01/commands-mac/"/>
-      <url>/2018/01/01/commands-mac/</url>
-      
-        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Commands </tag>
-            
-            <tag> Mac </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
       <title>Linux下的常用指令</title>
       <link href="/2018/01/01/commands-linux/"/>
       <url>/2018/01/01/commands-linux/</url>
@@ -1029,6 +1029,25 @@
             <tag> Linux </tag>
             
             <tag> Commands </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
+      <title>Mac下的常用指令</title>
+      <link href="/2018/01/01/commands-mac/"/>
+      <url>/2018/01/01/commands-mac/</url>
+      
+        <content type="html"><![CDATA[<h3 id="系统操作相关"><a class="header-anchor" href="#系统操作相关"> </a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line">rm ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id="none"><a class="header-anchor" href="#none"> </a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Commands </tag>
+            
+            <tag> Mac </tag>
             
         </tags>
       
@@ -1397,6 +1416,25 @@
     </entry>
     
     <entry>
+      <title>初次使用Servlet-JSP笔记-1</title>
+      <link href="/2016/11/29/jsp-1/"/>
+      <url>/2016/11/29/jsp-1/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-环境"><a class="header-anchor" href="#一-环境"> </a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二-课堂学习目标"><a class="header-anchor" href="#二-课堂学习目标"> </a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三-开始"><a class="header-anchor" href="#三-开始"> </a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择&quot;源码&quot;,然后选择&quot;覆盖/实现方法&quot;中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a class="header-anchor" href="#题外话：什么是web-xml文件？"> </a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。</p><h1 id="继续"><a class="header-anchor" href="#继续"> </a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为&quot;servlet所属包名.servlet的类名&quot;，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Notes </tag>
+            
+            <tag> JSP </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
       <link href="/2016/11/29/jsp-2/"/>
       <url>/2016/11/29/jsp-2/</url>
@@ -1412,25 +1450,6 @@
             <tag> JSP </tag>
             
             <tag> Campus </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
-      <title>初次使用Servlet-JSP笔记-1</title>
-      <link href="/2016/11/29/jsp-1/"/>
-      <url>/2016/11/29/jsp-1/</url>
-      
-        <content type="html"><![CDATA[<h2 id="一-环境"><a class="header-anchor" href="#一-环境"> </a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二-课堂学习目标"><a class="header-anchor" href="#二-课堂学习目标"> </a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三-开始"><a class="header-anchor" href="#三-开始"> </a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择&quot;源码&quot;,然后选择&quot;覆盖/实现方法&quot;中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a class="header-anchor" href="#题外话：什么是web-xml文件？"> </a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。</p><h1 id="继续"><a class="header-anchor" href="#继续"> </a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为&quot;servlet所属包名.servlet的类名&quot;，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Notes </tag>
-            
-            <tag> JSP </tag>
             
         </tags>
       
