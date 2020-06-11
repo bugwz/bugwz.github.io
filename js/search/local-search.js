@@ -44,7 +44,7 @@ $(function () {
 
   function search(path) {
     $.ajax({
-      url: '/' + path,
+      url: 'https://cdn.bugwz.com/search.xml',
       dataType: 'xml',
       success: function (xmlResponse) {
         // get the contents from search data
