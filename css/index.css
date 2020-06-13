@@ -22,7 +22,7 @@ body {
   color: #4c4948;
   font-size: 16px;
   font-family: PingFang SC, Hiragino Sans GB, Microsoft YaHei, STHeiti, WenQuanYi Micro Hei, Helvetica, Arial, sans-serif;
-  line-height: 2;
+  line-height: 1.7;
 }
 *::-webkit-scrollbar {
   width: 8px;
@@ -1439,7 +1439,7 @@ body {
   line-height: 1.2rem;
 }
 #post-content ul li:before {
-  top: 15px;
+  top: 13px;
   margin-left: 0.45rem;
   width: 0.25rem;
   height: 0.25rem;
@@ -1450,7 +1450,7 @@ body {
   line-height: 0.25rem;
 }
 #post-content ul li ul li:before {
-  top: 15px;
+  top: 13px;
   margin-left: 0.45rem;
   width: 0.25rem;
   height: 0.25rem;
