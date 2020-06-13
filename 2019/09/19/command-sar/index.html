@@ -83,7 +83,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 <h2 id="四-详细数据指标解析"><a class="header-anchor" href="#四-详细数据指标解析"> </a>四、详细数据指标解析</h2>
 <h3 id="4-1-查看cpu的利用率"><a class="header-anchor" href="#4-1-查看cpu的利用率"> </a>4.1、查看CPU的利用率</h3>
 <p>指令：<code>sar -u</code>，该参数与<code>sar -C</code>，<code>sar -p</code>，<code>sar</code> 的输出信息一致。</p>
-<p><img src="https://cdn.bugwz.com/sar-u.png" alt="sar -u"></p>
+<p><img src="/2019/09/19/command-sar/sar-u.png" alt="sar -u"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>%user</code>：用户模式下消耗的CPU时间的比例；</li>
@@ -95,7 +95,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-2-队列长度和平均负载-队列信息"><a class="header-anchor" href="#4-2-队列长度和平均负载-队列信息"> </a>4.2、队列长度和平均负载（队列信息）</h3>
 <p>指令：<code>sar -q</code>，查看运行队列中的进程数、系统上的进程大小、平均负载等，与其它命令相比，它能查看各项指标随时间变化的情况；</p>
-<p><img src="https://cdn.bugwz.com/sar-q.png" alt="sar -q"></p>
+<p><img src="/2019/09/19/command-sar/sar-q.png" alt="sar -q"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>runq-sz</code>：运行队列的长度（等待运行的进程数）；</li>
@@ -107,7 +107,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-3-内存利用率"><a class="header-anchor" href="#4-3-内存利用率"> </a>4.3、内存利用率</h3>
 <p>指令：<code>sar -r</code></p>
-<p><img src="https://cdn.bugwz.com/sar-r.png" alt="sar -r"></p>
+<p><img src="/2019/09/19/command-sar/sar-r.png" alt="sar -r"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>kbmemfree</code>：这个值和free命令中的free值基本一致，不包括buffer和cache的空间；</li>
@@ -123,7 +123,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-4-页面交换情况"><a class="header-anchor" href="#4-4-页面交换情况"> </a>4.4、页面交换情况</h3>
 <p>指令：<code>sar -W</code>，页面发生交换时，服务器的吞吐量会大幅下降；服务器状况不良时，如果怀疑因为内存不足而导致了页面交换的发生，可以使用这个命令来确认是否发生了大量的交换；</p>
-<p><img src="https://cdn.bugwz.com/sar-W.png" alt="sar -W"></p>
+<p><img src="/2019/09/19/command-sar/sar-W.png" alt="sar -W"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li>pswpin/s：每秒系统换入的交换页面（swap page）数量；</li>
@@ -131,7 +131,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-5-分页情况"><a class="header-anchor" href="#4-5-分页情况"> </a>4.5、分页情况</h3>
 <p>指令：<code>sar -B</code></p>
-<p><img src="https://cdn.bugwz.com/sar-B.png" alt="sar -B"></p>
+<p><img src="/2019/09/19/command-sar/sar-B.png" alt="sar -B"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li>pgpgin/s：</li>
@@ -146,7 +146,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-6-i-o-和传输速率信息情况"><a class="header-anchor" href="#4-6-i-o-和传输速率信息情况"> </a>4.6、I/O 和传输速率信息情况</h3>
 <p>指令：<code>sar -b</code></p>
-<p><img src="https://cdn.bugwz.com/sar-b-little.png" alt="sar -b"></p>
+<p><img src="/2019/09/19/command-sar/sar-b-little.png" alt="sar -b"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>tps</code>：每秒钟物理设备的 I/O 传输总量；</li>
@@ -157,7 +157,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-7-块设备信息"><a class="header-anchor" href="#4-7-块设备信息"> </a>4.7、块设备信息</h3>
 <p>指令：<code>sar -d</code></p>
-<p><img src="https://cdn.bugwz.com/sar-d.png" alt="sar -d"></p>
+<p><img src="/2019/09/19/command-sar/sar-d.png" alt="sar -d"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>DEV</code>：正在监视的块设备；</li>
@@ -172,7 +172,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-8-大页信息"><a class="header-anchor" href="#4-8-大页信息"> </a>4.8、大页信息</h3>
 <p>指令：<code>sar -H</code></p>
-<p><img src="https://cdn.bugwz.com/sar-H.png" alt="sar -H"></p>
+<p><img src="/2019/09/19/command-sar/sar-H.png" alt="sar -H"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>kbhugfree</code>：</li>
@@ -181,7 +181,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-9-内存状况"><a class="header-anchor" href="#4-9-内存状况"> </a>4.9、内存状况</h3>
 <p>指令：<code>sar -R</code></p>
-<p><img src="https://cdn.bugwz.com/sar-R-big.png" alt="sar -R"></p>
+<p><img src="/2019/09/19/command-sar/sar-R-big.png" alt="sar -R"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>frmpg/s</code>：每秒系统中空闲的内存页面（memory page freed）数量；</li>
@@ -190,7 +190,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-10-交换空间利用信息"><a class="header-anchor" href="#4-10-交换空间利用信息"> </a>4.10、交换空间利用信息</h3>
 <p>指令：<code>sar -S</code></p>
-<p><img src="https://cdn.bugwz.com/sar-S.png" alt="sar -S"></p>
+<p><img src="/2019/09/19/command-sar/sar-S.png" alt="sar -S"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>kbswpfree</code>：可用的空闲交换空间数量，单位为 KB；</li>
@@ -200,7 +200,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-11-动态cpu信息"><a class="header-anchor" href="#4-11-动态cpu信息"> </a>4.11、动态CPU信息</h3>
 <p>指令：<code>sar -t interval</code>，按照给定的<code>interval</code>的值，循环打印CPU的信息。</p>
-<p><img src="https://cdn.bugwz.com/sar-t-interval.png" alt="sar -t interval"></p>
+<p><img src="/2019/09/19/command-sar/sar-t-interval.png" alt="sar -t interval"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>CPU</code>：all 表示统计信息为所有 CPU 的平均值；</li>
@@ -213,7 +213,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-12-kernel-table-信息"><a class="header-anchor" href="#4-12-kernel-table-信息"> </a>4.12、Kernel Table 信息</h3>
 <p>指令：<code>sar -v</code></p>
-<p><img src="https://cdn.bugwz.com/sar-v.png" alt="sar -v"></p>
+<p><img src="/2019/09/19/command-sar/sar-v.png" alt="sar -v"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>dentunusd</code>：目录高速缓存中未被使用的条目数量；</li>
@@ -223,7 +223,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-13-任务创建与系统转换统计信息"><a class="header-anchor" href="#4-13-任务创建与系统转换统计信息"> </a>4.13、任务创建与系统转换统计信息</h3>
 <p>指令：<code>sar -w</code></p>
-<p><img src="https://cdn.bugwz.com/sar-w-little.png" alt="sar-w"></p>
+<p><img src="/2019/09/19/command-sar/sar-w-little.png" alt="sar-w"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>proc/s</code>：每秒钟创建的进程数；</li>
@@ -231,7 +231,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-14-tty-设备信息"><a class="header-anchor" href="#4-14-tty-设备信息"> </a>4.14、TTY 设备信息</h3>
 <p>指令：<code>sar -y</code></p>
-<p><img src="https://cdn.bugwz.com/sar-Y.png" alt="sar -y"></p>
+<p><img src="/2019/09/19/command-sar/sar-Y.png" alt="sar -y"></p>
 <p><strong>数据指标解析：</strong></p>
 <ul>
 <li><code>TTY</code>：</li>
@@ -244,7 +244,7 @@ ga('send', 'pageview');</script><script>var GLOBAL_CONFIG = {
 </ul>
 <h3 id="4-15-网络统计信息"><a class="header-anchor" href="#4-15-网络统计信息"> </a>4.15、网络统计信息</h3>
 <p>指令：<code>sar -n keyword</code>，其中<code>keyword</code>可选项如参数含义解析中所列。</p>
-<p><img src="https://cdn.bugwz.com/sar-n-keyword.png" alt="sar -n keyword"></p>
+<p><img src="/2019/09/19/command-sar/sar-n-keyword.png" alt="sar -n keyword"></p>
 <ul>
 <li><code>IFACE</code>：</li>
 <li><code>rxpck/s</code>：</li>
