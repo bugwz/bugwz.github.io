@@ -3,6 +3,25 @@
   
     
     <entry>
+      <title>小米8刷入MIUI12国外版</title>
+      <link href="/2020/06/13/mi8-miui12-eu-rom/"/>
+      <url>/2020/06/13/mi8-miui12-eu-rom/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-miui相关版本"><a class="header-anchor" href="#一-miui相关版本"> </a>一、MIUI相关版本</h2><ul><li><a href="https://www.miui.com/download.html" target="_blank" rel="noopener">国内版本</a>：MIUI的官方国内版本，功能比较齐全，国内的服务套件比较齐全（小爱同学等），但是广告比较多，并且预装应用以及后台常驻的系统组件比较多，缺少Google套件（可以通过其他方式安装，但是会有稳定性以及兼容问题）；</li><li><a href="https://c.mi.com/global/miuidownload/index" target="_blank" rel="noopener">国际版</a>：MIUI的官方的国际版本（也被称为俄罗斯版本），自带过多的Google套件，比较臃肿，没有广告；不自带小米钱包，因此无法原生使用小米公交等服务（后续可刷入）；</li><li><a href="https://miuipolska.pl/download/" target="_blank" rel="noopener">波兰版本</a>：MIUI的第三方定制的ROM，自带Google套件，没有广告；不自带小米钱包，因此无法原生使用小米公交等服务（后续可刷入）；</li><li><a href="https://xiaomi.eu/community/" target="_blank" rel="noopener">英国版本</a>：MIUI的第三方定制的ROM，自带Google套件，没有广告；不自带小米钱包，因此无法原生使用小米公交等服务（后续可刷入）；</li></ul><h2 id="二-刷机教程"><a class="header-anchor" href="#二-刷机教程"> </a>二、刷机教程</h2><p>针对于<a href="https://www.miui.com/download.html" target="_blank" rel="noopener">国内版本</a>和<a href="https://c.mi.com/global/miuidownload/index" target="_blank" rel="noopener">国际版</a>，我们可是使用小米官方提供的刷机方式进行刷机即可，<a href="http://www.miui.com/shuaji-329.html" target="_blank" rel="noopener">官方教程</a>。针对于第三方地址的ROM，可以按照如下方式进行刷机。接下来我们将对小米8进行刷机，ROM为英国版本MIUI12。</p><h3 id="2-1-解锁bootloader"><a class="header-anchor" href="#2-1-解锁bootloader"> </a>2.1、解锁Bootloader</h3><p>关于Bootloader的详细介绍可以查看<a href="https://baike.baidu.com/item/Boot%20Loader" target="_blank" rel="noopener">百度百科 - Bootloader</a>，简而言之就是手机厂商为了防止用户刷入第三方ROM导致系统出现不可逆的损坏，同时也为了保护手机底层以及用户的一些敏感信息。目前小米全线的手机都对Bootloader进行了加锁，我们可以使用小米官方提供的解锁方式进行解锁：<a href="http://www.miui.com/unlock/index.html" target="_blank" rel="noopener">解锁小米手机</a></p><h3 id="2-2-安装twrp"><a class="header-anchor" href="#2-2-安装twrp"> </a>2.2、安装TWRP</h3><p><a href="https://zh.wikipedia.org/wiki/TWRP" target="_blank" rel="noopener">TWRP</a>，全称是<code>Team Win Recovery Project</code>是一款知名的第三方的Recovery工具，关于Recovery的介绍可以参考<a href="https://baike.baidu.com/item/Recovery/9995978" target="_blank" rel="noopener">百度百科 - Recovery</a>，在进行第三方ROM的刷机之前我们需要给系统刷入TWRP，我们可以在<a href="https://twrp.me/" target="_blank" rel="noopener">TWRP的官网</a>找到对应手机版本的TWRP进行刷入，具体步骤如下：</p><ul><li>在TWRP支持的设备列表选择手机厂商型号：<a href="https://twrp.me/Devices/" target="_blank" rel="noopener">https://twrp.me/Devices/</a> ；</li><li>选择对应手机型号的最新版本的TWRP进行下载即可，截止到测试时最新版本为<code>3.3.1-2</code>；</li><li>备份手机中的重要数据，刷机过程中需要清除手机数据；</li><li>手机进入fastboot模式（小米8在关机后长按电源键+音量下键即可进入）连接电脑，使用以下指令验证手机设备使用正常识别并且进行刷入操作：<ul><li><code>adb devices</code>：如果获取到手机设备序列号即代表当前电脑已经识别手机并连接成功；</li><li><code>fastboot flash recovery twrp-x.x.x-x-polaris.img</code>：将下载好的TWRP刷入手机，之后后通过提示信息可判断是否刷入成功；</li><li><code>fastboot oem reboot-recovery</code>：重启手机并进入<code>TWRP Recovery</code>模式；</li></ul></li></ul><h3 id="2-3-下载rom包并刷机"><a class="header-anchor" href="#2-3-下载rom包并刷机"> </a>2.3、下载ROM包并刷机</h3><ul><li>由于我们计划刷入的ROM为<code>MIUI12英国版</code>，因此在<a href="https://xiaomi.eu/community/" target="_blank" rel="noopener">英国版本</a>网站中下载指定的版本，我们使用的版本为<code>MIUI12的20.6.11</code>；</li><li>将下载好的ROM包存入手机；</li><li>进入手机的<code>TWRP Recovery</code>模式，小米8可通过以下方式进入：同时按电源键+音量上键，在手机震动出现小米Logo后松开电源键，不松开音量上键等待进入；</li><li>在<code>TWRP Recovery</code>模式中选择安装对应的ROM包即可；</li><li>由于使用的是非国内版的ROM包，安装完成后进入系统启动配置时可能需要能够访问外网的网络环境；</li></ul><h3 id="2-4-刷入小米钱包"><a class="header-anchor" href="#2-4-刷入小米钱包"> </a>2.4、刷入小米钱包</h3><p>小米8本身支持全功能NFC，但是由于国外版本的ROM没有内置小米钱包，刷机之后无法使用小米公交卡等NFC服务，因此需要手动刷入小米钱包。</p><h4 id="2-4-1-下载国内版本对应rom"><a class="header-anchor" href="#2-4-1-下载国内版本对应rom"> </a>2.4.1、下载国内版本对应ROM</h4><p>我们需要首先从国内版本的ROM中提取出小米钱包，因此之前需要下载与国外版相同版本ROM的国内ROM，但是由于<code>MIUI12</code>的<code>20.6.11</code>版本刚刚释出，并且<code>MIUI12</code>在国内处于预约测试状态，只能通过之前预约的在手机端进行更新下载，我们暂时没有找到<code>20.6.11</code>版本的国内的ROM的下载方式，不过我们仍旧可以通过较低版本的<code>MIUI12</code>的ROM包进行提取操作，网友给出了<code>MIUI12</code>的较低版本的部分机型的下载地址：<a href="https://news.mydrivers.com/1/686/686222.htm" target="_blank" rel="noopener">https://news.mydrivers.com/1/686/686222.htm</a></p><h4 id="2-4-2-提取小米钱包"><a class="header-anchor" href="#2-4-2-提取小米钱包"> </a>2.4.2、提取小米钱包</h4><ul><li>下载提取工具<code>mipay-extract</code>：<a href="https://github.com/linusyang92/mipay-extract%EF%BC%9B" target="_blank" rel="noopener">https://github.com/linusyang92/mipay-extract；</a></li><li>将下载的国内版的ROM放入<code>mipay-extract</code>文件夹目录中，并运行同目录下的<code>extract.bat</code>（Windows环境下）；</li><li>将提取出来的<code>mipay-*-*.zip</code>拷入手机根目录中；</li></ul><h4 id="2-4-3-刷入小米钱包"><a class="header-anchor" href="#2-4-3-刷入小米钱包"> </a>2.4.3、刷入小米钱包</h4><ul><li>重启进入<code>TWRP Recovery</code>模式，选择<code>挂载</code>，并选中<code>System</code>，然后返回点击<code>安装</code>，选择对应的<code>mipay-*-*.zip</code>进行卡刷即可；</li><li>刷入成功后进入手机系统后，会发现系统中多了一个<code>小米钱包</code>的软件，然后进入<code>设置</code>，将系统中的NFC相关设置的<code>安全模块位置</code>修改为<code>内置安全模块</code>；</li><li>后续即可正常使用NFC用于公交，NFC卡片复制等；</li></ul><h2 id="三-参考网址"><a class="header-anchor" href="#三-参考网址"> </a>三、参考网址</h2><ul><li><a href="http://www.midousir.com/2019/05/xiaomi8-pro-recovery/" target="_blank" rel="noopener">http://www.midousir.com/2019/05/xiaomi8-pro-recovery/</a></li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Notes </tag>
+            
+            <tag> MIUI </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>LVS的四种工作模式</title>
       <link href="/2020/06/10/lvs-4-models/"/>
       <url>/2020/06/10/lvs-4-models/</url>
@@ -207,9 +226,9 @@
       
         <tags>
             
-            <tag> Network </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> Network </tag>
             
             <tag> Interrupt </tag>
             
@@ -270,9 +289,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Algorithm </tag>
+            
+            <tag> Linux </tag>
             
             <tag> Base </tag>
             
@@ -582,9 +601,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Algorithm </tag>
+            
+            <tag> Linux </tag>
             
         </tags>
       
@@ -790,9 +809,9 @@
       
         <tags>
             
-            <tag> Memory </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> Memory </tag>
             
         </tags>
       
@@ -988,9 +1007,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Algorithm </tag>
+            
+            <tag> Linux </tag>
             
         </tags>
       
@@ -1416,6 +1435,25 @@
     </entry>
     
     <entry>
+      <title>初次使用Servlet-JSP笔记-1</title>
+      <link href="/2016/11/29/jsp-1/"/>
+      <url>/2016/11/29/jsp-1/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-环境"><a class="header-anchor" href="#一-环境"> </a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二-课堂学习目标"><a class="header-anchor" href="#二-课堂学习目标"> </a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三-开始"><a class="header-anchor" href="#三-开始"> </a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择&quot;源码&quot;,然后选择&quot;覆盖/实现方法&quot;中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a class="header-anchor" href="#题外话：什么是web-xml文件？"> </a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。</p><h1 id="继续"><a class="header-anchor" href="#继续"> </a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为&quot;servlet所属包名.servlet的类名&quot;，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Notes </tag>
+            
+            <tag> JSP </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
       <link href="/2016/11/29/jsp-2/"/>
       <url>/2016/11/29/jsp-2/</url>
@@ -1431,25 +1469,6 @@
             <tag> JSP </tag>
             
             <tag> Campus </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    <entry>
-      <title>初次使用Servlet-JSP笔记-1</title>
-      <link href="/2016/11/29/jsp-1/"/>
-      <url>/2016/11/29/jsp-1/</url>
-      
-        <content type="html"><![CDATA[<h2 id="一-环境"><a class="header-anchor" href="#一-环境"> </a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二-课堂学习目标"><a class="header-anchor" href="#二-课堂学习目标"> </a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent/WEB-INF/web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三-开始"><a class="header-anchor" href="#三-开始"> </a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent/WEB-INF/web.xml文件。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择&quot;源码&quot;,然后选择&quot;覆盖/实现方法&quot;中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a class="header-anchor" href="#题外话：什么是web-xml文件？"> </a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。</p><h1 id="继续"><a class="header-anchor" href="#继续"> </a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为&quot;servlet所属包名.servlet的类名&quot;，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的/Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为/*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Notes </tag>
-            
-            <tag> JSP </tag>
             
         </tags>
       
