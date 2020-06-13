@@ -91,7 +91,7 @@ h6 {
 }
 hr {
   position: relative;
-  margin: 2rem auto;
+  margin: 1rem auto;
   width: calc(100% - 4px);
   border: 2px dashed #a4d8fa;
   background: #fff;
@@ -257,11 +257,12 @@ blockquote {
   font-family: consolas, Menlo, "PingFang SC", "Microsoft YaHei", monospace, Helvetica Neue For Number !important;
 }
 .article-container code {
-  padding: 0.1rem 0.2rem;
-  background: rgba(27,31,35,0.05);
-  color: #1f2d3d;
-  word-wrap: break-word;
-  font-size: 16px;
+  padding: 2px 4px;
+  font-size: 90%;
+  color: #c7254e;
+  background-color: #f9f2f4;
+  border-radius: 4px;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
 }
 .article-container pre code {
   padding: 0;
@@ -1196,6 +1197,9 @@ a.fancybox {
 a.fancybox:focus {
   outline: none;
 }
+body {
+  -webkit-font-smoothing: antialiased;
+}
 #post {
   overflow: hidden;
 }
@@ -1317,32 +1321,13 @@ a.fancybox:focus {
   -ms-transition: all 0.5s ease-out;
   transition: all 0.5s ease-out;
 }
-#content-inner h1:before,
-#content-inner h2:before,
-#content-inner h3:before,
-#content-inner h4:before,
-#content-inner h5:before,
-#content-inner h6:before {
-  position: absolute;
-  top: calc(50% - 0.35rem);
-  left: 0;
-  color: #f47466;
-  content: "\f0c1";
-  font: normal normal normal 14px/1 FontAwesome;
-  font-size: 0.8rem;
-  -webkit-transition: all 0.5s ease-out;
-  -moz-transition: all 0.5s ease-out;
-  -o-transition: all 0.5s ease-out;
-  -ms-transition: all 0.5s ease-out;
-  transition: all 0.5s ease-out;
-}
 #content-inner h1:hover,
 #content-inner h2:hover,
 #content-inner h3:hover,
 #content-inner h4:hover,
 #content-inner h5:hover,
 #content-inner h6:hover {
-  padding-left: 1.1rem;
+  padding-left: 0rem;
 }
 #content-inner h1:hover:before,
 #content-inner h2:hover:before,
@@ -1353,70 +1338,46 @@ a.fancybox:focus {
   color: #49b1f5;
 }
 #content-inner h1 {
-  padding-left: 1.1rem;
   font-size: 1.5rem;
 }
 #content-inner h1:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
   font-size: 1rem;
 }
-#content-inner h1:hover {
-  padding-left: 1.2rem;
-}
 #content-inner h2 {
-  padding-left: 1rem;
   font-size: 1.35rem;
 }
 #content-inner h2:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
   font-size: 0.9rem;
 }
-#content-inner h2:hover {
-  padding-left: 1.1rem;
-}
 #content-inner h3 {
-  padding-left: 0.9rem;
   font-size: 1.2rem;
 }
 #content-inner h3:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
   font-size: 0.8rem;
 }
-#content-inner h3:hover {
-  padding-left: 1rem;
-}
 #content-inner h4 {
-  padding-left: 0.8rem;
   font-size: 1.05rem;
 }
 #content-inner h4:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
   font-size: 0.7rem;
 }
-#content-inner h4:hover {
-  padding-left: 0.9rem;
-}
 #content-inner h5 {
-  padding-left: 0.7rem;
   font-size: 0.9rem;
 }
 #content-inner h5:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
   font-size: 0.6rem;
 }
-#content-inner h5:hover {
-  padding-left: 0.8rem;
-}
 #content-inner h6 {
-  padding-left: 0.6rem;
   font-size: 0.75rem;
 }
 #content-inner h6:before {
   top: calc(50% - unit(fontsize / 2 - 0.05, "rem"));
   font-size: 0.5rem;
-}
-#content-inner h6:hover {
-  padding-left: 0.7rem;
 }
 #post-content {
   margin-bottom: 1rem;
@@ -1477,19 +1438,27 @@ a.fancybox:focus {
   font-size: 0.6rem;
   line-height: 1.2rem;
 }
-#post-content ul li:hover:before {
-  border-color: #ff7242;
-}
 #post-content ul li:before {
-  top: 10px;
+  top: 15px;
   margin-left: 0.45rem;
-  width: 0.3rem;
-  height: 0.3rem;
-  border: 0.15rem solid #49b1f5;
-  border-radius: 0.3rem;
+  width: 0.25rem;
+  height: 0.25rem;
+  border: 0.025rem solid #000;
+  border-radius: 0.25rem;
+  background: #000;
+  content: "";
+  line-height: 0.25rem;
+}
+#post-content ul li ul li:before {
+  top: 15px;
+  margin-left: 0.45rem;
+  width: 0.25rem;
+  height: 0.25rem;
+  border: 0.025rem solid #000;
+  border-radius: 0.25rem;
   background: #fff;
   content: "";
-  line-height: 0.3rem;
+  line-height: 0.25rem;
 }
 #post-content a {
   color: #66afef;
