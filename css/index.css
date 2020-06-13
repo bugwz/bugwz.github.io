@@ -396,7 +396,7 @@ blockquote {
   color: #c792ea;
 }
 .article-container pre .comment {
-  color: #4a4a4a;
+  color: #4a4afd;
 }
 .article-container pre .comment::selection {
   background: rgba(97,97,97,0.314);
