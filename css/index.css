@@ -134,7 +134,7 @@ table {
   border-collapse: collapse;
 }
 table thead {
-  background: rgba(133,133,133,0.1);
+  background: rgba(110,179,215,0.1);
 }
 table th,
 table td {
@@ -998,7 +998,7 @@ footer {
 .article-sort-item__time {
   position: absolute;
   top: 0.1rem;
-  color: #858585;
+  color: #6eb3d7;
 }
 .article-sort-item__title {
   display: block;
@@ -1022,7 +1022,7 @@ footer {
 }
 .category-list .category-list-count {
   margin-left: 0.4rem;
-  color: #858585;
+  color: #6eb3d7;
 }
 .category-list .category-list-count:before {
   content: "(";
@@ -1143,7 +1143,7 @@ footer {
   cursor: pointer;
 }
 #pagination .space {
-  color: #858585;
+  color: #6eb3d7;
 }
 #pagination .page-number {
   display: inline-block;
@@ -1472,7 +1472,7 @@ footer {
   line-height: 0.3rem;
 }
 a {
-  color: #858585;
+  color: #6eb3d7;
   -webkit-transition: all 0.2s;
   -moz-transition: all 0.2s;
   -o-transition: all 0.2s;
@@ -1701,7 +1701,7 @@ img:hover {
   font-size: 0.8rem;
 }
 #sidebar .author-info__description {
-  color: #858585;
+  color: #6eb3d7;
 }
 #sidebar .author-info-articles {
   padding: 0.2rem 0;
