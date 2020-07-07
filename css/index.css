@@ -1759,6 +1759,9 @@ img:hover {
   background: #fff;
   content: "";
 }
+#sidebar .sidebar-toc {
+  font-size: 14px;
+}
 #sidebar .sidebar-toc ol,
 #sidebar .sidebar-toc li {
   list-style: none;

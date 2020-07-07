@@ -788,11 +788,11 @@
             
             <tag> Linux </tag>
             
-            <tag> hashlimit </tag>
-            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
+            
+            <tag> hashlimit </tag>
             
         </tags>
       
