@@ -3,6 +3,25 @@
   
     
     <entry>
+      <title>Hamburg - 抓包/耗时分析工具</title>
+      <link href="/2020/07/27/hamburg/"/>
+      <url>/2020/07/27/hamburg/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一-简介"><a class="header-anchor" href="#一-简介"> </a>一、简介</h2><p><code>Hamburg</code>是一款用<code>Go</code>实现的抓包/耗时分析的工具，项目地址为 <a href="https://github.com/bugwz/hamburg" target="_blank" rel="noopener">https://github.com/bugwz/hamburg</a>。该工具的设计思想以及实现逻辑基本参照<a href="https://github.com/git-hulk/tcpkit" target="_blank" rel="noopener">tcpkit</a>。</p><h2 id="二-功能实现"><a class="header-anchor" href="#二-功能实现"> </a>二、功能实现</h2><ul><li><code>抓包/拆包</code>：使用 <a href="https://github.com/google/gopacket" target="_blank" rel="noopener">gopacket</a> 进行抓包以及<code>IP</code>/<code>TCP</code>/<code>UDP</code>等信息的解析；</li><li><code>耗时分析</code>：通过监听端口以及与本地监听网卡的IP地址比对，猜测数据包的请求方向（Request/Response），并临时保存Request的数据包，在接收到与之匹配的回复数据包后，就可以计算出整个请求在本机的处理耗时。由于只要有一个回复数据包，整个请求回复链路的耗时统计就算完成，因此在server对于pipline的请求会批次回复的情况（redis等）下，耗时统计可能会偏小；</li><li><code>Lua自定义脚本</code>：通过使用<a href="github.com/yuin/gopher-lua">gopher-lua</a>包，支持使用自定义lua处理数据包；</li><li><code>应用层数据解析</code>：目前支持按照<code>raw</code>/<code>dns</code>/<code>http</code>/<code>redis</code>/<code>memcached</code>/<code>mysql</code>等协议的数据解析。在收到多个<code>Request数据包</code>并且还没有相应的<code>Response数据包</code>的情况下会自动合并解析后的请求内容。<ul><li><strong>raw</strong>：仅输出<code>SequenceID</code>，<code>ACKNumber</code>，<code>PayloadLen</code>以及数据包的Flags（包含<code>FIN</code>/<code>SYN</code>/<code>RST</code>/<code>PSH</code>/<code>ACK</code>/<code>URG</code>/<code>ECE</code>/<code>CWR</code>）等信息；</li><li><strong>dns</strong>：支持解析多种请求的类型，包含<code>A</code>/<code>NS</code>/<code>MD</code>/<code>MF</code>/<code>CNAME</code>/<code>SOA</code>/<code>MB</code>/<code>MG</code>/<code>MR</code>/<code>NULL</code>/<code>WKS</code>/<code>PTR</code>/<code>HINFO</code>/<code>MINFO</code>/<code>MX</code>/<code>TXT</code>/<code>AAAA</code>，而响应数据包支持的解析类型较少，目前仅有<code>A</code>和<code>CNAME</code>；</li><li><strong>http</strong>：支持所有类型的数据解析，不过输出的信息仅有<code>Method Type</code>，<code>Host</code>，<code>Resource Path</code>和<code>Response Code</code>；</li><li><strong>redis</strong>：支持大多数的请求访问类型，不统计noreply请求耗时，在pipline的场景下对于<code>multi bulk</code>的指令解析比tcpkit更准确；</li><li><strong>memcached</strong>：不统计noreply请求耗时；</li><li><strong>mysql</strong>：仅支持了部分client对server的请求的数据包的解析，对于server回复给client的数据包暂时没有做解析处理；</li></ul></li></ul><h2 id="三-示例"><a class="header-anchor" href="#三-示例"> </a>三、示例</h2><h3 id="3-1-解析dns数据包"><a class="header-anchor" href="#3-1-解析dns数据包"> </a>3.1、解析dns数据包</h3><p>监听本地网卡<code>en0</code>，过滤包含IP为<code>192.168.1.101</code>和端口<code>53</code>的数据包，按照<code>dns</code>的解析规则解析payload，输出请求回复链路耗时<code>大于0ms</code>的信心，并打印回复数据包的内容；</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ go run main.go -i en0 -s 192.168.1.101 -p 53 -m dns -t 0 -a</span><br><span class="line"></span><br><span class="line">Name:  en0</span><br><span class="line">Description:</span><br><span class="line">Devices addresses:</span><br><span class="line">- IP address: 192.168.1.101</span><br><span class="line">- Subnet mask:  ffffff00</span><br><span class="line"></span><br><span class="line">Start capturing packet with filter: ((port 53) and ((host192.168.1.101)))</span><br><span class="line">2020-07-26 11:17:30 ||  192.168.1.101:45742 =&gt;       223.5.5.5:53    || 155µs || [AAAA] manshs1.tsdmain.org ||</span><br><span class="line">2020-07-26 11:17:30 ||  192.168.1.101:25138 =&gt;       223.5.5.5:53    || 162µs || [A] manshs1.tsdmain.org || [A] 215.33.36.57;</span><br><span class="line">2020-07-26 11:17:30 ||  192.168.1.101:25138 =&gt;  208.67.220.220:53    || 584µs || [A] manshs1.tsdmain.com || [A] 225.42.15.55;</span><br><span class="line">2020-07-26 11:17:33 ||  192.168.1.101:53488 =&gt;  208.67.220.220:53    || 575µs || [A] www.a.shifen.com || [A] 61.135.169.125/61.135.169.125;</span><br></pre></td></tr></table></figure><h3 id="3-2-解析redis数据包"><a class="header-anchor" href="#3-2-解析redis数据包"> </a>3.2、解析redis数据包</h3><p>监听本地网卡<code>en0</code>，过滤包含IP为<code>192.168.1.101</code>和端口<code>6379</code>的数据包，按照<code>redis</code>的解析规则解析payload，输出请求回复链路耗时<code>大于0ms</code>的信心；</p><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ go run main.go -i en0 -s 192.168.1.101 -p 6379 -m redis -t 0</span><br><span class="line"></span><br><span class="line">Name:  en0</span><br><span class="line">Description:</span><br><span class="line">Devices addresses:</span><br><span class="line">- IP address: 192.168.1.101</span><br><span class="line">- Subnet mask:  ffffff00</span><br><span class="line"></span><br><span class="line">Start capturing packet with filter: ((port 6379) and ((host 192.168.1.101)))</span><br><span class="line">2020-07-26 14:33:55 ||   192.168.1.203:55241 =&gt;   192.168.1.101:50396 || 408µs || COMMAND</span><br><span class="line">2020-07-26 14:33:57 ||   192.168.1.203:55241 =&gt;   192.168.1.101:50396 || 191µs || info</span><br><span class="line">2020-07-26 14:34:05 ||   192.168.1.203:55242 =&gt;   192.168.1.101:50396 || 193µs || info memory</span><br><span class="line">2020-07-26 14:34:19 ||   192.168.1.203:54311 =&gt;   192.168.1.101:50396 || 312µs || <span class="built_in">set</span> a 1000</span><br></pre></td></tr></table></figure>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> GitHub </tag>
+            
+            <tag> Go </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    <entry>
       <title>Keepalived的高可用基石 - VRRP协议</title>
       <link href="/2020/06/20/keepalived-vrrp/"/>
       <url>/2020/06/20/keepalived-vrrp/</url>
@@ -599,9 +618,9 @@
       
         <tags>
             
-            <tag> C/C++ </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> C/C++ </tag>
             
             <tag> Redis </tag>
             
@@ -761,9 +780,9 @@
       
         <tags>
             
-            <tag> C/C++ </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> C/C++ </tag>
             
             <tag> Redis </tag>
             
@@ -805,11 +824,11 @@
             
             <tag> Linux </tag>
             
-            <tag> hashlimit </tag>
-            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
+            
+            <tag> hashlimit </tag>
             
         </tags>
       
@@ -906,9 +925,9 @@
       
         <tags>
             
-            <tag> C/C++ </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> C/C++ </tag>
             
         </tags>
       
@@ -944,9 +963,9 @@
       
         <tags>
             
-            <tag> C/C++ </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> C/C++ </tag>
             
             <tag> Notes </tag>
             
