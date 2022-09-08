@@ -60,7 +60,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><p><code>--hashlimit-htable-max</code>：设定哈希表入口最大数量；</p>
 </li>
 </ul>
-<h1 id="三、示例介绍"><a href="#三、示例介绍" class="headerlink" title="三、示例介绍"></a>三、示例介绍</h1><h2 id="3-1-实例一"><a href="#3-1-实例一" class="headerlink" title="3.1 实例一"></a>3.1 实例一</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">iptables -A INPUT -p tcp --dport 1234 -m hashlimit --hashlimit-name HashLimitName --hashlimit 1/sec --hashlimit-burst 1 --hashlimit-mode srcip -j ACCEPT</span><br><span class="line">iptables -A INPUT -p tcp --dport 1234 -j DROP</span><br></pre></td></tr></table></figure>
+<h1 id="三、示例介绍"><a href="#三、示例介绍" class="headerlink" title="三、示例介绍"></a>三、示例介绍</h1><h2 id="3-1-实例一"><a href="#3-1-实例一" class="headerlink" title="3.1 实例一"></a>3.1 实例一</h2><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">iptables -A INPUT -p tcp --dport 1234 -m hashlimit --hashlimit-name HashLimitName --hashlimit 1/sec --hashlimit-burst 1 --hashlimit-mode srcip -j ACCEPT</span><br><span class="line">iptables -A INPUT -p tcp --dport 1234 -j DROP</span><br></pre></td></tr></table></figure>
 
 <p>上述实例解释信息为：</p>
 <ul>
@@ -70,7 +70,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>放行通过匹配的数据包；</li>
 <li>丢弃所有其它访问本机 1234 端口的数据包；</li>
 </ul>
-<h2 id="3-2-实例二"><a href="#3-2-实例二" class="headerlink" title="3.2 实例二"></a>3.2 实例二</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">iptables -N DEFLOOD </span><br><span class="line">iptables -A FORWARD -s 192.168.1.2/24 -m state --state NEW -j DEFLOOD </span><br><span class="line">iptables -A DEFLOOD -m hashlimit --hashlimit-name deflood --hashlimit 10/sec </span><br><span class="line">--hashlimit-burst 10 --hashlimit-mode srcip -j ACCEPT </span><br><span class="line">iptables -P DEFLOOD -j DROP </span><br></pre></td></tr></table></figure>
+<h2 id="3-2-实例二"><a href="#3-2-实例二" class="headerlink" title="3.2 实例二"></a>3.2 实例二</h2><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">iptables -N DEFLOOD </span><br><span class="line">iptables -A FORWARD -s 192.168.1.2/24 -m state --state NEW -j DEFLOOD </span><br><span class="line">iptables -A DEFLOOD -m hashlimit --hashlimit-name deflood --hashlimit 10/sec </span><br><span class="line">--hashlimit-burst 10 --hashlimit-mode srcip -j ACCEPT </span><br><span class="line">iptables -P DEFLOOD -j DROP </span><br></pre></td></tr></table></figure>
 
 <ul>
 <li>建立了一个自定义的处理链；</li>
