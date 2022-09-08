@@ -268,9 +268,9 @@
             
             <tag> Linux </tag>
             
-            <tag> lsof </tag>
-            
             <tag> Commands </tag>
+            
+            <tag> lsof </tag>
             
         </tags>
       
@@ -423,11 +423,11 @@
       
         <tags>
             
-            <tag> Base </tag>
-            
             <tag> Algorithm </tag>
             
             <tag> Linux </tag>
+            
+            <tag> Base </tag>
             
         </tags>
       
@@ -593,9 +593,9 @@
       
         <tags>
             
-            <tag> Commands </tag>
-            
             <tag> nc </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
