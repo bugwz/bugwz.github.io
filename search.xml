@@ -1264,27 +1264,6 @@
     
     
     <entry>
-      <title>Linux下的常用指令</title>
-      <link href="/2018/01/01/commands-linux/"/>
-      <url>/2018/01/01/commands-linux/</url>
-      
-        <content type="html"><![CDATA[<h3 id="CPU相关"><a href="#CPU相关" class="headerlink" title="CPU相关"></a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;physical id&#x27;</span> | <span class="built_in">sort</span> -u | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;cpu cores&#x27;</span> | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;processor&#x27;</span> | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a href="#内存相关" class="headerlink" title="内存相关"></a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line"><span class="built_in">cat</span> /proc/meminfo | grep <span class="string">&#x27;Huge&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag&#x27;</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled&#x27;</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="Docker相关"><a href="#Docker相关" class="headerlink" title="Docker相关"></a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id=""><a href="#" class="headerlink" title=""></a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Linux </tag>
-            
-            <tag> Commands </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    
-    
-    <entry>
       <title>Mac下的常用指令</title>
       <link href="/2018/01/01/commands-mac/"/>
       <url>/2018/01/01/commands-mac/</url>
@@ -1298,6 +1277,27 @@
             <tag> Commands </tag>
             
             <tag> Mac </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
+      <title>Linux下的常用指令</title>
+      <link href="/2018/01/01/commands-linux/"/>
+      <url>/2018/01/01/commands-linux/</url>
+      
+        <content type="html"><![CDATA[<h3 id="CPU相关"><a href="#CPU相关" class="headerlink" title="CPU相关"></a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;physical id&#x27;</span> | <span class="built_in">sort</span> -u | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;cpu cores&#x27;</span> | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;processor&#x27;</span> | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a href="#内存相关" class="headerlink" title="内存相关"></a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line"><span class="built_in">cat</span> /proc/meminfo | grep <span class="string">&#x27;Huge&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag&#x27;</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled&#x27;</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="Docker相关"><a href="#Docker相关" class="headerlink" title="Docker相关"></a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id=""><a href="#" class="headerlink" title=""></a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
