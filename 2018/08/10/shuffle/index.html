@@ -1,98 +1,99 @@
-extends includes/layout.pug
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="三种洗牌算法shuffle"><meta name="keywords" content="Algorithm,Linux"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>三种洗牌算法shuffle | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
 
-block top_img
-  - var top_img = page.top_img || theme.post_meta.top_img || theme.top_img || config.top_img
-  if (top_img && page.top_img !== false)
-    - var flag = top_img === true ? 'no-bg' : undefined
-    div#top-container(style=`background-image: url(${top_img})` class=flag)
-      include ./includes/header.pug
-      #post-info
-        #post-title= page.title || _p('no_title')
-        #post-meta
-          if (theme.post_meta.date_type)
-            - var date_type = theme.post_meta.date_type === 'updated' ? 'updated' : 'date'
-            time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-          if (theme.post_meta.categories && page.categories.data.length > 0)
-            if (theme.post_meta.date_type)
-              span.post-meta__separator |
-            each item, index in page.categories.data
-              i.fa.fa-inbox.post-meta__icon(aria-hidden="true")
-              a(href=url_for(item.path)).post-meta__categories #[=item.name]
-              if (index < page.categories.data.length - 1)
-                 i.fa.fa-angle-right(aria-hidden="true")
-          if (theme.disqus.enable && theme.disqus.count)
-            if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-              span.post-meta__separator |
-            i.fa.fa-comment-o.post-meta__icon(aria-hidden="true")
-            a(href=url_for(page.path) + '#disqus_thread')
-              span.disqus-comment-count(data-disqus-identifier=page.path)
-          if (theme.wordcount && theme.wordcount.enable)
-            .post-meta-wordcount
-              span= _p('post.wordcount') + ': '
-              span.word-count= wordcount(page.content)
-              span.post-meta__separator |
-              span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-  else
-    div#top-container.plain
-      include ./includes/header.pug
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="true"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E7%AE%80%E4%BB%8B"><span class="toc-text">一、简介</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%85%B7%E4%BD%93%E7%AE%97%E6%B3%95"><span class="toc-text">二、具体算法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1%E3%80%81Fisher-Yates-%E6%B4%97%E7%89%8C%E7%AE%97%E6%B3%95%EF%BC%88%E6%8A%BD%E7%89%8C%E7%AE%97%E6%B3%95%EF%BC%89"><span class="toc-text">2.1、Fisher-Yates 洗牌算法（抽牌算法）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2%E3%80%81Knuth-Durstenfeld-%E6%B4%97%E7%89%8C%E7%AE%97%E6%B3%95%EF%BC%88%E6%8D%A2%E7%89%8C%E7%AE%97%E6%B3%95%EF%BC%89"><span class="toc-text">2.2、Knuth-Durstenfeld 洗牌算法（换牌算法）</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#2-2-1%E3%80%81%E7%AE%97%E6%B3%95%E6%80%9D%E8%B7%AF"><span class="toc-text">2.2.1、算法思路</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-2-2%E3%80%81%E7%AE%97%E6%B3%95%E4%BC%98%E7%BC%BA%E7%82%B9"><span class="toc-text">2.2.2、算法优缺点</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-2-3%E3%80%81%E7%AE%97%E6%B3%95%E5%A4%8D%E6%9D%82%E5%BA%A6"><span class="toc-text">2.2.3、算法复杂度</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4%E3%80%81Inside-Out-Algorithm%E7%AE%97%E6%B3%95"><span class="toc-text">2.4、Inside-Out Algorithm算法</span></a></li></ol></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avator.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">95</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">88</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/tmux.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span><span class="pull-right"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a></span></div><div id="post-info"><div id="post-title">三种洗牌算法shuffle</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2018-08-10</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2018/08/10/shuffle/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2018/08/10/shuffle/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h2 id="一、简介"><a href="#一、简介" class="headerlink" title="一、简介"></a>一、简介</h2><p>洗牌算法可以被理解为三种洗牌算法，分别是抽牌（Fisher-Yates Shuffle算法），换牌（Knuth-Durstenfeld Shhuffle算法）和插牌算法。</p>
+<h2 id="二、具体算法"><a href="#二、具体算法" class="headerlink" title="二、具体算法"></a>二、具体算法</h2><h3 id="2-1、Fisher-Yates-洗牌算法（抽牌算法）"><a href="#2-1、Fisher-Yates-洗牌算法（抽牌算法）" class="headerlink" title="2.1、Fisher-Yates 洗牌算法（抽牌算法）"></a>2.1、Fisher-Yates 洗牌算法（抽牌算法）</h3><p>这个洗牌方法最早由<code>Ronald A. Fisher</code>和<code>Frank Yates</code>提出，即 <code>Fisher–Yates Shuffle</code>，其基本思想就是从原始数组中随机取一个之前没取过的数字到新的数组中，具体如下：</p>
+<ul>
+<li>初始化原始数组和新数组，原始数组长度为n(已知)；</li>
+<li>从还没处理的数组（假如还剩k个）中，随机产生一个[0, k)之间的数组下标数字p；</li>
+<li>从剩下的k个数中把下标为p的数取出，放在新数组的末尾（末尾有数字则放在末尾前一位，依次往前）；</li>
+<li>重复步骤2和3直到数字全部取完，新数组的数字序列就是一个随机的序列；</li>
+</ul>
+<p> 下面证明其随机性，即每个元素被放置在新数组中的第i个位置是1&#x2F;n（假设数组大小是n）：</p>
+<p><strong>证明：</strong>一个元素m被放入第i个位置的概率P &#x3D; 前i-1个位置选择元素时没有选中m的概率 * 第i个位置选中m的概率，即：</p>
+<ul>
+<li><p>时间复杂度：$O(n^2)$</p>
+</li>
+<li><p>空间复杂度：$O(n)$</p>
+</li>
+</ul>
+<p>算法实现：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">suffleFisherYates</span><span class="params">(<span class="type">char</span> *source, <span class="type">char</span> *dest)</span> &#123;</span><br><span class="line">    <span class="keyword">for</span>(<span class="type">int</span> i=<span class="number">0</span>;i&lt;POKER_NUM;i++)</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="type">int</span> index=rand()%(POKER_NUM-i)+i;         <span class="comment">//获取从i~POKER_NUM的一个索引</span></span><br><span class="line">        <span class="built_in">std</span>::swap(poker[i],poker[index]);        <span class="comment">//交换</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">void</span> <span class="title function_">suffleFisherYates</span><span class="params">(<span class="type">char</span> *date, <span class="type">int</span> length)</span>&#123;</span><br><span class="line">    <span class="type">char</span> t;    <span class="comment">//t为交换字符空间   </span></span><br><span class="line">    <span class="type">int</span> i, j;</span><br><span class="line">    <span class="keyword">while</span>(--length)&#123;</span><br><span class="line">        srand(time(<span class="number">0</span>));</span><br><span class="line">        i = rand()%(length+<span class="number">1</span>);</span><br><span class="line">        t = date[i];</span><br><span class="line">        date[i] = date[length];</span><br><span class="line">        date[length] = t;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="type">void</span> <span class="title function_">MySwap</span><span class="params">(<span class="type">int</span> &amp;x, <span class="type">int</span> &amp;y)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">int</span> temp = x;</span><br><span class="line">    x = y;</span><br><span class="line">    y = temp;</span><br><span class="line">&#125;</span><br><span class="line"> </span><br><span class="line"><span class="type">void</span> <span class="title function_">Shuffle</span><span class="params">(<span class="type">int</span> n)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">for</span>(<span class="type">int</span> i=n<span class="number">-1</span>; i&gt;=<span class="number">1</span>; i--)</span><br><span class="line">    &#123;</span><br><span class="line">        MySwap(num[i], num[rand()%(i+<span class="number">1</span>)]);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-block content
-  article#post(class="")
-    if (!top_img)
-      #post-title.plain= page.title || _p('no_title')
-      #post-meta
-        if (theme.post_meta.date_type)
-          - var date_type = theme.post_meta.date_type === 'updated' ? '' : 'date'
-          time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-        if (theme.post_meta.categories && page.categories.data.length > 0)
-          if (theme.post_meta.date_type)
-            span.post-meta__separator |
-          each item, index in page.categories.data
-            i.fa.fa-inbox(aria-hidden="true")
-            a(href=url_for(item.path)).post-meta__categories  #[=item.name]
-            if (index < page.categories.data.length - 1)
-                i.fa.fa-angle-right.post-meta__separator(aria-hidden="true")
-        if (theme.disqus.enable && theme.disqus.count)
-          if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-            span.post-meta__separator |
-          i.fa.fa-comment-o(aria-hidden="true")
-          a(href=url_for(page.path) + '#disqus_thread')
-            span.disqus-comment-count(data-disqus-identifier=page.path)
-        if (theme.wordcount && theme.wordcount.enable)
-          span.post-meta__separator |
-          span.post-meta-wordcount
-            span= _p('post.wordcount') + ': '
-            span.word-count= wordcount(page.content)
-            span.post-meta__separator |
-            span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-    #post-content.article-container!= page.content
-  if (theme.post_copyright && theme.post_copyright.enable)
-    .post-copyright
-      .post-copyright__author
-        span.post-copyright-meta= _p('post.copyright.author') + ": "
-        span.post-copyright-info
-          a(href=`mailto:${config.email}`) #[=config.author]
-      .post-copyright__type
-        span.post-copyright-meta= _p('post.copyright.link') + ": "
-        span.post-copyright-info
-          a(href=url_for(page.permalink)) #[=page.permalink]
-      .post-copyright__notice
-        span.post-copyright-meta= _p('post.copyright.copyright_notice') + ": "
-        span.post-copyright-info!= _p('post.copyright.copyright_content', theme.post_copyright.license_url, theme.post_copyright.license, config.url, config.title)
-  if (theme.post_meta.tags)
-    .post-meta__tag-list
-      each item, index in page.tags.data
-        a(href=url_for(item.path)).post-meta__tags #[=item.name]
-  if (theme.QR_code)
-    if (theme.QR_code.length > 0)
-      .post-qr-code
-        each item in theme.QR_code
-          .post-qr-code-item
-            img.post-qr-code__img(src=(item.itemlist||item).img)
-            .post-qr-code__desc=(item.itemlist||item).text
-  include includes/share/index.pug
-  include includes/pagination.pug
-  if (theme.adv && theme.adv.enable)
-    .post-adv!= theme.adv.info
-  if page.comments !== false
-    include includes/comments/index.pug
+
+
+
+
+<h3 id="2-2、Knuth-Durstenfeld-洗牌算法（换牌算法）"><a href="#2-2、Knuth-Durstenfeld-洗牌算法（换牌算法）" class="headerlink" title="2.2、Knuth-Durstenfeld 洗牌算法（换牌算法）"></a>2.2、Knuth-Durstenfeld 洗牌算法（换牌算法）</h3><p>Knuth 和 Durstenfeld  在Fisher等人研究的基础上对算法进行了改进，在原始数组上对数字进行交互，省去了额外O(n)的空间。该算法的基本思想和 Fisher 类似，每次从未处理的数据中随机取出一个数字，然后把该数字放在数组的尾部，即数组尾部存放的是已经处理过的数字。</p>
+<h4 id="2-2-1、算法思路"><a href="#2-2-1、算法思路" class="headerlink" title="2.2.1、算法思路"></a>2.2.1、算法思路</h4><ul>
+<li>建立一个数组大小为n的数组，存放n个数值；</li>
+<li>生成一个从0到m-1（假设数组未处理的大小为m）的数组下标随机数p；</li>
+<li>获取数组中下标为p的数字，并将其与数组下标为m-1的元素互换，数组未处理的大小m减去1；</li>
+<li>依次执行2，3步骤，最终原始数组变成了一个新的随机序列数组；</li>
+</ul>
+<h4 id="2-2-2、算法优缺点"><a href="#2-2-2、算法优缺点" class="headerlink" title="2.2.2、算法优缺点"></a>2.2.2、算法优缺点</h4><ul>
+<li><p>优点：</p>
+<ul>
+<li>不需要额外占用多余的数组空间；</li>
+</ul>
+</li>
+<li><p>缺点：</p>
+<ul>
+<li>必须知道数组的的长度，无法处理长度不固定的数组；</li>
+<li>改变了原数组的排列顺序；</li>
+<li>由于扫描的方式为从后往前，因此无法处理长度动态增长的数组；</li>
+</ul>
+</li>
+</ul>
+<h4 id="2-2-3、算法复杂度"><a href="#2-2-3、算法复杂度" class="headerlink" title="2.2.3、算法复杂度"></a>2.2.3、算法复杂度</h4><ul>
+<li><p>时间复杂度：$O(n)$</p>
+</li>
+<li><p>空间复杂度：$O(1)$</p>
+</li>
+</ul>
+<p>算法实现：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;time.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="type">int</span> *<span class="title function_">shuffleKnuthDurstenfeld</span><span class="params">(<span class="type">int</span> *arr, <span class="type">int</span> len)</span> &#123;</span><br><span class="line">  <span class="type">int</span> i, p, tmp = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">  srand((<span class="type">unsigned</span>)time(<span class="literal">NULL</span>));</span><br><span class="line">  <span class="keyword">for</span>(i = len<span class="number">-1</span>; i&gt;=<span class="number">1</span>; i--) &#123;</span><br><span class="line">    p = rand()%(i+<span class="number">1</span>);</span><br><span class="line">    tmp = arr[i];</span><br><span class="line">    arr[i] = arr[p];</span><br><span class="line">    arr[p] = tmp;</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">return</span> arr;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h3 id="2-4、Inside-Out-Algorithm算法"><a href="#2-4、Inside-Out-Algorithm算法" class="headerlink" title="2.4、Inside-Out Algorithm算法"></a>2.4、Inside-Out Algorithm算法</h3><p>Knuth-Durstenfeld Shuffle 是一个内部打乱的算法，算法完成后原始数据被直接打乱，尽管这个方法可以节省空间，但在有些应用中可能需要保留原始数据，所以需要另外开辟一个数组来存储生成的新序列。<br>        Inside-Out Algorithm 算法的基本思思是从前向后扫描数据，把位置i的数据随机插入到前i个（包括第i个）位置中（假设为k），这个操作是在新数组中进行，然后把原始数据中位置k的数字替换新数组位置i的数字。其实效果相当于新数组中位置k和位置i的数字进行交互。</p>
+<p>如果知道arr的lengh的话，可以改为for循环，由于是从前往后遍历，所以可以应对arr[]数目未知的情况，或者arr[]是一个动态增加的情况。<br>证明如下：<br>原数组的第 i 个元素（随机到的数）在新数组的前 i 个位置的概率都是：(1&#x2F;i) * [i&#x2F;(i+1)] * [(i+1)&#x2F;(i+2)] <em>…</em> [(n-1)&#x2F;n] &#x3D; 1&#x2F;n，（即第i次刚好随机放到了该位置，在后面的n-i 次选择中该数字不被选中）。<br>原数组的第 i 个元素（随机到的数）在新数组的 i+1 （包括i + 1）以后的位置（假设是第k个位置）的概率是：(1&#x2F;k) * [k&#x2F;(k+1)] * [(k+1)&#x2F;(k+2)] <em>…</em> [(n-1)&#x2F;n] &#x3D; 1&#x2F;n（即第k次刚好随机放到了该位置，在后面的n-k次选择中该数字不被选中）</p>
+<ul>
+<li><p>时间复杂度：$O(n)$</p>
+</li>
+<li><p>空间复杂度：$O(n)$</p>
+</li>
+</ul>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2018/08/10/shuffle/">https://bugwz.com/2018/08/10/shuffle/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Algorithm/">Algorithm</a><a class="post-meta__tags" href="/tags/Linux/">Linux</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2018/11/25/tmux/"><i class="fa fa-chevron-left">  </i><span>Tmux使用记录</span></a></div><div class="next-post pull-right"><a href="/2018/05/20/tcp-state-transition/"><span>TCP状态转换详解</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+var disqus_config = function () {
+  this.page.url = 'https://bugwz.com/2018/08/10/shuffle/';
+  this.page.identifier = '2018/08/10/shuffle/';
+  this.page.title = '三种洗牌算法shuffle';
+}
+var d = document, s = d.createElement('script');
+s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
+s.setAttribute('data-timestamp', '' + +new Date());
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-scr" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/tmux.jpg)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"><span>Powered by</span> <a target="_blank" rel="noopener" href="https://github.com/wzpan/hexo-generator-search" style="color:#49B1F5;">hexo-generator-search</a></div></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div></body></html>

@@ -1,98 +1,108 @@
-extends includes/layout.pug
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="JSP隐式对象-JSP笔记-6"><meta name="keywords" content="Notes,JSP,Campus"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>JSP隐式对象-JSP笔记-6 | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
 
-block top_img
-  - var top_img = page.top_img || theme.post_meta.top_img || theme.top_img || config.top_img
-  if (top_img && page.top_img !== false)
-    - var flag = top_img === true ? 'no-bg' : undefined
-    div#top-container(style=`background-image: url(${top_img})` class=flag)
-      include ./includes/header.pug
-      #post-info
-        #post-title= page.title || _p('no_title')
-        #post-meta
-          if (theme.post_meta.date_type)
-            - var date_type = theme.post_meta.date_type === 'updated' ? 'updated' : 'date'
-            time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-          if (theme.post_meta.categories && page.categories.data.length > 0)
-            if (theme.post_meta.date_type)
-              span.post-meta__separator |
-            each item, index in page.categories.data
-              i.fa.fa-inbox.post-meta__icon(aria-hidden="true")
-              a(href=url_for(item.path)).post-meta__categories #[=item.name]
-              if (index < page.categories.data.length - 1)
-                 i.fa.fa-angle-right(aria-hidden="true")
-          if (theme.disqus.enable && theme.disqus.count)
-            if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-              span.post-meta__separator |
-            i.fa.fa-comment-o.post-meta__icon(aria-hidden="true")
-            a(href=url_for(page.path) + '#disqus_thread')
-              span.disqus-comment-count(data-disqus-identifier=page.path)
-          if (theme.wordcount && theme.wordcount.enable)
-            .post-meta-wordcount
-              span= _p('post.wordcount') + ': '
-              span.word-count= wordcount(page.content)
-              span.post-meta__separator |
-              span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-  else
-    div#top-container.plain
-      include ./includes/header.pug
-
-block content
-  article#post(class="")
-    if (!top_img)
-      #post-title.plain= page.title || _p('no_title')
-      #post-meta
-        if (theme.post_meta.date_type)
-          - var date_type = theme.post_meta.date_type === 'updated' ? '' : 'date'
-          time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-        if (theme.post_meta.categories && page.categories.data.length > 0)
-          if (theme.post_meta.date_type)
-            span.post-meta__separator |
-          each item, index in page.categories.data
-            i.fa.fa-inbox(aria-hidden="true")
-            a(href=url_for(item.path)).post-meta__categories  #[=item.name]
-            if (index < page.categories.data.length - 1)
-                i.fa.fa-angle-right.post-meta__separator(aria-hidden="true")
-        if (theme.disqus.enable && theme.disqus.count)
-          if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-            span.post-meta__separator |
-          i.fa.fa-comment-o(aria-hidden="true")
-          a(href=url_for(page.path) + '#disqus_thread')
-            span.disqus-comment-count(data-disqus-identifier=page.path)
-        if (theme.wordcount && theme.wordcount.enable)
-          span.post-meta__separator |
-          span.post-meta-wordcount
-            span= _p('post.wordcount') + ': '
-            span.word-count= wordcount(page.content)
-            span.post-meta__separator |
-            span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-    #post-content.article-container!= page.content
-  if (theme.post_copyright && theme.post_copyright.enable)
-    .post-copyright
-      .post-copyright__author
-        span.post-copyright-meta= _p('post.copyright.author') + ": "
-        span.post-copyright-info
-          a(href=`mailto:${config.email}`) #[=config.author]
-      .post-copyright__type
-        span.post-copyright-meta= _p('post.copyright.link') + ": "
-        span.post-copyright-info
-          a(href=url_for(page.permalink)) #[=page.permalink]
-      .post-copyright__notice
-        span.post-copyright-meta= _p('post.copyright.copyright_notice') + ": "
-        span.post-copyright-info!= _p('post.copyright.copyright_content', theme.post_copyright.license_url, theme.post_copyright.license, config.url, config.title)
-  if (theme.post_meta.tags)
-    .post-meta__tag-list
-      each item, index in page.tags.data
-        a(href=url_for(item.path)).post-meta__tags #[=item.name]
-  if (theme.QR_code)
-    if (theme.QR_code.length > 0)
-      .post-qr-code
-        each item in theme.QR_code
-          .post-qr-code-item
-            img.post-qr-code__img(src=(item.itemlist||item).img)
-            .post-qr-code__desc=(item.itemlist||item).text
-  include includes/share/index.pug
-  include includes/pagination.pug
-  if (theme.adv && theme.adv.enable)
-    .post-adv!= theme.adv.info
-  if page.comments !== false
-    include includes/comments/index.pug
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="true"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E5%85%B3%E4%BA%8EJSP%E9%9A%90%E5%BC%8F%E5%AF%B9%E8%B1%A1"><span class="toc-text">一、关于JSP隐式对象</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%9B%9B%E7%A7%8D%E9%9A%90%E5%BC%8F%E5%AF%B9%E8%B1%A1%EF%BC%9A"><span class="toc-text">二、四种隐式对象：</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1%E3%80%81%E8%BE%93%E5%85%A5-x2F-%E8%BE%93%E5%87%BA%E5%AF%B9%E8%B1%A1%EF%BC%9A"><span class="toc-text">2.1、输入&#x2F;输出对象：</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2%E3%80%81request%E5%AF%B9%E8%B1%A1"><span class="toc-text">2.2、request对象</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3%E3%80%81response%E5%AF%B9%E8%B1%A1"><span class="toc-text">2.3、response对象</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4%E3%80%81out%E5%AF%B9%E8%B1%A1"><span class="toc-text">2.4、out对象</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E4%BD%9C%E7%94%A8%E5%9F%9F%E9%80%9A%E4%BF%A1%E5%AF%B9%E8%B1%A1"><span class="toc-text">三、作用域通信对象</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1%E3%80%81session%E5%AF%B9%E8%B1%A1"><span class="toc-text">3.1、session对象</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2%E3%80%81application%E5%AF%B9%E8%B1%A1"><span class="toc-text">3.2、application对象</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3%E3%80%81pageContext%E5%AF%B9%E8%B1%A1"><span class="toc-text">3.3、pageContext对象</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81Servlet%E5%AF%B9%E8%B1%A1"><span class="toc-text">四、Servlet对象</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1%E3%80%81page%E5%AF%B9%E8%B1%A1"><span class="toc-text">4.1、page对象</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2%E3%80%81page%E5%AF%B9%E8%B1%A1"><span class="toc-text">4.2、page对象</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81Exception%E5%AF%B9%E8%B1%A1"><span class="toc-text">五、Exception对象</span></a></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avator.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">95</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">88</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/jsp.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span><span class="pull-right"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a></span></div><div id="post-info"><div id="post-title">JSP隐式对象-JSP笔记-6</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2016-12-11</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2016/12/11/jsp-6/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2016/12/11/jsp-6/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h2 id="一、关于JSP隐式对象"><a href="#一、关于JSP隐式对象" class="headerlink" title="一、关于JSP隐式对象"></a>一、关于JSP隐式对象</h2><ul>
+<li><p>JSP饮食对象是web容器加载的一组类的实例。</p>
+</li>
+<li><p>它不像一般的java对象那样用”new”去获取实例，而是可以直接在jsp页面的java程序片和表达式部分使用对象。</p>
+</li>
+<li><p>jsp使用java定义的隐式对象来访问网页的动态内容。</p>
+</li>
+<li><p>隐式对象的名称是jsp的保留字。</p>
+</li>
+<li><p>jsp提供了一些隐式对象可简化开发。</p>
+</li>
+</ul>
+<blockquote>
+<p>注：这里我们主要体验这些JSP隐式对象的作用范围。</p>
+</blockquote>
+<ol>
+<li>对象的作用域是可以访问对象的部分；</li>
+<li>JSP页面中的隐式对象的作用域包括：</li>
+</ol>
+<ul>
+<li>page – 再引用对象的JSP页面中提供对象。</li>
+<li>Request – 提供在所有请求页面中可用的对象。</li>
+<li>Session – 提供对象已访问给顶应用程序中的所有网页。例如，用户访问一个网站，并通过访问其他链接打开网站中的其他页面。网站中的所有网页形成一个应用程序作用域。</li>
+</ul>
+<ol start="3">
+<li>作用于通信对象和控制对象用于访问给定作用域中可用的所有对象。</li>
+</ol>
+<h2 id="二、四种隐式对象："><a href="#二、四种隐式对象：" class="headerlink" title="二、四种隐式对象："></a>二、四种隐式对象：</h2><ol>
+<li>输入&#x2F;输出对象：</li>
+</ol>
+<ul>
+<li>request</li>
+<li>response</li>
+<li>out</li>
+</ul>
+<ol start="2">
+<li>作用域通信对象：</li>
+</ol>
+<ul>
+<li>session</li>
+<li>application</li>
+<li>pageContext</li>
+</ul>
+<ol start="3">
+<li>Servlet对象</li>
+</ol>
+<ul>
+<li>page</li>
+<li>config</li>
+</ul>
+<ol start="4">
+<li>错误对象</li>
+</ol>
+<ul>
+<li>exception</li>
+</ul>
+<h3 id="2-1、输入-x2F-输出对象："><a href="#2-1、输入-x2F-输出对象：" class="headerlink" title="2.1、输入&#x2F;输出对象："></a>2.1、输入&#x2F;输出对象：</h3><ol>
+<li>控制页面的输入和输出</li>
+<li>访问与所有请求和响应有关的数据</li>
+<li>输入和输出对象包括request，response和out</li>
+</ol>
+<h3 id="2-2、request对象"><a href="#2-2、request对象" class="headerlink" title="2.2、request对象"></a>2.2、request对象</h3><p>客户端请求，此请求会包含来自GET&#x2F;POST请求的参数；用户输入的数据用来保存在Request对象中，用javax.servlet.HttpServlet来执行。<code>request对象的作用范围只在本页</code>，跳转页面后之前的设置信息失效。部分代码如下所示：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">&lt;body&gt;</span><br><span class="line">    &lt;%</span><br><span class="line">	request.setAttribute(<span class="string">&quot;name&quot;</span>,<span class="string">&quot;zhangsan&quot;</span>) ;</span><br><span class="line">    request.setAttribute(<span class="string">&quot;password&quot;</span>,<span class="string">&quot;123456&quot;</span>) ;</span><br><span class="line">    <span class="comment">//request.removeAttribute(&quot;name&quot;);</span></span><br><span class="line">    %&gt;</span><br><span class="line">    &lt;jsp:forward page=<span class="string">&quot;request1.jsp&quot;</span>/&gt;</span><br><span class="line">	&lt;a href=<span class="string">&quot;&lt;%=path %&gt;/first/request1.jsp&quot;</span>&gt;request1.jsp&lt;/a&gt;</span><br><span class="line">  &lt;/body&gt;</span><br></pre></td></tr></table></figure>
+<h3 id="2-3、response对象"><a href="#2-3、response对象" class="headerlink" title="2.3、response对象"></a>2.3、response对象</h3><p>处理jsp生成的响应；响发送给客户端；实现javax.servlet.http.HttpServletResponse接口；jsp引擎吧存放在request对象中的数据发到服务器端的组件，组件收到这些个数据后进行相应处理；返回一个response对象给jsp引擎，jsp引擎再把response对象传给jsp页面，这时的页面包含了定好的格式和从服务器端得到的数据。<code>response的作用范围仍然局限于本页面</code>。</p>
+<h3 id="2-4、out对象"><a href="#2-4、out对象" class="headerlink" title="2.4、out对象"></a>2.4、out对象</h3><p>表示输出流(注意不是response.getWriter(),因为这种是PrintWriter类型)；javax.servlet.jsp.JspWriter类的实例；使用write()、print()、和println()方法；Write()和print()方法的区别是<code>Write只能输出和字符相关的东西，而print()可以输出各种那个数据类型</code>。</p>
+<h2 id="三、作用域通信对象"><a href="#三、作用域通信对象" class="headerlink" title="三、作用域通信对象"></a>三、作用域通信对象</h2><h3 id="3-1、session对象"><a href="#3-1、session对象" class="headerlink" title="3.1、session对象"></a>3.1、session对象</h3><p>Web服务器为单个用户发送的多个请求创建会话；存储有关用户会话的所有信息；javax.servlet.http.HttpSession接口的实例；<code>session对象的作用范围在跳转页面后仍然有效</code>。</p>
+<h3 id="3-2、application对象"><a href="#3-2、application对象" class="headerlink" title="3.2、application对象"></a>3.2、application对象</h3><p>表示jsp页面所属的应用程序；应用程序的jsp页面组合起来形成一个应用程序，适用范围最广的上下文状态。它允许jsp页面的servlet与包括在同一应用程序中的任何web组件共享信息；javax.servlet.ServletContext接口实例。<code>application对象的作用范围在跳转页面后失效</code>。</p>
+<h3 id="3-3、pageContext对象"><a href="#3-3、pageContext对象" class="headerlink" title="3.3、pageContext对象"></a>3.3、pageContext对象</h3><p>使用户可以访问页面作用域中定义的所有隐式对象；他的作用范围是在同一页面；javax.servlet.jsp.PageContext类的实例；是jsp页面本身的上下文；提供唯一一个API来管理具有不同作用域的属性；在实现jsp自定义标记处理程序时使用的非常多；<code>pageContext对象的作用范围在跳转页面后仍然有效</code>。</p>
+<h2 id="四、Servlet对象"><a href="#四、Servlet对象" class="headerlink" title="四、Servlet对象"></a>四、Servlet对象</h2><p>JSP引擎为每个JSP生成一个Servlet；Servlet的对象提供了访问Servlet信息的方法和变量；Servlet对象包括：page和config。</p>
+<h3 id="4-1、page对象"><a href="#4-1、page对象" class="headerlink" title="4.1、page对象"></a>4.1、page对象</h3><p>使用page对象可以访问Servlet类的所有变量和方法；java.lang.Object类的</p>
+<h3 id="4-2、page对象"><a href="#4-2、page对象" class="headerlink" title="4.2、page对象"></a>4.2、page对象</h3><p>存储在便宜JSP页面的过程中刚创建的信息；javax.servlet.ServletConfig接口的实例；提供了检索Servlet的初始化参数的方法；</p>
+<h2 id="五、Exception对象"><a href="#五、Exception对象" class="headerlink" title="五、Exception对象"></a>五、Exception对象</h2><p>exception对象用于处理JSP页面中的错误；exception对象用于访问执行JSP的过程中引发的异常；exception对象是java.lang.Throwable类的实例；</p>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2016/12/11/jsp-6/">https://bugwz.com/2016/12/11/jsp-6/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Notes/">Notes</a><a class="post-meta__tags" href="/tags/JSP/">JSP</a><a class="post-meta__tags" href="/tags/Campus/">Campus</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2016/12/14/jsp-7/"><i class="fa fa-chevron-left">  </i><span>JSP标准动作-JSP笔记-7</span></a></div><div class="next-post pull-right"><a href="/2016/12/10/licence/"><span>常见代码许可证对比</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+var disqus_config = function () {
+  this.page.url = 'https://bugwz.com/2016/12/11/jsp-6/';
+  this.page.identifier = '2016/12/11/jsp-6/';
+  this.page.title = 'JSP隐式对象-JSP笔记-6';
+}
+var d = document, s = d.createElement('script');
+s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
+s.setAttribute('data-timestamp', '' + +new Date());
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-scr" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/jsp.jpg)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"><span>Powered by</span> <a target="_blank" rel="noopener" href="https://github.com/wzpan/hexo-generator-search" style="color:#49B1F5;">hexo-generator-search</a></div></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div></body></html>

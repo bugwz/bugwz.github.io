@@ -1,98 +1,74 @@
-extends includes/layout.pug
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="Redis的多线程特性"><meta name="keywords" content="C/C++,Redis"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>Redis的多线程特性 | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
 
-block top_img
-  - var top_img = page.top_img || theme.post_meta.top_img || theme.top_img || config.top_img
-  if (top_img && page.top_img !== false)
-    - var flag = top_img === true ? 'no-bg' : undefined
-    div#top-container(style=`background-image: url(${top_img})` class=flag)
-      include ./includes/header.pug
-      #post-info
-        #post-title= page.title || _p('no_title')
-        #post-meta
-          if (theme.post_meta.date_type)
-            - var date_type = theme.post_meta.date_type === 'updated' ? 'updated' : 'date'
-            time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-          if (theme.post_meta.categories && page.categories.data.length > 0)
-            if (theme.post_meta.date_type)
-              span.post-meta__separator |
-            each item, index in page.categories.data
-              i.fa.fa-inbox.post-meta__icon(aria-hidden="true")
-              a(href=url_for(item.path)).post-meta__categories #[=item.name]
-              if (index < page.categories.data.length - 1)
-                 i.fa.fa-angle-right(aria-hidden="true")
-          if (theme.disqus.enable && theme.disqus.count)
-            if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-              span.post-meta__separator |
-            i.fa.fa-comment-o.post-meta__icon(aria-hidden="true")
-            a(href=url_for(page.path) + '#disqus_thread')
-              span.disqus-comment-count(data-disqus-identifier=page.path)
-          if (theme.wordcount && theme.wordcount.enable)
-            .post-meta-wordcount
-              span= _p('post.wordcount') + ': '
-              span.word-count= wordcount(page.content)
-              span.post-meta__separator |
-              span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-  else
-    div#top-container.plain
-      include ./includes/header.pug
-
-block content
-  article#post(class="")
-    if (!top_img)
-      #post-title.plain= page.title || _p('no_title')
-      #post-meta
-        if (theme.post_meta.date_type)
-          - var date_type = theme.post_meta.date_type === 'updated' ? '' : 'date'
-          time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-        if (theme.post_meta.categories && page.categories.data.length > 0)
-          if (theme.post_meta.date_type)
-            span.post-meta__separator |
-          each item, index in page.categories.data
-            i.fa.fa-inbox(aria-hidden="true")
-            a(href=url_for(item.path)).post-meta__categories  #[=item.name]
-            if (index < page.categories.data.length - 1)
-                i.fa.fa-angle-right.post-meta__separator(aria-hidden="true")
-        if (theme.disqus.enable && theme.disqus.count)
-          if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-            span.post-meta__separator |
-          i.fa.fa-comment-o(aria-hidden="true")
-          a(href=url_for(page.path) + '#disqus_thread')
-            span.disqus-comment-count(data-disqus-identifier=page.path)
-        if (theme.wordcount && theme.wordcount.enable)
-          span.post-meta__separator |
-          span.post-meta-wordcount
-            span= _p('post.wordcount') + ': '
-            span.word-count= wordcount(page.content)
-            span.post-meta__separator |
-            span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-    #post-content.article-container!= page.content
-  if (theme.post_copyright && theme.post_copyright.enable)
-    .post-copyright
-      .post-copyright__author
-        span.post-copyright-meta= _p('post.copyright.author') + ": "
-        span.post-copyright-info
-          a(href=`mailto:${config.email}`) #[=config.author]
-      .post-copyright__type
-        span.post-copyright-meta= _p('post.copyright.link') + ": "
-        span.post-copyright-info
-          a(href=url_for(page.permalink)) #[=page.permalink]
-      .post-copyright__notice
-        span.post-copyright-meta= _p('post.copyright.copyright_notice') + ": "
-        span.post-copyright-info!= _p('post.copyright.copyright_content', theme.post_copyright.license_url, theme.post_copyright.license, config.url, config.title)
-  if (theme.post_meta.tags)
-    .post-meta__tag-list
-      each item, index in page.tags.data
-        a(href=url_for(item.path)).post-meta__tags #[=item.name]
-  if (theme.QR_code)
-    if (theme.QR_code.length > 0)
-      .post-qr-code
-        each item in theme.QR_code
-          .post-qr-code-item
-            img.post-qr-code__img(src=(item.itemlist||item).img)
-            .post-qr-code__desc=(item.itemlist||item).text
-  include includes/share/index.pug
-  include includes/pagination.pug
-  if (theme.adv && theme.adv.enable)
-    .post-adv!= theme.adv.info
-  if page.comments !== false
-    include includes/comments/index.pug
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="true"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E9%80%BB%E8%BE%91%E5%88%86%E6%9E%90"><span class="toc-text">一、逻辑分析</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1%E3%80%81%E4%B8%A4%E4%B8%AA%E9%85%8D%E7%BD%AE"><span class="toc-text">2.1、两个配置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2%E3%80%81%E4%B8%A4%E4%B8%AA%E9%98%9F%E5%88%97"><span class="toc-text">2.2、两个队列</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3%E3%80%81%E4%B8%A4%E7%B1%BB%E7%BA%BF%E7%A8%8B"><span class="toc-text">2.3、两类线程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4%E3%80%81%E5%A4%9A%E4%B8%AA%E5%87%BD%E6%95%B0"><span class="toc-text">2.4、多个函数</span></a></li></ol></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avator.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">95</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">88</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/multithreading.jpeg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span><span class="pull-right"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a></span></div><div id="post-info"><div id="post-title">Redis的多线程特性</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2019-09-01</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2019/09/01/redis-multithreading/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2019/09/01/redis-multithreading/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><p>Redis6.0即将发布，比较吸引我的便是Redis6.0支持的多线程技术，Redis本身也并不是简单的单进程&#x2F;线程模型，包括bgsave的进程以及对于一些慢请求的io线程（惰性删除，日志刷盘等），这次多线程的优化主要解决了Redis单进程&#x2F;线程处理模型在协议解析以及网络IO上的消耗问题，在命令的处理上仍旧是单线程。</p>
+<h2 id="一、逻辑分析"><a href="#一、逻辑分析" class="headerlink" title="一、逻辑分析"></a>一、逻辑分析</h2><h3 id="2-1、两个配置"><a href="#2-1、两个配置" class="headerlink" title="2.1、两个配置"></a>2.1、两个配置</h3><ul>
+<li><code>io-threads</code>：启用的IO的线程数，最大为128（老版本中配置判断为512，新版本已经修复统一为128）；</li>
+<li><code>io-threads-do-reads</code>：是否启用IO多线程；</li>
+</ul>
+<h3 id="2-2、两个队列"><a href="#2-2、两个队列" class="headerlink" title="2.2、两个队列"></a>2.2、两个队列</h3><ul>
+<li><code>clients_pending_read</code>：待处理的客户端的请求数据队列（需要进行协议解析等操作）；</li>
+<li><code>clients_pending_write</code>：待处理的客户端的回复数据队列（需要进行回复客户端等操作）；</li>
+</ul>
+<h3 id="2-3、两类线程"><a href="#2-3、两类线程" class="headerlink" title="2.3、两类线程"></a>2.3、两类线程</h3><p><strong>注意：启用的所有的多线程在同一时刻执行的任务类型是一样的</strong></p>
+<ul>
+<li><code>IO_THREADS_OP_WRITE</code>：执行<code>clients_pending_read</code>任务的线程；</li>
+<li><code>IO_THREADS_OP_READ</code>：执行<code>clients_pending_write</code>任务的线程；</li>
+</ul>
+<h3 id="2-4、多个函数"><a href="#2-4、多个函数" class="headerlink" title="2.4、多个函数"></a>2.4、多个函数</h3><ul>
+<li><p><code>initThreadedIO</code>：初始化多线程，并将多线程置为停止状态；</p>
+</li>
+<li><p><code>startThreadedIO</code>：启动多线程，并将<code>io_threads_active</code>状态置为<code>1</code>；</p>
+</li>
+<li><p><code>stopThreadedIO</code>：停止多线程，并将<code>io_threads_active</code>状态置为<code>0</code>，需要处理多线程中未处理完成的任务；</p>
+</li>
+<li><p><code>IOThreadMain</code>：多线程的执行函数，依据多线程的操作不同（<code>IO_THREADS_OP_WRITE</code>&#x2F;<code>IO_THREADS_OP_READ</code>）执行对应的客户端的回复或者读取操作；</p>
+</li>
+<li><p><code>handleClientsWithPendingWritesUsingThreads</code>：将<code>clients_pending_write</code>队列中待处理的处理客户端的<code>回复</code>分配给线程进行回复等操作；</p>
+</li>
+<li><p><code>handleClientsWithPendingReadsUsingThreads</code>：将<code>clients_pending_read</code>队列中待处理的客户端的<code>请求</code>分配给处理线程进行协议解析等操作，然后执行相应的命令逻辑；</p>
+</li>
+<li><p><code>afterSleep</code>：事件循环执行完成之后调用，函数内会调用<code>handleClientsWithPendingReadsUsingThreads</code>函数；</p>
+</li>
+<li><p><code>processCommandAndResetClient</code>：封装了<code>processCommand</code>函数，增加多线程模型的情况的处理逻辑；</p>
+</li>
+<li><p><code>postponeClientRead</code>：依据是否启动多线程，直接处理客户端的请求还是将请求添加到待处理队列<code>clients_pending_read</code>中；</p>
+</li>
+<li><p><code>stopThreadedIOIfNeeded</code>：如果<code>clients_pending_write</code>较小，即客户端数量较少时自动停止多线程；</p>
+</li>
+</ul>
+<p><img src="https://cdn.bugwz.com/redis-multithreading.png" alt="逻辑示意图"></p>
+<p>参考文档：<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/6WQNq5dNk-GuEhZXtVCo-A">https://mp.weixin.qq.com/s/6WQNq5dNk-GuEhZXtVCo-A</a></p>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2019/09/01/redis-multithreading/">https://bugwz.com/2019/09/01/redis-multithreading/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/C-C/">C/C++</a><a class="post-meta__tags" href="/tags/Redis/">Redis</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2019/09/06/redis-cluster-slots-num/"><i class="fa fa-chevron-left">  </i><span>为什么RedisCluster采用16384个槽位?</span></a></div><div class="next-post pull-right"><a href="/2019/08/27/use-fpm-to-mkrpm/"><span>使用FPM优雅的进行rpm打包</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+var disqus_config = function () {
+  this.page.url = 'https://bugwz.com/2019/09/01/redis-multithreading/';
+  this.page.identifier = '2019/09/01/redis-multithreading/';
+  this.page.title = 'Redis的多线程特性';
+}
+var d = document, s = d.createElement('script');
+s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
+s.setAttribute('data-timestamp', '' + +new Date());
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-scr" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/multithreading.jpeg)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"><span>Powered by</span> <a target="_blank" rel="noopener" href="https://github.com/wzpan/hexo-generator-search" style="color:#49B1F5;">hexo-generator-search</a></div></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div></body></html>

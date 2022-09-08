@@ -1,98 +1,63 @@
-extends includes/layout.pug
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="Hamburg - 抓包/耗时分析工具"><meta name="keywords" content="GitHub,Go"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>Hamburg - 抓包/耗时分析工具 | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
 
-block top_img
-  - var top_img = page.top_img || theme.post_meta.top_img || theme.top_img || config.top_img
-  if (top_img && page.top_img !== false)
-    - var flag = top_img === true ? 'no-bg' : undefined
-    div#top-container(style=`background-image: url(${top_img})` class=flag)
-      include ./includes/header.pug
-      #post-info
-        #post-title= page.title || _p('no_title')
-        #post-meta
-          if (theme.post_meta.date_type)
-            - var date_type = theme.post_meta.date_type === 'updated' ? 'updated' : 'date'
-            time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-          if (theme.post_meta.categories && page.categories.data.length > 0)
-            if (theme.post_meta.date_type)
-              span.post-meta__separator |
-            each item, index in page.categories.data
-              i.fa.fa-inbox.post-meta__icon(aria-hidden="true")
-              a(href=url_for(item.path)).post-meta__categories #[=item.name]
-              if (index < page.categories.data.length - 1)
-                 i.fa.fa-angle-right(aria-hidden="true")
-          if (theme.disqus.enable && theme.disqus.count)
-            if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-              span.post-meta__separator |
-            i.fa.fa-comment-o.post-meta__icon(aria-hidden="true")
-            a(href=url_for(page.path) + '#disqus_thread')
-              span.disqus-comment-count(data-disqus-identifier=page.path)
-          if (theme.wordcount && theme.wordcount.enable)
-            .post-meta-wordcount
-              span= _p('post.wordcount') + ': '
-              span.word-count= wordcount(page.content)
-              span.post-meta__separator |
-              span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-  else
-    div#top-container.plain
-      include ./includes/header.pug
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="true"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E7%AE%80%E4%BB%8B"><span class="toc-text">一、简介</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%8A%9F%E8%83%BD%E5%AE%9E%E7%8E%B0"><span class="toc-text">二、功能实现</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E7%A4%BA%E4%BE%8B"><span class="toc-text">三、示例</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1%E3%80%81%E8%A7%A3%E6%9E%90dns%E6%95%B0%E6%8D%AE%E5%8C%85"><span class="toc-text">3.1、解析dns数据包</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2%E3%80%81%E8%A7%A3%E6%9E%90redis%E6%95%B0%E6%8D%AE%E5%8C%85"><span class="toc-text">3.2、解析redis数据包</span></a></li></ol></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avator.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">95</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">88</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/network.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span><span class="pull-right"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a></span></div><div id="post-info"><div id="post-title">Hamburg - 抓包/耗时分析工具</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2020-07-27</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2020/07/27/hamburg/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2020/07/27/hamburg/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h2 id="一、简介"><a href="#一、简介" class="headerlink" title="一、简介"></a>一、简介</h2><p><code>Hamburg</code>是一款用<code>Go</code>实现的抓包&#x2F;耗时分析的工具，项目地址为 <a target="_blank" rel="noopener" href="https://github.com/bugwz/hamburg">https://github.com/bugwz/hamburg</a>。该工具的设计思想以及实现逻辑基本参照<a target="_blank" rel="noopener" href="https://github.com/git-hulk/tcpkit">tcpkit</a>。</p>
+<h2 id="二、功能实现"><a href="#二、功能实现" class="headerlink" title="二、功能实现"></a>二、功能实现</h2><ul>
+<li><code>抓包/拆包</code>：使用 <a target="_blank" rel="noopener" href="https://github.com/google/gopacket">gopacket</a> 进行抓包以及<code>IP</code>&#x2F;<code>TCP</code>&#x2F;<code>UDP</code>等信息的解析；</li>
+<li><code>耗时分析</code>：通过监听端口以及与本地监听网卡的IP地址比对，猜测数据包的请求方向（Request&#x2F;Response），并临时保存Request的数据包，在接收到与之匹配的回复数据包后，就可以计算出整个请求在本机的处理耗时。由于只要有一个回复数据包，整个请求回复链路的耗时统计就算完成，因此在server对于pipline的请求会批次回复的情况（redis等）下，耗时统计可能会偏小；</li>
+<li><code>Lua自定义脚本</code>：通过使用<a href="github.com/yuin/gopher-lua">gopher-lua</a>包，支持使用自定义lua处理数据包；</li>
+<li><code>应用层数据解析</code>：目前支持按照<code>raw</code>&#x2F;<code>dns</code>&#x2F;<code>http</code>&#x2F;<code>redis</code>&#x2F;<code>memcached</code>&#x2F;<code>mysql</code>等协议的数据解析。在收到多个<code>Request数据包</code>并且还没有相应的<code>Response数据包</code>的情况下会自动合并解析后的请求内容。<ul>
+<li><strong>raw</strong>：仅输出<code>SequenceID</code>，<code>ACKNumber</code>，<code>PayloadLen</code>以及数据包的Flags（包含<code>FIN</code>&#x2F;<code>SYN</code>&#x2F;<code>RST</code>&#x2F;<code>PSH</code>&#x2F;<code>ACK</code>&#x2F;<code>URG</code>&#x2F;<code>ECE</code>&#x2F;<code>CWR</code>）等信息；</li>
+<li><strong>dns</strong>：支持解析多种请求的类型，包含<code>A</code>&#x2F;<code>NS</code>&#x2F;<code>MD</code>&#x2F;<code>MF</code>&#x2F;<code>CNAME</code>&#x2F;<code>SOA</code>&#x2F;<code>MB</code>&#x2F;<code>MG</code>&#x2F;<code>MR</code>&#x2F;<code>NULL</code>&#x2F;<code>WKS</code>&#x2F;<code>PTR</code>&#x2F;<code>HINFO</code>&#x2F;<code>MINFO</code>&#x2F;<code>MX</code>&#x2F;<code>TXT</code>&#x2F;<code>AAAA</code>，而响应数据包支持的解析类型较少，目前仅有<code>A</code>和<code>CNAME</code>；</li>
+<li><strong>http</strong>：支持所有类型的数据解析，不过输出的信息仅有<code>Method Type</code>，<code>Host</code>，<code>Resource Path</code>和<code>Response Code</code>；</li>
+<li><strong>redis</strong>：支持大多数的请求访问类型，不统计noreply请求耗时，在pipline的场景下对于<code>multi bulk</code>的指令解析比tcpkit更准确；</li>
+<li><strong>memcached</strong>：不统计noreply请求耗时；</li>
+<li><strong>mysql</strong>：仅支持了部分client对server的请求的数据包的解析，对于server回复给client的数据包暂时没有做解析处理；</li>
+</ul>
+</li>
+</ul>
+<h2 id="三、示例"><a href="#三、示例" class="headerlink" title="三、示例"></a>三、示例</h2><h3 id="3-1、解析dns数据包"><a href="#3-1、解析dns数据包" class="headerlink" title="3.1、解析dns数据包"></a>3.1、解析dns数据包</h3><p>监听本地网卡<code>en0</code>，过滤包含IP为<code>192.168.1.101</code>和端口<code>53</code>的数据包，按照<code>dns</code>的解析规则解析payload，输出请求回复链路耗时<code>大于0ms</code>的信心，并打印回复数据包的内容；</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">$ go run main.go -i en0 -s 192.168.1.101 -p 53 -m dns -t 0 -a</span><br><span class="line"></span><br><span class="line">Name:  en0</span><br><span class="line">Description:</span><br><span class="line">Devices addresses:</span><br><span class="line">- IP address: 192.168.1.101</span><br><span class="line">- Subnet mask:  ffffff00</span><br><span class="line"></span><br><span class="line">Start capturing packet with filter: ((port 53) and ((host192.168.1.101)))</span><br><span class="line">2020-07-26 11:17:30 ||  192.168.1.101:45742 =&gt;       223.5.5.5:53    || 155µs || [AAAA] manshs1.tsdmain.org ||</span><br><span class="line">2020-07-26 11:17:30 ||  192.168.1.101:25138 =&gt;       223.5.5.5:53    || 162µs || [A] manshs1.tsdmain.org || [A] 215.33.36.57;</span><br><span class="line">2020-07-26 11:17:30 ||  192.168.1.101:25138 =&gt;  208.67.220.220:53    || 584µs || [A] manshs1.tsdmain.com || [A] 225.42.15.55;</span><br><span class="line">2020-07-26 11:17:33 ||  192.168.1.101:53488 =&gt;  208.67.220.220:53    || 575µs || [A] www.a.shifen.com || [A] 61.135.169.125/61.135.169.125;</span><br></pre></td></tr></table></figure>
 
-block content
-  article#post(class="")
-    if (!top_img)
-      #post-title.plain= page.title || _p('no_title')
-      #post-meta
-        if (theme.post_meta.date_type)
-          - var date_type = theme.post_meta.date_type === 'updated' ? '' : 'date'
-          time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-        if (theme.post_meta.categories && page.categories.data.length > 0)
-          if (theme.post_meta.date_type)
-            span.post-meta__separator |
-          each item, index in page.categories.data
-            i.fa.fa-inbox(aria-hidden="true")
-            a(href=url_for(item.path)).post-meta__categories  #[=item.name]
-            if (index < page.categories.data.length - 1)
-                i.fa.fa-angle-right.post-meta__separator(aria-hidden="true")
-        if (theme.disqus.enable && theme.disqus.count)
-          if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-            span.post-meta__separator |
-          i.fa.fa-comment-o(aria-hidden="true")
-          a(href=url_for(page.path) + '#disqus_thread')
-            span.disqus-comment-count(data-disqus-identifier=page.path)
-        if (theme.wordcount && theme.wordcount.enable)
-          span.post-meta__separator |
-          span.post-meta-wordcount
-            span= _p('post.wordcount') + ': '
-            span.word-count= wordcount(page.content)
-            span.post-meta__separator |
-            span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-    #post-content.article-container!= page.content
-  if (theme.post_copyright && theme.post_copyright.enable)
-    .post-copyright
-      .post-copyright__author
-        span.post-copyright-meta= _p('post.copyright.author') + ": "
-        span.post-copyright-info
-          a(href=`mailto:${config.email}`) #[=config.author]
-      .post-copyright__type
-        span.post-copyright-meta= _p('post.copyright.link') + ": "
-        span.post-copyright-info
-          a(href=url_for(page.permalink)) #[=page.permalink]
-      .post-copyright__notice
-        span.post-copyright-meta= _p('post.copyright.copyright_notice') + ": "
-        span.post-copyright-info!= _p('post.copyright.copyright_content', theme.post_copyright.license_url, theme.post_copyright.license, config.url, config.title)
-  if (theme.post_meta.tags)
-    .post-meta__tag-list
-      each item, index in page.tags.data
-        a(href=url_for(item.path)).post-meta__tags #[=item.name]
-  if (theme.QR_code)
-    if (theme.QR_code.length > 0)
-      .post-qr-code
-        each item in theme.QR_code
-          .post-qr-code-item
-            img.post-qr-code__img(src=(item.itemlist||item).img)
-            .post-qr-code__desc=(item.itemlist||item).text
-  include includes/share/index.pug
-  include includes/pagination.pug
-  if (theme.adv && theme.adv.enable)
-    .post-adv!= theme.adv.info
-  if page.comments !== false
-    include includes/comments/index.pug
+<h3 id="3-2、解析redis数据包"><a href="#3-2、解析redis数据包" class="headerlink" title="3.2、解析redis数据包"></a>3.2、解析redis数据包</h3><p>监听本地网卡<code>en0</code>，过滤包含IP为<code>192.168.1.101</code>和端口<code>6379</code>的数据包，按照<code>redis</code>的解析规则解析payload，输出请求回复链路耗时<code>大于0ms</code>的信心；</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">$ go run main.go -i en0 -s 192.168.1.101 -p 6379 -m redis -t 0</span><br><span class="line"></span><br><span class="line">Name:  en0</span><br><span class="line">Description:</span><br><span class="line">Devices addresses:</span><br><span class="line">- IP address: 192.168.1.101</span><br><span class="line">- Subnet mask:  ffffff00</span><br><span class="line"></span><br><span class="line">Start capturing packet with filter: ((port 6379) and ((host 192.168.1.101)))</span><br><span class="line">2020-07-26 14:33:55 ||   192.168.1.203:55241 =&gt;   192.168.1.101:50396 || 408µs || COMMAND</span><br><span class="line">2020-07-26 14:33:57 ||   192.168.1.203:55241 =&gt;   192.168.1.101:50396 || 191µs || info</span><br><span class="line">2020-07-26 14:34:05 ||   192.168.1.203:55242 =&gt;   192.168.1.101:50396 || 193µs || info memory</span><br><span class="line">2020-07-26 14:34:19 ||   192.168.1.203:54311 =&gt;   192.168.1.101:50396 || 312µs || <span class="built_in">set</span> a 1000</span><br></pre></td></tr></table></figure>
+
+
+
+
+
+
+
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2020/07/27/hamburg/">https://bugwz.com/2020/07/27/hamburg/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/GitHub/">GitHub</a><a class="post-meta__tags" href="/tags/Go/">Go</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2020/11/02/iterm2-rzsz/"><i class="fa fa-chevron-left">  </i><span>iTerm2配置rz/sz上传下载文件</span></a></div><div class="next-post pull-right"><a href="/2020/06/20/keepalived-vrrp/"><span>Keepalived的高可用基石 - VRRP协议</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+var disqus_config = function () {
+  this.page.url = 'https://bugwz.com/2020/07/27/hamburg/';
+  this.page.identifier = '2020/07/27/hamburg/';
+  this.page.title = 'Hamburg - 抓包/耗时分析工具';
+}
+var d = document, s = d.createElement('script');
+s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
+s.setAttribute('data-timestamp', '' + +new Date());
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-scr" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/network.jpg)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"><span>Powered by</span> <a target="_blank" rel="noopener" href="https://github.com/wzpan/hexo-generator-search" style="color:#49B1F5;">hexo-generator-search</a></div></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div></body></html>

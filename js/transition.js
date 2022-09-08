@@ -1,22 +1,24 @@
 $(function () {
   // page
-  $('.layout').velocity('stop')
+  $('.layout')
+    .velocity('stop')
     .velocity('transition.slideUpIn', {
-      delay: 0,
-      duration: 0,
+      delay: 500,
+      duration: 1000,
       easing: 'easeInOutQuart',
       complete: function () {
-        if ($('.sidebar-toc').length > 0 && autoShowToc) {
+        if ($('#sidebar').data('display')) {
           setTimeout(function () {
             $('#toggle-sidebar').click()
           }, 200)
         }
       }
     })
-  $('#top-container').velocity('stop')
+  $('#top-container')
+    .velocity('stop')
     .velocity('transition.fadeIn', {
-      delay: 0,
-      duration: 0,
+      delay: 500,
+      duration: 1000,
       easing: 'easeInOutQuart'
     })
 })

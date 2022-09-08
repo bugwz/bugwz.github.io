@@ -1,98 +1,95 @@
-extends includes/layout.pug
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="hashlimit-Iptables笔记"><meta name="keywords" content="Linux,Iptables,Netfilter,hashlimit"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>hashlimit-Iptables笔记 | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
 
-block top_img
-  - var top_img = page.top_img || theme.post_meta.top_img || theme.top_img || config.top_img
-  if (top_img && page.top_img !== false)
-    - var flag = top_img === true ? 'no-bg' : undefined
-    div#top-container(style=`background-image: url(${top_img})` class=flag)
-      include ./includes/header.pug
-      #post-info
-        #post-title= page.title || _p('no_title')
-        #post-meta
-          if (theme.post_meta.date_type)
-            - var date_type = theme.post_meta.date_type === 'updated' ? 'updated' : 'date'
-            time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-          if (theme.post_meta.categories && page.categories.data.length > 0)
-            if (theme.post_meta.date_type)
-              span.post-meta__separator |
-            each item, index in page.categories.data
-              i.fa.fa-inbox.post-meta__icon(aria-hidden="true")
-              a(href=url_for(item.path)).post-meta__categories #[=item.name]
-              if (index < page.categories.data.length - 1)
-                 i.fa.fa-angle-right(aria-hidden="true")
-          if (theme.disqus.enable && theme.disqus.count)
-            if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-              span.post-meta__separator |
-            i.fa.fa-comment-o.post-meta__icon(aria-hidden="true")
-            a(href=url_for(page.path) + '#disqus_thread')
-              span.disqus-comment-count(data-disqus-identifier=page.path)
-          if (theme.wordcount && theme.wordcount.enable)
-            .post-meta-wordcount
-              span= _p('post.wordcount') + ': '
-              span.word-count= wordcount(page.content)
-              span.post-meta__separator |
-              span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-  else
-    div#top-container.plain
-      include ./includes/header.pug
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="true"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E7%AE%80%E4%BB%8B"><span class="toc-text">一、简介</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%8E%9F%E7%90%86%E4%BB%8B%E7%BB%8D"><span class="toc-text">二、原理介绍</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#2-1-%E4%BB%A4%E7%89%8C%E6%A1%B6%E6%A8%A1%E5%9E%8B"><span class="toc-text">2.1 令牌桶模型</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-2-%E5%8C%B9%E9%85%8D%E9%A1%B9"><span class="toc-text">2.2 匹配项</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-3-%E7%9B%B8%E5%85%B3%E9%85%8D%E7%BD%AE%E5%8F%82%E6%95%B0"><span class="toc-text">2.3 相关配置参数</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E7%A4%BA%E4%BE%8B%E4%BB%8B%E7%BB%8D"><span class="toc-text">三、示例介绍</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#3-1-%E5%AE%9E%E4%BE%8B%E4%B8%80"><span class="toc-text">3.1 实例一</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-2-%E5%AE%9E%E4%BE%8B%E4%BA%8C"><span class="toc-text">3.2 实例二</span></a></li></ol></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avator.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">95</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">88</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/iptables.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span><span class="pull-right"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a></span></div><div id="post-info"><div id="post-title">hashlimit-Iptables笔记</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2019-01-04</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2019/01/04/iptables-hashlimit/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2019/01/04/iptables-hashlimit/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="一、简介"><a href="#一、简介" class="headerlink" title="一、简介"></a>一、简介</h1><p>hashlimit是iptables的一个匹配模块，用它结合iptables的其它命令可以实现限速的功能。<strong>注意：单独hashlimit模块是无法进行限速的</strong>；</p>
+<h1 id="二、原理介绍"><a href="#二、原理介绍" class="headerlink" title="二、原理介绍"></a>二、原理介绍</h1><p>实际上，使用 hashlimit 进行限速主要包括两个步骤：</p>
+<ul>
+<li>对符合 hashlimit 匹配规则包放行</li>
+<li>丢弃&#x2F;拒绝未放行的包</li>
+</ul>
+<h2 id="2-1-令牌桶模型"><a href="#2-1-令牌桶模型" class="headerlink" title="2.1 令牌桶模型"></a>2.1 令牌桶模型</h2><p>hashlimit 的匹配方式是基于令牌桶（Token bucket）的模型，令牌桶是一种网络通讯中常见的缓冲区工作原理，它有两个重要的参数，<code>令牌桶容量n</code>和<code>令牌产生速率s</code>；</p>
+<ul>
+<li><code>令牌桶容量n</code>：可以把令牌当成是门票，而令牌桶则是负责制作和发放门票的管理员，它手里最多有n张令牌。初始时，管理员开始手里有n张令牌，每当一个数据包到达后，管理员就看看手里是否还有可用的令牌。如果有，就把令牌发给这个数据包，hashlimit 就告诉iptables，这个数据包被匹配了，而当管理员把手上所有的令牌都发完了，再来的数据包就拿不到令牌了；这时，hashlimit 模块就告诉 iptables ，这个数据包不能被匹配，对应参数<code>--hashlimit-burst</code>；</li>
+<li><code>令牌产生速率s</code>：当令牌桶中的令牌数量少于n，它就会以速率s来产生新的令牌，直到令牌数量到达n为止；</li>
+</ul>
+<p>通过令牌桶机制，可以有效的控制单位时间内通过（匹配）的数据包数量，又可以容许短时间内突发的大量数据包的通过（只要数据包数量不超过令牌桶n），对应参数<code>--hashlimit</code>；</p>
+<h2 id="2-2-匹配项"><a href="#2-2-匹配项" class="headerlink" title="2.2 匹配项"></a>2.2 匹配项</h2><p>除了令牌桶模型外，hashlimit 匹配的另外一个重要概念是匹配项。在hashlimit中，每个匹配项拥有一个单独的令牌桶，执行独立的匹配计算，对应参数<code>--hashlimit-mode</code>，匹配项的可选参数为以下几种：</p>
+<ul>
+<li><code>srcip</code>：每个源地址IP为一个匹配项；</li>
+<li><code>dstip</code>：每个目的地址IP为一个匹配项；</li>
+<li><code>srcport</code>：每个源端口为一个匹配项；</li>
+<li><code>dstport</code>：每个目的端口为一个匹配项；</li>
+</ul>
+<h2 id="2-3-相关配置参数"><a href="#2-3-相关配置参数" class="headerlink" title="2.3 相关配置参数"></a>2.3 相关配置参数</h2><p>hashlimit 的相关匹配项参数介绍如下：</p>
+<ul>
+<li><p><code>--hashlimit-name</code>：该参数指定了每个调用了 hashlimit 模块的 iptables 命令而建立的文件名，该文件存放在 &#x2F;proc&#x2F;net&#x2F;ipt_hashlimit 目录中，其中保存着各匹配项的信息；</p>
+</li>
+<li><p><code>--hashlimit</code>：令牌产生速率，示例：5&#x2F;sec 代表每秒产生5个；</p>
+</li>
+<li><p><code>--hashlimit-burst</code>：令牌桶容量，默认是5；</p>
+</li>
+<li><p><code>--hashlimit-mode</code>：匹配项，每个匹配项拥有一个单独的令牌桶，执行独立的匹配计算，可选参数如下所示：</p>
+<ul>
+<li><code>srcip</code>：每个源地址IP为一个匹配项；</li>
+<li><code>dstip</code>：每个目的地址IP为一个匹配项；</li>
+<li><code>srcport</code>：每个源端口为一个匹配项；</li>
+<li><code>dstport</code>：每个目的端口为一个匹配项；</li>
+</ul>
+</li>
+<li><p><code>--hashlimit-htable-size</code>：设置哈希表的元值；</p>
+</li>
+<li><p><code>--hashlimit-htable-max</code>：设定哈希表入口最大数量；</p>
+</li>
+</ul>
+<h1 id="三、示例介绍"><a href="#三、示例介绍" class="headerlink" title="三、示例介绍"></a>三、示例介绍</h1><h2 id="3-1-实例一"><a href="#3-1-实例一" class="headerlink" title="3.1 实例一"></a>3.1 实例一</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">iptables -A INPUT -p tcp --dport 1234 -m hashlimit --hashlimit-name HashLimitName --hashlimit 1/sec --hashlimit-burst 1 --hashlimit-mode srcip -j ACCEPT</span><br><span class="line">iptables -A INPUT -p tcp --dport 1234 -j DROP</span><br></pre></td></tr></table></figure>
 
-block content
-  article#post(class="")
-    if (!top_img)
-      #post-title.plain= page.title || _p('no_title')
-      #post-meta
-        if (theme.post_meta.date_type)
-          - var date_type = theme.post_meta.date_type === 'updated' ? '' : 'date'
-          time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-        if (theme.post_meta.categories && page.categories.data.length > 0)
-          if (theme.post_meta.date_type)
-            span.post-meta__separator |
-          each item, index in page.categories.data
-            i.fa.fa-inbox(aria-hidden="true")
-            a(href=url_for(item.path)).post-meta__categories  #[=item.name]
-            if (index < page.categories.data.length - 1)
-                i.fa.fa-angle-right.post-meta__separator(aria-hidden="true")
-        if (theme.disqus.enable && theme.disqus.count)
-          if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-            span.post-meta__separator |
-          i.fa.fa-comment-o(aria-hidden="true")
-          a(href=url_for(page.path) + '#disqus_thread')
-            span.disqus-comment-count(data-disqus-identifier=page.path)
-        if (theme.wordcount && theme.wordcount.enable)
-          span.post-meta__separator |
-          span.post-meta-wordcount
-            span= _p('post.wordcount') + ': '
-            span.word-count= wordcount(page.content)
-            span.post-meta__separator |
-            span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-    #post-content.article-container!= page.content
-  if (theme.post_copyright && theme.post_copyright.enable)
-    .post-copyright
-      .post-copyright__author
-        span.post-copyright-meta= _p('post.copyright.author') + ": "
-        span.post-copyright-info
-          a(href=`mailto:${config.email}`) #[=config.author]
-      .post-copyright__type
-        span.post-copyright-meta= _p('post.copyright.link') + ": "
-        span.post-copyright-info
-          a(href=url_for(page.permalink)) #[=page.permalink]
-      .post-copyright__notice
-        span.post-copyright-meta= _p('post.copyright.copyright_notice') + ": "
-        span.post-copyright-info!= _p('post.copyright.copyright_content', theme.post_copyright.license_url, theme.post_copyright.license, config.url, config.title)
-  if (theme.post_meta.tags)
-    .post-meta__tag-list
-      each item, index in page.tags.data
-        a(href=url_for(item.path)).post-meta__tags #[=item.name]
-  if (theme.QR_code)
-    if (theme.QR_code.length > 0)
-      .post-qr-code
-        each item in theme.QR_code
-          .post-qr-code-item
-            img.post-qr-code__img(src=(item.itemlist||item).img)
-            .post-qr-code__desc=(item.itemlist||item).text
-  include includes/share/index.pug
-  include includes/pagination.pug
-  if (theme.adv && theme.adv.enable)
-    .post-adv!= theme.adv.info
-  if page.comments !== false
-    include includes/comments/index.pug
+<p>上述实例解释信息为：</p>
+<ul>
+<li>为所有访问本机 1234 端口的不同IP建立一个匹配项；</li>
+<li>匹配项对应的令牌桶容量为10；</li>
+<li>令牌产生速率为5个每秒；</li>
+<li>放行通过匹配的数据包；</li>
+<li>丢弃所有其它访问本机 1234 端口的数据包；</li>
+</ul>
+<h2 id="3-2-实例二"><a href="#3-2-实例二" class="headerlink" title="3.2 实例二"></a>3.2 实例二</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">iptables -N DEFLOOD </span><br><span class="line">iptables -A FORWARD -s 192.168.1.2/24 -m state --state NEW -j DEFLOOD </span><br><span class="line">iptables -A DEFLOOD -m hashlimit --hashlimit-name deflood --hashlimit 10/sec </span><br><span class="line">--hashlimit-burst 10 --hashlimit-mode srcip -j ACCEPT </span><br><span class="line">iptables -P DEFLOOD -j DROP </span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>建立了一个自定义的处理链；</li>
+<li>所有来自于 192.168.1.2&#x2F;24 网段的并且打算新建网络连接的数据包，都进入 DEFLOOD 链处理 ；</li>
+<li>在 DEFLOOD 链中，为每个IP建立一个匹配项，对应令牌桶容量为10，产生速率为10个每秒；</li>
+<li>放行通过匹配的数据包；</li>
+<li>在 DEFLOOD 链中丢弃所有其它的数据包 ；</li>
+</ul>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2019/01/04/iptables-hashlimit/">https://bugwz.com/2019/01/04/iptables-hashlimit/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Linux/">Linux</a><a class="post-meta__tags" href="/tags/Iptables/">Iptables</a><a class="post-meta__tags" href="/tags/Netfilter/">Netfilter</a><a class="post-meta__tags" href="/tags/hashlimit/">hashlimit</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2019/01/08/clang-format/"><i class="fa fa-chevron-left">  </i><span>CLang-Format格式化工具</span></a></div><div class="next-post pull-right"><a href="/2019/01/03/netfilter/"><span>Linux内核软件框架-Netfilter概述</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+var disqus_config = function () {
+  this.page.url = 'https://bugwz.com/2019/01/04/iptables-hashlimit/';
+  this.page.identifier = '2019/01/04/iptables-hashlimit/';
+  this.page.title = 'hashlimit-Iptables笔记';
+}
+var d = document, s = d.createElement('script');
+s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
+s.setAttribute('data-timestamp', '' + +new Date());
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-scr" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/iptables.jpg)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"><span>Powered by</span> <a target="_blank" rel="noopener" href="https://github.com/wzpan/hexo-generator-search" style="color:#49B1F5;">hexo-generator-search</a></div></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div></body></html>

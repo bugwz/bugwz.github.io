@@ -1,98 +1,86 @@
-extends includes/layout.pug
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="TCP状态转换详解"><meta name="keywords" content="Network,TCP/IP"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>TCP状态转换详解 | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
 
-block top_img
-  - var top_img = page.top_img || theme.post_meta.top_img || theme.top_img || config.top_img
-  if (top_img && page.top_img !== false)
-    - var flag = top_img === true ? 'no-bg' : undefined
-    div#top-container(style=`background-image: url(${top_img})` class=flag)
-      include ./includes/header.pug
-      #post-info
-        #post-title= page.title || _p('no_title')
-        #post-meta
-          if (theme.post_meta.date_type)
-            - var date_type = theme.post_meta.date_type === 'updated' ? 'updated' : 'date'
-            time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-          if (theme.post_meta.categories && page.categories.data.length > 0)
-            if (theme.post_meta.date_type)
-              span.post-meta__separator |
-            each item, index in page.categories.data
-              i.fa.fa-inbox.post-meta__icon(aria-hidden="true")
-              a(href=url_for(item.path)).post-meta__categories #[=item.name]
-              if (index < page.categories.data.length - 1)
-                 i.fa.fa-angle-right(aria-hidden="true")
-          if (theme.disqus.enable && theme.disqus.count)
-            if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-              span.post-meta__separator |
-            i.fa.fa-comment-o.post-meta__icon(aria-hidden="true")
-            a(href=url_for(page.path) + '#disqus_thread')
-              span.disqus-comment-count(data-disqus-identifier=page.path)
-          if (theme.wordcount && theme.wordcount.enable)
-            .post-meta-wordcount
-              span= _p('post.wordcount') + ': '
-              span.word-count= wordcount(page.content)
-              span.post-meta__separator |
-              span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-  else
-    div#top-container.plain
-      include ./includes/header.pug
-
-block content
-  article#post(class="")
-    if (!top_img)
-      #post-title.plain= page.title || _p('no_title')
-      #post-meta
-        if (theme.post_meta.date_type)
-          - var date_type = theme.post_meta.date_type === 'updated' ? '' : 'date'
-          time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-        if (theme.post_meta.categories && page.categories.data.length > 0)
-          if (theme.post_meta.date_type)
-            span.post-meta__separator |
-          each item, index in page.categories.data
-            i.fa.fa-inbox(aria-hidden="true")
-            a(href=url_for(item.path)).post-meta__categories  #[=item.name]
-            if (index < page.categories.data.length - 1)
-                i.fa.fa-angle-right.post-meta__separator(aria-hidden="true")
-        if (theme.disqus.enable && theme.disqus.count)
-          if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-            span.post-meta__separator |
-          i.fa.fa-comment-o(aria-hidden="true")
-          a(href=url_for(page.path) + '#disqus_thread')
-            span.disqus-comment-count(data-disqus-identifier=page.path)
-        if (theme.wordcount && theme.wordcount.enable)
-          span.post-meta__separator |
-          span.post-meta-wordcount
-            span= _p('post.wordcount') + ': '
-            span.word-count= wordcount(page.content)
-            span.post-meta__separator |
-            span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-    #post-content.article-container!= page.content
-  if (theme.post_copyright && theme.post_copyright.enable)
-    .post-copyright
-      .post-copyright__author
-        span.post-copyright-meta= _p('post.copyright.author') + ": "
-        span.post-copyright-info
-          a(href=`mailto:${config.email}`) #[=config.author]
-      .post-copyright__type
-        span.post-copyright-meta= _p('post.copyright.link') + ": "
-        span.post-copyright-info
-          a(href=url_for(page.permalink)) #[=page.permalink]
-      .post-copyright__notice
-        span.post-copyright-meta= _p('post.copyright.copyright_notice') + ": "
-        span.post-copyright-info!= _p('post.copyright.copyright_content', theme.post_copyright.license_url, theme.post_copyright.license, config.url, config.title)
-  if (theme.post_meta.tags)
-    .post-meta__tag-list
-      each item, index in page.tags.data
-        a(href=url_for(item.path)).post-meta__tags #[=item.name]
-  if (theme.QR_code)
-    if (theme.QR_code.length > 0)
-      .post-qr-code
-        each item in theme.QR_code
-          .post-qr-code-item
-            img.post-qr-code__img(src=(item.itemlist||item).img)
-            .post-qr-code__desc=(item.itemlist||item).text
-  include includes/share/index.pug
-  include includes/pagination.pug
-  if (theme.adv && theme.adv.enable)
-    .post-adv!= theme.adv.info
-  if page.comments !== false
-    include includes/comments/index.pug
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="true"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81TCP%E7%9A%84%E7%8A%B6%E6%80%81%E8%BD%AC%E6%8D%A2%E5%9B%BE%E7%A4%BA"><span class="toc-text">一、TCP的状态转换图示</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1%E3%80%81TCP%E6%A0%87%E5%BF%97%E4%BD%8D"><span class="toc-text">1.1、TCP标志位</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2%E3%80%81TCP%E7%9A%84%E7%8A%B6%E6%80%81%E5%90%AB%E4%B9%89"><span class="toc-text">1.2、TCP的状态含义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81TCP%E7%9A%84%E6%8F%A1%E6%89%8B%E4%B8%8E%E6%8C%A5%E6%89%8B"><span class="toc-text">二、TCP的握手与挥手</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1%E3%80%81%E4%B8%89%E6%AC%A1%E6%8F%A1%E6%89%8B"><span class="toc-text">2.1、三次握手</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2%E3%80%81%E5%9B%9B%E6%AC%A1%E6%8C%A5%E6%89%8B"><span class="toc-text">2.2、四次挥手</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98"><span class="toc-text">三、一些问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E5%BB%BA%E7%AB%8B%E8%BF%9E%E6%8E%A5%E5%8D%8F%E8%AE%AE%E6%98%AF%E4%B8%89%E6%AC%A1%E6%8F%A1%E6%89%8B%EF%BC%8C%E8%80%8C%E5%85%B3%E9%97%AD%E8%BF%9E%E6%8E%A5%E5%8D%B4%E6%98%AF%E5%9B%9B%E6%AC%A1%E6%8F%A1%E6%89%8B%E5%91%A2%EF%BC%9F"><span class="toc-text">3.1、为什么建立连接协议是三次握手，而关闭连接却是四次握手呢？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88-TIME-WAIT-%E7%8A%B6%E6%80%81%E8%BF%98%E9%9C%80%E8%A6%81%E7%AD%89-2MSL-%E5%90%8E%E6%89%8D%E8%83%BD%E8%BF%94%E5%9B%9E%E5%88%B0-CLOSED-%E7%8A%B6%E6%80%81%EF%BC%9F"><span class="toc-text">3.2、为什么 TIME_WAIT 状态还需要等 2MSL 后才能返回到 CLOSED 状态？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3%E3%80%81%E5%85%B3%E9%97%AD-TCP-%E8%BF%9E%E6%8E%A5%E4%B8%80%E5%AE%9A%E9%9C%80%E8%A6%81%E5%9B%9B%E6%AC%A1%E6%8C%A5%E6%89%8B%E5%90%97%EF%BC%9F"><span class="toc-text">3.3、关闭 TCP 连接一定需要四次挥手吗？</span></a></li></ol></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avator.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">95</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">88</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/tcp.png)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span><span class="pull-right"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a></span></div><div id="post-info"><div id="post-title">TCP状态转换详解</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2018-05-20</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2018/05/20/tcp-state-transition/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2018/05/20/tcp-state-transition/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h2 id="一、TCP的状态转换图示"><a href="#一、TCP的状态转换图示" class="headerlink" title="一、TCP的状态转换图示"></a>一、TCP的状态转换图示</h2><p><img src="https://cdn.bugwz.com/tcp-state-transition.png" alt="状态转换图解"></p>
+<h3 id="1-1、TCP标志位"><a href="#1-1、TCP标志位" class="headerlink" title="1.1、TCP标志位"></a>1.1、TCP标志位</h3><ul>
+<li><code>CWR(Congestion Window Reduce)</code>：拥塞窗口减少标志，由发送端设置，用来表明发送端接收到了设置<code>ECE</code>标志的TCP包，发送端通过降低发送窗口的大小来降低发送速率；</li>
+<li><code>ECE(ECN Echo)</code>：ECN响应标志，在TCP的3次握手时表明一个TCP端是具备<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%98%BE%E5%BC%8F%E6%8B%A5%E5%A1%9E%E9%80%9A%E7%9F%A5">ECN(Explicit Congestion Notification)</a>功能的，并且表明接收到的TCP包的IP头部的ECN被设置为11，更多信息请参考<a target="_blank" rel="noopener" href="https://tools.ietf.org/html/rfc793">RFC793</a>；</li>
+<li><code>URG(Urgent)</code>：表示紧急标志(The Urgent Pointer)有效，目前已经很少使用；</li>
+<li><code>ACK(Acknowledgment)</code>：取值为<code>1</code>时表示确认号有效，这是一个确认的TCP包，取值为<code>0</code>则不是确认包；</li>
+<li><code>PSH(Push)</code>：该标志置位时，一般表示发送端缓存中已经没有待发送的数据，接收端不将该数据进行队列处理，而是尽可能快将数据转由应用处理，在处理<code>Telnet</code>或<code>Rlogin</code>等交互模式的连接时，该标志总是被置位的；</li>
+<li><code>RST(Reset)</code>：用于复位相应的TCP连接，通常在发生异常或者错误的时候会触发复位TCP连接；</li>
+<li><code>SYN(Synchronize)</code>：同步序列编号(Synchronize Sequence Numbers)有效，该标志仅在三次握手建立TCP连接时有效，它提示TCP连接的服务端检查序列编号，该序列编号为TCP连接初始端(一般是客户端)的初始序列编号；</li>
+<li><code>FIN(Finish)</code>：带有该标志置位的数据包用来结束一个TCP会话，用来释放连接，表明发送方已经没有数据发送了；</li>
+</ul>
+<h3 id="1-2、TCP的状态含义"><a href="#1-2、TCP的状态含义" class="headerlink" title="1.2、TCP的状态含义"></a>1.2、TCP的状态含义</h3><ul>
+<li><code>CLOSED</code>：虚拟的起始点，在连接超时或者关闭时候进入此状态，这并不是一个真正的状态，而是一个假想的起点和终点；</li>
+<li><code>LISTEN</code>：表示服务器端的某个 SOCKET 处于监听状态，可以接受客户端的连接；</li>
+<li><code>SYN_SENT</code>：表示客户端已经发送了<code>SYN</code>报文。当客户端 SOCKET 执行 <code>connect()</code> 进行连接时，它首先发送 <code>SYN</code> 报文，然后随即进入到 <code>SYN_SENT</code> 状态，该状态</li>
+<li><code>SYN_RCVD</code>：表示服务器已经接收到了 <code>SYN</code> 报文，并且已经向客户端发送了<code>SYN</code>和<code>ACK</code>报文。在正常情况下，这是服务器端的一个短暂的中间状态，基本上用 <code>netstat</code> 很难看到这种状态。当 TCP 连接处于此状态时，再收到客户端的<code>ACK</code> 报文，它就会进入到 <code>ESTABLISHED</code> 状态；</li>
+<li><code>ESTABLISHED</code>：表示 TCP 连接已经成功建立，数据可以进行传输；</li>
+<li><code>FIN_WAIT_1</code>：表示主动关闭连接的一方已经向对方发送了<code>FIN</code>报文；</li>
+<li><code>FIN_WAIT_2</code>：表示主动关闭连接的一方已经收到了对方发送的<code>ACK</code>报文。该状态有时可以用 netstat 看到；</li>
+<li><code>CLOSE_WAIT</code>：表示被动关闭连接的一方已经收到了对方发送的<code>FIN</code>报文，并且自己已经发送了一个<code>ACK</code>报文给对方。接下来需要检查自己是否还有数据要发送给对方，如果没有的话就可以执行 <code>close()</code> 关闭这个 SOCKET 并发送 <code>FIN</code> 报文给对方，即关闭自己到对方这个方向的连接。有数据的话依据具体的策略（继续发送或者丢弃）去执行；</li>
+<li><code>CLOSING</code>：表示主动关闭连接的一方收到了对方发送的<code>FIN</code>报文，并没有收到对方的<code>ACK</code>报文，表示双方都正在关闭 SOCKET 连接。这种状态比较少见，但当双方几乎在同时 <code>close()</code> 一个 SOCKET 的话，就出现了双方同时发送 <code>FIN</code> 报文的情况，这时就会出现 <code>CLOSING</code> 状态；</li>
+<li><code>LAST_ACK</code>：表示被动关闭连接的一方已经发送了<code>FIN</code>报文，正在等待对方的<code>ACK</code>报文；</li>
+<li><code>TIME_WAIT</code>：表示主动关闭的一方已经收到了对方的<code>FIN</code>报文，并且也已经发送出了<code>ACK</code>报文。<code>TIME_WAIT </code>状态下的 TCP 连接会等待 <code>2*MSL</code>（<code>Max Segment Lifetime</code>，最大分段生存期，指一个 TCP 报文在 Internet 上的最长生存时间。每个具体的 TCP 协议实现都必须选择一个确定的 <code>MSL</code> 值，<code>RFC 1122</code> 建议是 <code>2 分钟</code>，但 <code>BSD</code> 传统实现采用了 <code>30 秒</code>，Linux 可以 <code>cat /proc/sys/net/ipv4/tcp_fin_timeout</code> 看到本机的这个值）;</li>
+</ul>
+<h2 id="二、TCP的握手与挥手"><a href="#二、TCP的握手与挥手" class="headerlink" title="二、TCP的握手与挥手"></a>二、TCP的握手与挥手</h2><p><img src="https://cdn.bugwz.com/tcp-communication.png" alt="TCP通信过程"></p>
+<h3 id="2-1、三次握手"><a href="#2-1、三次握手" class="headerlink" title="2.1、三次握手"></a>2.1、三次握手</h3><ul>
+<li><code>Client</code>和<code>Server</code>的初始状态都是关闭状态，<code>Server</code>进入<code>LISTEN</code>状态后被动等待连接的建立；</li>
+<li><code>Client</code>主动建立连接，向<code>Server</code>发送TCP建连的报文，在报文中标志位<code>SYN被置为1</code>，将序列号<code>seq被设置为x</code>(传送报文时的第一个字节序号为x)，由于<code>SYN</code>标记在逻辑上占用一个序列号，因此实际数据传输的时候，TCP传输的数据中第一个byte对应的系列号为<code>x+1</code>，这个<code>SYN</code>包发送以后，<code>Client</code>进入<code>SYN_SENT</code>状态，等待<code>Server</code>回复ACK确认包；</li>
+<li><code>Server</code>在收到连接请求报文之后，发送确认报文。在确认报文中标志位<code>SYN被置为1</code>，<code>ACK被置为1</code>，同时确认号<code>ack = x + 1</code>，并设置<code>seq = y</code>，发送完此确认包之后，<code>Server</code>进入<code>SYN_RCVD</code>状态；</li>
+<li><code>Client</code>收到确认报文后，回复确认收到数据包，数据包中标志位<code>ACK被置为1</code>，确认号<code>ack = y + 1</code>，然后<code>Client</code>进入<code>ESTABLISHED</code>，<code>Client</code>的TCP通知上层应用进程，连接已经建立成功；</li>
+<li><code>Server</code>收到<code>Client</code>的回复确认数据包后，<code>Server</code>也进入<code>ESTABLISHED</code>状态，同时通知其上层应用进程当前TCP连接已经建立；</li>
+</ul>
+<h3 id="2-2、四次挥手"><a href="#2-2、四次挥手" class="headerlink" title="2.2、四次挥手"></a>2.2、四次挥手</h3><p>在B接收到A的确认包后，B立即进入关闭状态。A和B都进入关闭状态后整个TCP连接释放。</p>
+<ul>
+<li>初始状态下<code>Client</code>和<code>Server</code>都是处于<code>ESTABLISHED</code>状态；</li>
+<li>当应用层没有带发送的数据并且要<code>Client</code>关闭TCP连接的时候，A在要释放连接的报文中将标志位<code>FIN设置为1</code>，<code>ACK设置为1</code>，将序列号<code>seq设置为u</code>，确认号<code>ack设置为v</code>，然后<code>Client</code>进入<code>FIN_WAIT_1</code>状态等待<code>Server</code>的确认；</li>
+<li><code>Server</code>收到<code>Client</code>的<code>FIN包</code>之后，发送确认包（由于<code>FIN包</code>与<code>SYN包</code>都在逻辑上占<code>1byte</code>，因此确认号<code>ack = u + 1</code>，而这个报文段自己的序号为<code>seq = v</code>），然后<code>Server</code>进入<code>CLOSE_WAIT</code>状态，TCP服务器进程通知应用层进程；</li>
+<li><code>Client</code>收到<code>Server</code>的确认包之后，<code>Client</code>进入<code>FIN_WAIT_2</code>状态；</li>
+<li>如果<code>Server</code>已经没有要向<code>Client</code>发送的数据，上层应用进程就通知TCP释放连接，<code>Server</code>就会发送释放连接的数据包（标志位<code>FIN被置为1</code>，<code>ACK被置为1</code>，序列号<code>seq = v</code>，确认号<code>ack = u + 1</code>），然后<code>Server</code>进入<code>LAST_ACK</code>状态；</li>
+<li>当<code>Client</code>收到释放连接的数据包后，必须要发送确认数据包，在确认报文中将标志位<code>ACK置为1</code>，确认号<code>ack = v + 1</code>，序列号<code>seq = u + 1</code>，然后<code>Client</code>进入<code>TIME_WAIT</code>状态，在<code>TIME_WAIT</code>状态下，<code>Client</code>经过<code>2MSL</code>的事件后就会进入<code>CLOSED</code>状态；</li>
+<li>当<code>Server</code>收到<code>Client</code>的确认包之后，<code>Server</code>立刻进入<code>CLOSED</code>状态，当<code>Client</code>和<code>Server</code>都进入<code>CLOSED</code>状态后，整个TCP连接将被释放；</li>
+</ul>
+<h3 id="三、一些问题"><a href="#三、一些问题" class="headerlink" title="三、一些问题"></a>三、一些问题</h3><h3 id="3-1、为什么建立连接协议是三次握手，而关闭连接却是四次握手呢？"><a href="#3-1、为什么建立连接协议是三次握手，而关闭连接却是四次握手呢？" class="headerlink" title="3.1、为什么建立连接协议是三次握手，而关闭连接却是四次握手呢？"></a>3.1、为什么建立连接协议是三次握手，而关闭连接却是四次握手呢？</h3><p>服务端的 LISTEN 状态下的 SOCKET 当收到 SYN 报文的连接请求后，它可以把 ACK 和 SYN（ACK 起应答作用，而 SYN 起同步作用）放在一个报文里来发送。但关闭连接时，当收到对方的 FIN 报文通知时，它仅仅表示对方没有数据发送给你了；但未必你所有的数据都全部发送给对方了，所以你可以未必会马上会关闭 SOCKET，也即你可能还需要发送一些数据给对方之后，再发送 FIN 报文给对方来表示你同意现在可以关闭连接了，所以它这里的 ACK 报文和 FIN 报文多数情况下都是分开发送的。</p>
+<h3 id="3-2、为什么-TIME-WAIT-状态还需要等-2MSL-后才能返回到-CLOSED-状态？"><a href="#3-2、为什么-TIME-WAIT-状态还需要等-2MSL-后才能返回到-CLOSED-状态？" class="headerlink" title="3.2、为什么 TIME_WAIT 状态还需要等 2MSL 后才能返回到 CLOSED 状态？"></a>3.2、为什么 TIME_WAIT 状态还需要等 2MSL 后才能返回到 CLOSED 状态？</h3><ul>
+<li><p><strong>可靠的实现 TCP 全双工连接的终止：</strong>TCP 协议在关闭连接的四次握手过程中，最终的 ACK 是由主动关闭连接的一端（后面统称 A 端）发出的，如果这个<code> ACK</code> 丢失，对方（后面统称 B 端）将重发出最终的 <code>FIN</code>，因此 A 端必须维护状态信息（TIME_WAIT）允许它重发最终的 <code>ACK</code>。如果 A 端不维持 <code>TIME_WAIT </code>状态，而是处于 <code>CLOSED </code>状态，那么 A 端将响应 <code>RST</code> 分节，B 端收到后将此分节解释成一个错误。因而，要实现 TCP 全双工连接的正常终止，必须处理终止过程中四个分节任何一个分节的丢失情况，主动关闭连接的 A 端必须维持 <code>TIME_WAIT</code> 状态 。</p>
+</li>
+<li><p><strong>允许老的重复分节在网络中消逝（<code>避免同一端口对应多个套接字</code>）：</strong>TCP 分节可能由于路由器异常而迷途，在迷途期间，TCP 发送端可能因确认超时而重发这个分节，迷途的分节在路由器修复后也会被送到最终目的地，这个迟到的迷途分节到达时可能会引起问题。在关闭前一个连接之后，马上又重新建立起一个相同的 IP 和端口之间的新连接，前一个连接的迷途重复分组在前一个连接终止后到达，而被新连接收到了。为了避免这个情况，TCP 协议不允许处于 <code>TIME_WAIT</code> 状态的连接启动一个新的可用连接，因为 <code>TIME_WAIT</code> 状态持续 <code>2MSL</code>，就可以保证当成功建立一个新 TCP 连接的时候，来自旧连接重复分组已经在网络中消逝；</p>
+</li>
+</ul>
+<h3 id="3-3、关闭-TCP-连接一定需要四次挥手吗？"><a href="#3-3、关闭-TCP-连接一定需要四次挥手吗？" class="headerlink" title="3.3、关闭 TCP 连接一定需要四次挥手吗？"></a>3.3、关闭 TCP 连接一定需要四次挥手吗？</h3><p>不一定，四次挥手关闭 TCP 连接是最安全的做法。但在有些时候，我们不喜欢 <code>TIME_WAIT</code> 状态（如当 <code>MSL</code> 数值设置过大导致服务器端有太多<code> TIME_WAIT</code> 状态的 TCP 连接，减少这些条目数可以更快地关闭连接，为新连接释放更多资源），这时我们可以通过设置 SOCKET 变量的 <code>SO_LINGER</code> 标志来避免 SOCKET 在 close() 之后进入 <code>TIME_WAIT</code> 状态，这时将通过发送 <code>RST</code> 强制终止 <code>TCP</code> 连接（取代正常的 TCP 四次握手的终止方式）；</p>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2018/05/20/tcp-state-transition/">https://bugwz.com/2018/05/20/tcp-state-transition/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Network/">Network</a><a class="post-meta__tags" href="/tags/TCP-IP/">TCP/IP</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2018/08/10/shuffle/"><i class="fa fa-chevron-left">  </i><span>三种洗牌算法shuffle</span></a></div><div class="next-post pull-right"><a href="/2018/01/01/commands-linux/"><span>Linux下的常用指令</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+var disqus_config = function () {
+  this.page.url = 'https://bugwz.com/2018/05/20/tcp-state-transition/';
+  this.page.identifier = '2018/05/20/tcp-state-transition/';
+  this.page.title = 'TCP状态转换详解';
+}
+var d = document, s = d.createElement('script');
+s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
+s.setAttribute('data-timestamp', '' + +new Date());
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-scr" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/tcp.png)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"><span>Powered by</span> <a target="_blank" rel="noopener" href="https://github.com/wzpan/hexo-generator-search" style="color:#49B1F5;">hexo-generator-search</a></div></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div></body></html>

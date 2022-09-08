@@ -1,98 +1,198 @@
-extends includes/layout.pug
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="GDB使用笔记"><meta name="keywords" content="C/C++,Tools,Notes,GDB"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>GDB使用笔记 | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
 
-block top_img
-  - var top_img = page.top_img || theme.post_meta.top_img || theme.top_img || config.top_img
-  if (top_img && page.top_img !== false)
-    - var flag = top_img === true ? 'no-bg' : undefined
-    div#top-container(style=`background-image: url(${top_img})` class=flag)
-      include ./includes/header.pug
-      #post-info
-        #post-title= page.title || _p('no_title')
-        #post-meta
-          if (theme.post_meta.date_type)
-            - var date_type = theme.post_meta.date_type === 'updated' ? 'updated' : 'date'
-            time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-          if (theme.post_meta.categories && page.categories.data.length > 0)
-            if (theme.post_meta.date_type)
-              span.post-meta__separator |
-            each item, index in page.categories.data
-              i.fa.fa-inbox.post-meta__icon(aria-hidden="true")
-              a(href=url_for(item.path)).post-meta__categories #[=item.name]
-              if (index < page.categories.data.length - 1)
-                 i.fa.fa-angle-right(aria-hidden="true")
-          if (theme.disqus.enable && theme.disqus.count)
-            if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-              span.post-meta__separator |
-            i.fa.fa-comment-o.post-meta__icon(aria-hidden="true")
-            a(href=url_for(page.path) + '#disqus_thread')
-              span.disqus-comment-count(data-disqus-identifier=page.path)
-          if (theme.wordcount && theme.wordcount.enable)
-            .post-meta-wordcount
-              span= _p('post.wordcount') + ': '
-              span.word-count= wordcount(page.content)
-              span.post-meta__separator |
-              span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-  else
-    div#top-container.plain
-      include ./includes/header.pug
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="true"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E7%AE%80%E8%BF%B0"><span class="toc-text">一、简述</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E4%BA%8C%E3%80%81-gdb%E5%9F%BA%E6%9C%AC%E6%8C%87%E4%BB%A4%E4%BB%8B%E7%BB%8D"><span class="toc-text">二、 gdb基本指令介绍</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#2-1-gdb%E4%BA%A4%E4%BA%92%E5%91%BD%E4%BB%A4"><span class="toc-text">2.1 gdb交互命令</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-2-%E8%AE%BE%E7%BD%AE%E6%96%AD%E7%82%B9"><span class="toc-text">2.2 设置断点</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-3-%E6%9F%A5%E7%9C%8B%E6%BA%90%E4%BB%A3%E7%A0%81"><span class="toc-text">2.3 查看源代码</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-4-%E6%89%93%E5%8D%B0%E8%A1%A8%E8%BE%BE%E5%BC%8F"><span class="toc-text">2.4 打印表达式</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-5-%E6%9F%A5%E8%AF%A2%E8%BF%90%E8%A1%8C%E4%BF%A1%E6%81%AF"><span class="toc-text">2.5 查询运行信息</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-6-%E5%88%86%E5%89%B2%E7%AA%97%E5%8F%A3"><span class="toc-text">2.6 分割窗口</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-7-%E8%B0%83%E8%AF%95%E6%AD%A3%E5%9C%A8%E8%BF%90%E8%A1%8C%E8%BF%9B%E7%A8%8B"><span class="toc-text">2.7 调试正在运行进程</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-8-%E6%9B%B4%E5%BC%BA%E5%A4%A7%E7%9A%84%E5%B7%A5%E5%85%B7"><span class="toc-text">2.8 更强大的工具</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E4%B8%89%E3%80%81-%E5%85%B6%E4%BB%96%E4%BD%BF%E7%94%A8%E6%96%B9%E5%BC%8F"><span class="toc-text">三、 其他使用方式</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#3-1-%E7%9B%B4%E6%8E%A5%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0"><span class="toc-text">3.1 直接执行函数</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-2-%E8%AE%BE%E7%BD%AEcatchpoint"><span class="toc-text">3.2 设置catchpoint</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-3-%E9%80%9A%E8%BF%87%E4%B8%BAptrace%E8%B0%83%E7%94%A8%E8%AE%BE%E7%BD%AEcatchpoint%E7%A0%B4%E8%A7%A3anti-debugging%E7%9A%84%E7%A8%8B%E5%BA%8F"><span class="toc-text">3.3 通过为ptrace调用设置catchpoint破解anti-debugging的程序</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-4-%E6%94%B9%E5%8F%98%E5%AD%97%E7%AC%A6%E4%B8%B2%E7%9A%84%E5%80%BC"><span class="toc-text">3.4 改变字符串的值</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-5-%E9%85%8D%E7%BD%AEgdb-init%E6%96%87%E4%BB%B6"><span class="toc-text">3.5 配置gdb init文件</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-6-%E8%AE%BE%E7%BD%AE%E6%BA%90%E6%96%87%E4%BB%B6%E6%9F%A5%E6%89%BE%E8%B7%AF%E5%BE%84"><span class="toc-text">3.6 设置源文件查找路径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-7-%E8%87%AA%E5%8A%A8%E5%8F%8D%E6%B1%87%E7%BC%96%E5%90%8E%E9%9D%A2%E8%A6%81%E6%89%A7%E8%A1%8C%E7%9A%84%E4%BB%A3%E7%A0%81"><span class="toc-text">3.7 自动反汇编后面要执行的代码</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-8-%E6%98%BE%E7%A4%BA%E7%A8%8B%E5%BA%8F%E5%8E%9F%E5%A7%8B%E6%9C%BA%E5%99%A8%E7%A0%81"><span class="toc-text">3.8 显示程序原始机器码</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-9-%E6%98%BE%E7%A4%BA%E5%B0%86%E8%A6%81%E6%89%A7%E8%A1%8C%E7%9A%84%E6%B1%87%E7%BC%96%E6%8C%87%E4%BB%A4"><span class="toc-text">3.9 显示将要执行的汇编指令</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%8F%82%E8%80%83%E9%93%BE%E6%8E%A5"><span class="toc-text">四、参考链接</span></a></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avator.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">95</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">88</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/gdb.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span><span class="pull-right"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a></span></div><div id="post-info"><div id="post-title">GDB使用笔记</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2018-11-26</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2018/11/26/gdb-tools/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2018/11/26/gdb-tools/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h1 id="一、简述"><a href="#一、简述" class="headerlink" title="一、简述"></a>一、简述</h1><p>GDB是一个由GNU开源组织发布的、UNIX&#x2F;LINUX操作系统下的、基于命令行的、功能强大的程序调试工具。 对于一名Linux下工作的c++程序员，gdb是必不可少的工具；</p>
+<h1 id="二、-gdb基本指令介绍"><a href="#二、-gdb基本指令介绍" class="headerlink" title="二、 gdb基本指令介绍"></a>二、 gdb基本指令介绍</h1><h2 id="2-1-gdb交互命令"><a href="#2-1-gdb交互命令" class="headerlink" title="2.1 gdb交互命令"></a>2.1 gdb交互命令</h2><ul>
+<li><p><code>start</code>：开始调试；</p>
+</li>
+<li><p><code>n</code>：一条一条的执行；</p>
+</li>
+<li><p><code>backtrace/bt</code>：查看函数调用栈帧；</p>
+</li>
+<li><p><code>info/i locals</code>：查看当前栈帧局部变量；</p>
+</li>
+<li><p><code>frame/f</code>：选择栈帧，在查看局部变量；</p>
+</li>
+<li><p><code>print/p</code>：打印变量的值；</p>
+</li>
+<li><p><code>finish</code>：运行到当前函数返回；</p>
+</li>
+<li><p><code>set var sum=0</code>：修改变量的值；</p>
+</li>
+<li><p><code>list/l 行号或函数名</code>：列出源码；</p>
+</li>
+<li><p><code>display/undisplay sum</code>：每次停下显示变量的值&#x2F;取消跟踪；</p>
+</li>
+<li><p><code>x/7b input</code>：打印存储器内容，b–每个字节一组，7–7组；</p>
+</li>
+<li><p><code>disassemble</code>：反汇编当前函数或指定函数；</p>
+</li>
+<li><p><code>si</code>：一条指令一条指令调试 而 s 是一行一行代码；</p>
+</li>
+<li><p><code>info registers</code>：显示所有寄存器的当前值；</p>
+</li>
+<li><p><code>x/20 $esp</code>：查看内存中开始的20个数；</p>
+</li>
+<li><p><code>run(简写r)</code>：其作用是运行程序，当遇到断点后，程序会在断点处停止运行，等待用户输入下一步的命令;</p>
+</li>
+<li><p><code>continue(简写c)</code>：继续执行，到下一个断点处（或运行结束）;</p>
+</li>
+<li><p><code>next(简写n)</code>：单步跟踪程序，当遇到函数调用时，也不进入此函数体；此命令同 step 的主要区别是，step 遇到用户自定义的函数，将步进到函数中去运行，<br>而 next 则直接调用函数，不会进入到函数体内;</p>
+</li>
+<li><p><code>step(简写s)</code>：单步调试如果有函数调用，则进入函数；与命令n不同，n是不进入调用的函数的;</p>
+</li>
+<li><p><code>until</code>：当你厌倦了在一个循环体内单步跟踪时，这个命令可以运行程序直到退出循环体;</p>
+</li>
+<li><p><code>until+行号</code>： 运行至某行，不仅仅用来跳出循环;</p>
+</li>
+<li><p><code>finish</code>： 运行程序，直到当前函数完成返回，并打印函数返回时的堆栈地址和返回值及参数值等信息;</p>
+</li>
+<li><p><code>call函数(参数)</code>：调用程序中可见的函数，并传递“参数”，如：call gdb_test(55);</p>
+</li>
+<li><p><code>quit</code>：简记为 q ，退出gdb;</p>
+</li>
+</ul>
+<h2 id="2-2-设置断点"><a href="#2-2-设置断点" class="headerlink" title="2.2 设置断点"></a>2.2 设置断点</h2><ul>
+<li><code>break n(简写b n)</code>:在第n行处设置断点（可以带上代码路径和代码名称： <code>b OAGUPDATE.cpp:578</code>）;<ul>
+<li>continue&#x2F;c：连续运行；</li>
+</ul>
+</li>
+<li><code>b fn1 if a＞b</code>：条件断点设置，满足条件才激活断点；</li>
+<li><code>break func(break缩写为b)</code>：在函数func()的入口处设置断点，如：<code>break cb_button</code>；</li>
+<li>b 匿名空间名::函数名<code>：对匿名空间设置断点，当匿名空间存在名称时，使用例如，</code>b Foo::foo&#96;;</li>
+<li><code>b (anonymous namespace)::函数名</code>：对匿名空间设置断点，当匿名空间无名称时，使用例如，<code>b (anonymous namespace)::bar</code>；</li>
+<li><code>b *address</code>：在程序地址上打断点，当调试汇编程序时，我们可以在程序地址上进行打断点，例如，<code>b *0x400522</code>；</li>
+<li><code>b *address</code>：在程序入口处打断点，如果不知道程序的入口地址，可以使用<code>readelf -h a.out </code>指令获取程序的入口地址，例如<code>b *0x400440</code>；</li>
+<li><code>b *func</code>：在函数的第一条汇编指令处打断点，通常我们使用<code>b func</code>打断点，但是这样并不会设置在汇编层次函数的开头，如果要将断点设置在汇编指令层次的开头，需要使用该指令；</li>
+<li><code>delete 断点号n</code>：删除第n个断点；</li>
+<li><code>disable 断点号n</code>：暂停第n个断点；</li>
+<li><code>enable 断点号n</code>：开启第n个断点；</li>
+<li><code>clear 行号n</code>：清除第n行的断点；</li>
+<li><code>info b(info/i breakpoints)</code>：显示当前程序的断点设置情况；</li>
+<li><code>delete breakpoints</code>：清除所有断点；</li>
+</ul>
+<h2 id="2-3-查看源代码"><a href="#2-3-查看源代码" class="headerlink" title="2.3 查看源代码"></a>2.3 查看源代码</h2><ul>
+<li><code>list</code>：简记为 l ，其作用就是列出程序的源代码，默认每次显示10行;</li>
+<li><code>list 行号</code>：将显示当前文件以“行号”为中心的前后10行代码，如：list 12;</li>
+<li><code>list 函数名</code>：将显示“函数名”所在函数的源代码，如：list main;</li>
+<li><code>list</code>：不带参数，将接着上一次 list 命令的，输出下边的内容;</li>
+</ul>
+<h2 id="2-4-打印表达式"><a href="#2-4-打印表达式" class="headerlink" title="2.4 打印表达式"></a>2.4 打印表达式</h2><ul>
+<li><p><code>print表达式</code>：简记为 p ，其中“表达式”可以是任何当前正在被测试程序的有效表达式，比如当前正在调试C语言的程序，那么“表达式”可以是任何C语言的有效表达式，包括数字，变量甚至是函数调用;</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">print</span> ++a：将把整数 a 中的值加1,并显示出来</span><br><span class="line"><span class="built_in">print</span> name：将显示 name 的值</span><br><span class="line"><span class="built_in">print</span> gdb_test(a)：将以变量 a 作为参数调用 gdb_test() 函数</span><br></pre></td></tr></table></figure>
+</li>
+<li><p><code>display 表达式</code>：在单步运行时将非常有用，使用<code>display</code>命令设置一个表达式后，它将在每次单步进行指令后，紧接着输出被设置的表达式及值。如： <code>display a</code>;</p>
+</li>
+<li><p><code>watch表达式</code>：设置一个监视点，一旦被监视的“表达式”的值改变，<code>gdb</code>将强行终止正在被调试的程序。如： <code>watch a</code>;</p>
+</li>
+<li><p><code>whatis</code> ：查询变量或函数;</p>
+</li>
+<li><p><code>info function</code>： 查询函数;</p>
+</li>
+<li><p><code>info locals</code>： 显示当前堆栈页的所有变量;</p>
+</li>
+</ul>
+<h2 id="2-5-查询运行信息"><a href="#2-5-查询运行信息" class="headerlink" title="2.5 查询运行信息"></a>2.5 查询运行信息</h2><ul>
+<li><code>where/bt</code> ：当前运行的堆栈列表；</li>
+<li><code>bt backtrace</code>：显示当前调用堆栈;</li>
+<li><code>up/down</code> ：改变堆栈显示的深度;</li>
+<li><code>set args 参数</code>：指定运行时的参数;</li>
+<li><code>show args</code>：查看设置好的参数;</li>
+<li><code>info program</code>： 来查看程序的是否在运行，进程号，被暂停的原因;</li>
+</ul>
+<h2 id="2-6-分割窗口"><a href="#2-6-分割窗口" class="headerlink" title="2.6 分割窗口"></a>2.6 分割窗口</h2><ul>
+<li><code>layout</code>：用于分割窗口，可以一边查看代码，一边测试：</li>
+<li><code>layout src</code>：显示源代码窗口</li>
+<li><code>layout asm</code>：显示反汇编窗口</li>
+<li><code>layout regs</code>：显示源代码&#x2F;反汇编和CPU寄存器窗口</li>
+<li><code>layout split</code>：显示源代码和反汇编窗口</li>
+<li><code>Ctrl + L</code>：刷新窗口</li>
+</ul>
+<h2 id="2-7-调试正在运行进程"><a href="#2-7-调试正在运行进程" class="headerlink" title="2.7 调试正在运行进程"></a>2.7 调试正在运行进程</h2><ul>
+<li><code>gdb -args ./a.out a b c</code></li>
+<li><code>gdb attach PID</code>：调试正在运行的进程；</li>
+<li><code>gdb -q a PID</code>:调试正在运行的进程；</li>
+<li><code>info thread</code>：查看当前进程的线程信息；</li>
+</ul>
+<h2 id="2-8-更强大的工具"><a href="#2-8-更强大的工具" class="headerlink" title="2.8 更强大的工具"></a>2.8 更强大的工具</h2><p>cgdb可以看作gdb的界面增强版,用来替代gdb的 gdb -tui。<br>cgdb主要功能是在调试时进行代码的同步显示，这无疑增加了调试的方便性，<br>提高了调试效率。界面类似vi，符合unix&#x2F;linux下开发人员习惯;如果熟悉gdb和vi，<br>几乎可以立即使用cgdb。</p>
+<h1 id="三、-其他使用方式"><a href="#三、-其他使用方式" class="headerlink" title="三、 其他使用方式"></a>三、 其他使用方式</h1><h2 id="3-1-直接执行函数"><a href="#3-1-直接执行函数" class="headerlink" title="3.1 直接执行函数"></a>3.1 直接执行函数</h2><ul>
+<li><code>call func()</code>：直接调用函数执行</li>
+<li><code>print func()</code>：直接调用函数执行</li>
+</ul>
+<h2 id="3-2-设置catchpoint"><a href="#3-2-设置catchpoint" class="headerlink" title="3.2 设置catchpoint"></a>3.2 设置catchpoint</h2><ul>
+<li><p><code>catch exec</code>：可以用<code>catch exec</code>命令为<code>exec</code>系列系统调用设置<code>catchpoint</code>(目前只有HP-UX和GNU&#x2F;Linux支持这个功能)；</p>
+</li>
+<li><p><code>catch fork</code>：可以用<code>catch fork</code>命令为<code>fork</code>调用设置<code>catchpoint</code>(目前只有HP-UX和GNU&#x2F;Linux支持这个功能)；</p>
+</li>
+<li><p><code>catch vfork</code>：可以用<code>catch vfork</code>命令为<code>vfork</code>调用设置<code>catchpoint</code>；</p>
+</li>
+</ul>
+<h2 id="3-3-通过为ptrace调用设置catchpoint破解anti-debugging的程序"><a href="#3-3-通过为ptrace调用设置catchpoint破解anti-debugging的程序" class="headerlink" title="3.3 通过为ptrace调用设置catchpoint破解anti-debugging的程序"></a>3.3 通过为ptrace调用设置catchpoint破解anti-debugging的程序</h2><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;sys/ptrace.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"> </span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span>                                                                      </span><br><span class="line">&#123;</span><br><span class="line">        <span class="keyword">if</span> (ptrace(PTRACE_TRACEME, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>) &lt; <span class="number">0</span> ) &#123;</span><br><span class="line">                <span class="built_in">printf</span>(<span class="string">&quot;Gdb is debugging me, exit.\n&quot;</span>);</span><br><span class="line">                <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="built_in">printf</span>(<span class="string">&quot;No debugger, continuing\n&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-block content
-  article#post(class="")
-    if (!top_img)
-      #post-title.plain= page.title || _p('no_title')
-      #post-meta
-        if (theme.post_meta.date_type)
-          - var date_type = theme.post_meta.date_type === 'updated' ? '' : 'date'
-          time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-        if (theme.post_meta.categories && page.categories.data.length > 0)
-          if (theme.post_meta.date_type)
-            span.post-meta__separator |
-          each item, index in page.categories.data
-            i.fa.fa-inbox(aria-hidden="true")
-            a(href=url_for(item.path)).post-meta__categories  #[=item.name]
-            if (index < page.categories.data.length - 1)
-                i.fa.fa-angle-right.post-meta__separator(aria-hidden="true")
-        if (theme.disqus.enable && theme.disqus.count)
-          if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-            span.post-meta__separator |
-          i.fa.fa-comment-o(aria-hidden="true")
-          a(href=url_for(page.path) + '#disqus_thread')
-            span.disqus-comment-count(data-disqus-identifier=page.path)
-        if (theme.wordcount && theme.wordcount.enable)
-          span.post-meta__separator |
-          span.post-meta-wordcount
-            span= _p('post.wordcount') + ': '
-            span.word-count= wordcount(page.content)
-            span.post-meta__separator |
-            span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-    #post-content.article-container!= page.content
-  if (theme.post_copyright && theme.post_copyright.enable)
-    .post-copyright
-      .post-copyright__author
-        span.post-copyright-meta= _p('post.copyright.author') + ": "
-        span.post-copyright-info
-          a(href=`mailto:${config.email}`) #[=config.author]
-      .post-copyright__type
-        span.post-copyright-meta= _p('post.copyright.link') + ": "
-        span.post-copyright-info
-          a(href=url_for(page.permalink)) #[=page.permalink]
-      .post-copyright__notice
-        span.post-copyright-meta= _p('post.copyright.copyright_notice') + ": "
-        span.post-copyright-info!= _p('post.copyright.copyright_content', theme.post_copyright.license_url, theme.post_copyright.license, config.url, config.title)
-  if (theme.post_meta.tags)
-    .post-meta__tag-list
-      each item, index in page.tags.data
-        a(href=url_for(item.path)).post-meta__tags #[=item.name]
-  if (theme.QR_code)
-    if (theme.QR_code.length > 0)
-      .post-qr-code
-        each item in theme.QR_code
-          .post-qr-code-item
-            img.post-qr-code__img(src=(item.itemlist||item).img)
-            .post-qr-code__desc=(item.itemlist||item).text
-  include includes/share/index.pug
-  include includes/pagination.pug
-  if (theme.adv && theme.adv.enable)
-    .post-adv!= theme.adv.info
-  if page.comments !== false
-    include includes/comments/index.pug
+<p>有些程序不想被gdb调试，它们就会在程序中调用“<code>ptrace</code>”函数，一旦返回失败，就证明程序正在被gdb等类似的程序追踪，所以就直接退出。以上面程序为例：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">(gdb) start</span><br><span class="line">Temporary breakpoint 1 at 0x400508: file a.c, line 6.</span><br><span class="line">Starting program: /data2/home/nanxiao/a</span><br><span class="line"></span><br><span class="line">Temporary breakpoint 1, main () at a.c:6</span><br><span class="line">6                       <span class="keyword">if</span> (ptrace(PTRACE_TRACEME, 0, 0, 0) &lt; 0 ) &#123;</span><br><span class="line">(gdb) n</span><br><span class="line">7                               <span class="built_in">printf</span>(<span class="string">&quot;Gdb is debugging me, exit.\n&quot;</span>);</span><br><span class="line">(gdb)</span><br><span class="line">Gdb is debugging me, <span class="built_in">exit</span>.</span><br><span class="line">8                               <span class="built_in">return</span> 1;</span><br></pre></td></tr></table></figure>
+
+<p>破解这类程序的办法就是为<code>ptrace</code>调用设置<code>catchpoint</code>，通过修改<code>ptrace</code>的返回值，达到目的。仍以上面程序为例：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">(gdb) catch syscall ptrace</span><br><span class="line">Catchpoint 2 (syscall <span class="string">&#x27;ptrace&#x27;</span> [101])</span><br><span class="line">(gdb) r</span><br><span class="line">Starting program: /data2/home/nanxiao/a</span><br><span class="line"></span><br><span class="line">Catchpoint 2 (call to syscall ptrace), 0x00007ffff7b2be9c <span class="keyword">in</span> ptrace () from /lib64/libc.so.6</span><br><span class="line">(gdb) c</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Catchpoint 2 (returned from syscall ptrace), 0x00007ffff7b2be9c <span class="keyword">in</span> ptrace () from /lib64/libc.so.6</span><br><span class="line">(gdb) <span class="built_in">set</span> <span class="variable">$rax</span> = 0</span><br><span class="line">(gdb) c</span><br><span class="line">Continuing.</span><br><span class="line">No debugger, continuing</span><br><span class="line">[Inferior 1 (process 11491) exited normally]</span><br></pre></td></tr></table></figure>
+
+<p>可以看到，通过修改<code>rax</code>寄存器的值，达到修改返回值的目的，从而让gdb可以继续调试程序（打印“<code>No debugger, continuing</code>”）。</p>
+<h2 id="3-4-改变字符串的值"><a href="#3-4-改变字符串的值" class="headerlink" title="3.4 改变字符串的值"></a>3.4 改变字符串的值</h2><ul>
+<li><code>set 函数::变量</code>：可以用<code>set 函数::变量</code>命令改变字符串的值，例如<code>set main::arr=&quot;Tom&quot;</code>；</li>
+<li><code>set &#123;变量详情&#125; 变量地址 = &quot;Tom&quot;</code>：可以通过访问内存地址的方法改变字符串的值，例如<code>set &#123;char [4]&#125; 0x80477a4 = &quot;Ace&quot;</code>；</li>
+</ul>
+<h2 id="3-5-配置gdb-init文件"><a href="#3-5-配置gdb-init文件" class="headerlink" title="3.5 配置gdb init文件"></a>3.5 配置gdb init文件</h2><p>当gdb启动时，会读取HOME目录和当前目录下的的配置文件，执行里面的命令。这个文件通常为“.gdbinit”。</p>
+<p>这里给出了本文档中介绍过的，可以放在“.gdbinit”中的一些配置：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 打印STL容器中的内容</span></span><br><span class="line">python</span><br><span class="line">import sys</span><br><span class="line">sys.path.insert(0, <span class="string">&quot;/home/xmj/project/gcc-trunk/libstdc++-v3/python&quot;</span>)</span><br><span class="line">from libstdcxx.v6.printers import register_libstdcxx_printers</span><br><span class="line">register_libstdcxx_printers (None)</span><br><span class="line">end</span><br><span class="line"></span><br><span class="line"><span class="comment"># 保存历史命令</span></span><br><span class="line"><span class="built_in">set</span> <span class="built_in">history</span> filename ~/.gdb_history</span><br><span class="line"><span class="built_in">set</span> <span class="built_in">history</span> save on</span><br><span class="line"></span><br><span class="line"><span class="comment"># 退出时不显示提示信息</span></span><br><span class="line"><span class="built_in">set</span> confirm off</span><br><span class="line"></span><br><span class="line"><span class="comment"># 按照派生类型打印对象</span></span><br><span class="line"><span class="built_in">set</span> <span class="built_in">print</span> object on</span><br><span class="line"></span><br><span class="line"><span class="comment"># 打印数组的索引下标</span></span><br><span class="line"><span class="built_in">set</span> <span class="built_in">print</span> array-indexes on</span><br><span class="line"></span><br><span class="line"><span class="comment"># 每行打印一个结构体成员</span></span><br><span class="line"><span class="built_in">set</span> <span class="built_in">print</span> pretty on</span><br></pre></td></tr></table></figure>
+
+<h2 id="3-6-设置源文件查找路径"><a href="#3-6-设置源文件查找路径" class="headerlink" title="3.6 设置源文件查找路径"></a>3.6 设置源文件查找路径</h2><ul>
+<li><code>directory /data1/dir/</code>：在调试中使用该指令指定源文件的查找目录，避免找不到源文件的位置；</li>
+<li><code>gdb -q a.out -d /search/code/some </code>：启动时也可以使用<code>-d</code>参数加载<code>code</code>的位置；</li>
+</ul>
+<h2 id="3-7-自动反汇编后面要执行的代码"><a href="#3-7-自动反汇编后面要执行的代码" class="headerlink" title="3.7 自动反汇编后面要执行的代码"></a>3.7 自动反汇编后面要执行的代码</h2><ul>
+<li><code>set disassemble-next-line on</code>：要在任意情况下反汇编后面要执行的代码，之后使用start；</li>
+<li><code>set disassemble-next-line auto</code>：在后面的代码没有源码的情况下才反汇编后面要执行的代码，之后使用start；</li>
+<li><code>set disassemble-next-line off</code>：关闭自动反汇编后面要执行的代码，之后使用start指令；</li>
+</ul>
+<h2 id="3-8-显示程序原始机器码"><a href="#3-8-显示程序原始机器码" class="headerlink" title="3.8 显示程序原始机器码"></a>3.8 显示程序原始机器码</h2><ul>
+<li>disassemble &#x2F;r functionName：用16进制形式显示函数的原始机器码；</li>
+</ul>
+<h2 id="3-9-显示将要执行的汇编指令"><a href="#3-9-显示将要执行的汇编指令" class="headerlink" title="3.9 显示将要执行的汇编指令"></a>3.9 显示将要执行的汇编指令</h2><ul>
+<li>display &#x2F;i $pc：显示当程序停止时，将要执行的汇编指令，可用于显示在断点之后的即将要执行的汇编指令；</li>
+</ul>
+<h1 id="四、参考链接"><a href="#四、参考链接" class="headerlink" title="四、参考链接"></a>四、参考链接</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://www.kancloud.cn/itfanr/i-100-gdb-tips/81864">为系统调用设置catchpoint</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.kancloud.cn/itfanr/i-100-gdb-tips/81851">100-gdb-tips</a></li>
+</ul>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2018/11/26/gdb-tools/">https://bugwz.com/2018/11/26/gdb-tools/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/C-C/">C/C++</a><a class="post-meta__tags" href="/tags/Tools/">Tools</a><a class="post-meta__tags" href="/tags/Notes/">Notes</a><a class="post-meta__tags" href="/tags/GDB/">GDB</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2018/11/27/store-website/"><i class="fa fa-chevron-left">  </i><span>网站收藏列表</span></a></div><div class="next-post pull-right"><a href="/2018/11/25/github-pages-hexo/"><span>博客转移至GitHub Pages</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+var disqus_config = function () {
+  this.page.url = 'https://bugwz.com/2018/11/26/gdb-tools/';
+  this.page.identifier = '2018/11/26/gdb-tools/';
+  this.page.title = 'GDB使用笔记';
+}
+var d = document, s = d.createElement('script');
+s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
+s.setAttribute('data-timestamp', '' + +new Date());
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-scr" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/gdb.jpg)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"><span>Powered by</span> <a target="_blank" rel="noopener" href="https://github.com/wzpan/hexo-generator-search" style="color:#49B1F5;">hexo-generator-search</a></div></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div></body></html>

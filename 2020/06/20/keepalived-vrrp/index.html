@@ -1,98 +1,112 @@
-extends includes/layout.pug
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="Keepalived的高可用基石 - VRRP协议"><meta name="keywords" content="Linux,Keepalived,VRRP"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>Keepalived的高可用基石 - VRRP协议 | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
 
-block top_img
-  - var top_img = page.top_img || theme.post_meta.top_img || theme.top_img || config.top_img
-  if (top_img && page.top_img !== false)
-    - var flag = top_img === true ? 'no-bg' : undefined
-    div#top-container(style=`background-image: url(${top_img})` class=flag)
-      include ./includes/header.pug
-      #post-info
-        #post-title= page.title || _p('no_title')
-        #post-meta
-          if (theme.post_meta.date_type)
-            - var date_type = theme.post_meta.date_type === 'updated' ? 'updated' : 'date'
-            time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-          if (theme.post_meta.categories && page.categories.data.length > 0)
-            if (theme.post_meta.date_type)
-              span.post-meta__separator |
-            each item, index in page.categories.data
-              i.fa.fa-inbox.post-meta__icon(aria-hidden="true")
-              a(href=url_for(item.path)).post-meta__categories #[=item.name]
-              if (index < page.categories.data.length - 1)
-                 i.fa.fa-angle-right(aria-hidden="true")
-          if (theme.disqus.enable && theme.disqus.count)
-            if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-              span.post-meta__separator |
-            i.fa.fa-comment-o.post-meta__icon(aria-hidden="true")
-            a(href=url_for(page.path) + '#disqus_thread')
-              span.disqus-comment-count(data-disqus-identifier=page.path)
-          if (theme.wordcount && theme.wordcount.enable)
-            .post-meta-wordcount
-              span= _p('post.wordcount') + ': '
-              span.word-count= wordcount(page.content)
-              span.post-meta__separator |
-              span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-  else
-    div#top-container.plain
-      include ./includes/header.pug
-
-block content
-  article#post(class="")
-    if (!top_img)
-      #post-title.plain= page.title || _p('no_title')
-      #post-meta
-        if (theme.post_meta.date_type)
-          - var date_type = theme.post_meta.date_type === 'updated' ? '' : 'date'
-          time.post-meta__date #[i.fa.fa-calendar(aria-hidden="true")] #[=date(page[date_type], config.date_format)]
-        if (theme.post_meta.categories && page.categories.data.length > 0)
-          if (theme.post_meta.date_type)
-            span.post-meta__separator |
-          each item, index in page.categories.data
-            i.fa.fa-inbox(aria-hidden="true")
-            a(href=url_for(item.path)).post-meta__categories  #[=item.name]
-            if (index < page.categories.data.length - 1)
-                i.fa.fa-angle-right.post-meta__separator(aria-hidden="true")
-        if (theme.disqus.enable && theme.disqus.count)
-          if (theme.post_meta.date_type || theme.post_meta.categories && page.categories.data.length > 0)
-            span.post-meta__separator |
-          i.fa.fa-comment-o(aria-hidden="true")
-          a(href=url_for(page.path) + '#disqus_thread')
-            span.disqus-comment-count(data-disqus-identifier=page.path)
-        if (theme.wordcount && theme.wordcount.enable)
-          span.post-meta__separator |
-          span.post-meta-wordcount
-            span= _p('post.wordcount') + ': '
-            span.word-count= wordcount(page.content)
-            span.post-meta__separator |
-            span= _p('post.min2read', min2read(page.content, {cn: 350, en: 160}))
-    #post-content.article-container!= page.content
-  if (theme.post_copyright && theme.post_copyright.enable)
-    .post-copyright
-      .post-copyright__author
-        span.post-copyright-meta= _p('post.copyright.author') + ": "
-        span.post-copyright-info
-          a(href=`mailto:${config.email}`) #[=config.author]
-      .post-copyright__type
-        span.post-copyright-meta= _p('post.copyright.link') + ": "
-        span.post-copyright-info
-          a(href=url_for(page.permalink)) #[=page.permalink]
-      .post-copyright__notice
-        span.post-copyright-meta= _p('post.copyright.copyright_notice') + ": "
-        span.post-copyright-info!= _p('post.copyright.copyright_content', theme.post_copyright.license_url, theme.post_copyright.license, config.url, config.title)
-  if (theme.post_meta.tags)
-    .post-meta__tag-list
-      each item, index in page.tags.data
-        a(href=url_for(item.path)).post-meta__tags #[=item.name]
-  if (theme.QR_code)
-    if (theme.QR_code.length > 0)
-      .post-qr-code
-        each item in theme.QR_code
-          .post-qr-code-item
-            img.post-qr-code__img(src=(item.itemlist||item).img)
-            .post-qr-code__desc=(item.itemlist||item).text
-  include includes/share/index.pug
-  include includes/pagination.pug
-  if (theme.adv && theme.adv.enable)
-    .post-adv!= theme.adv.info
-  if page.comments !== false
-    include includes/comments/index.pug
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="true"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E8%83%8C%E6%99%AF"><span class="toc-text">一、背景</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81VRRP"><span class="toc-text">二、VRRP</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1%E3%80%81%E7%AE%80%E4%BB%8B"><span class="toc-text">2.1、简介</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2%E3%80%81%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5"><span class="toc-text">2.2、基础概念</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3%E3%80%81%E6%8A%A5%E6%96%87"><span class="toc-text">2.3、报文</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#2-3-1%E3%80%81VRRPv2%E6%8A%A5%E6%96%87"><span class="toc-text">2.3.1、VRRPv2报文</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-3-2%E3%80%81VRRPv3%E6%8A%A5%E6%96%87"><span class="toc-text">2.3.2、VRRPv3报文</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-3-3%E3%80%81%E6%8A%A5%E6%96%87%E5%AD%97%E6%AE%B5%E5%90%AB%E4%B9%89"><span class="toc-text">2.3.3、报文字段含义</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4%E3%80%81%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86"><span class="toc-text">2.4、工作原理</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#2-4-1%E3%80%81%E7%8A%B6%E6%80%81%E6%9C%BA"><span class="toc-text">2.4.1、状态机</span></a></li></ol></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%8F%82%E8%80%83%E5%9C%B0%E5%9D%80"><span class="toc-text">三、参考地址</span></a></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avator.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">95</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">88</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/keepalived.jpeg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span><span class="pull-right"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a></span></div><div id="post-info"><div id="post-title">Keepalived的高可用基石 - VRRP协议</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2020-06-20</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2020/06/20/keepalived-vrrp/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2020/06/20/keepalived-vrrp/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h2 id="一、背景"><a href="#一、背景" class="headerlink" title="一、背景"></a>一、背景</h2><p>路由实现了不同子网之间的数据通信，目前比较常用的路由配置方法大概分为两种：<code>动态路由</code>（利用RIP、OSPF进行动态学习）和<code>静态路由</code>（对终端设备静态配置路由）。动态路由可以通过学习的方式获取路由表，避免了静态路由需要手动配置以及后续变更的繁琐，但同时需要额外的占用线路带宽和CPU的处理时间。VRRP技术是在静态路由上用于在目标机器不可达之后的路由能够自动变更的一种实现手段。</p>
+<h2 id="二、VRRP"><a href="#二、VRRP" class="headerlink" title="二、VRRP"></a>二、VRRP</h2><h3 id="2-1、简介"><a href="#2-1、简介" class="headerlink" title="2.1、简介"></a>2.1、简介</h3><p>VRRP(Virtual Router Redundancy Protocol)，即虚拟路由冗余协议，它是为了避免路由器出现单点故障的一种容错协议。VRRP协议的实现有<code>VRRPv2</code>和<code>VRRPv3</code>两个版本，<code>VRRPv2</code>基于<code>IPv4</code>，<code>VRRPv3</code>基于<code>IPv6</code>。相关RFC文件为：<a target="_blank" rel="noopener" href="https://tools.ietf.org/html/rfc2338">RFC2338 - Virtual Router Redundancy Protocol</a>, <a target="_blank" rel="noopener" href="https://tools.ietf.org/html/rfc3768">RFC3768 - Virtual Router Redundancy Protocol (VRRP)</a>, <a target="_blank" rel="noopener" href="https://tools.ietf.org/html/rfc5798">RFC5798 - Virtual Router Redundancy Protocol (VRRP) Version 3 for IPv4 and IPv6</a>。</p>
+<h3 id="2-2、基础概念"><a href="#2-2、基础概念" class="headerlink" title="2.2、基础概念"></a>2.2、基础概念</h3><ul>
+<li><code>VIP</code>：Virtual IP, 即虚拟IP，是一个不与特定计算机或网络接口卡(NIC)相连的IP地址；</li>
+<li><code>VRRP路由器</code>：运行VRRP协议的路由器（或设备），它可能属于一个或多个虚拟路由器；</li>
+<li><code>Master路由器</code>：承担转发报文任务的VRRP设备；</li>
+<li><code>Backup路由器</code>：一组没有担转发任务的VRRP设备，当Master设备出现故障时，它们将通过竞选成为新的Master设备；</li>
+<li><code>虚拟路由器</code>：由一组<code>VRRP路由器</code>组成，抽象成一个虚拟的路由器。它拥有一个<code>虚拟路由器标识符（VRID）</code>和一个（或多个）<code>VIP</code>；</li>
+<li><code>虚拟MAC地址</code>：即虚拟路由器根据VRID生成的MAC地址，一个虚拟路由器拥有一个虚拟MAC地址，当虚拟路由器回应ARP请求时，回复虚拟MAC地址，而不是接口的真实MAC地址，格式为：<code>00-00-5E-00-01-&#123;VRID&#125;(VRRP for IPv4)</code>，<code>00-00-5E-00-02-&#123;VRID&#125;(VRRP for IPv6)</code>，<strong>从VRID的用途可以看出VRID的取值范围是0～255</strong>；</li>
+<li><code>IP地址拥有者（IP Address Owner）</code>：如果一个<code>VRRP路由器</code>将<code>VIP</code>作为真实的接口地址，则该设备是IP地址拥有者，当这台设备正常工作时，它会响应<code>目的地址</code>是VIP的报文，如ping、TCP连接等；</li>
+<li><code>优先级（Priority）</code>：用来标识虚拟路由器中各成员路由器的优先级，<code>虚拟路由器</code>根据优先级选举出<code>Master</code>和<code>Backup</code>；</li>
+</ul>
+<h3 id="2-3、报文"><a href="#2-3、报文" class="headerlink" title="2.3、报文"></a>2.3、报文</h3><p>VRRP协议报文用来将<code>Master设备</code>的<code>优先级</code>和<code>状态</code>通告给同一备份组的所有<code>Backup设备</code>。VRRP协议报文封装在IP报文中，发送到分配给VRRP的IP组播地址。</p>
+<ul>
+<li>IP报文头中，源地址为发送报文接口的主IP地址（不是虚拟IP地址），目的地址是224.0.0.18，TTL是255，协议号是112；</li>
+<li>IP报文头中，TTL必须为255，当VRRP路由器收到TTL不等于255的VRRP协议报文后，必须丢弃；</li>
+</ul>
+<h4 id="2-3-1、VRRPv2报文"><a href="#2-3-1、VRRPv2报文" class="headerlink" title="2.3.1、VRRPv2报文"></a>2.3.1、VRRPv2报文</h4><ul>
+<li>仅适用于IPv4网络；</li>
+<li>为了兼容早期版本（RFC2338），VRRPv2版本保留报文的认证字段，但是VRRP认证并不能提高安全性；</li>
+<li>秒级的通告报文的发送时间间隔；</li>
+</ul>
+<p><img src="https://cdn.bugwz.com/vrrpv2.png" alt="VRRPv2"></p>
+<h4 id="2-3-2、VRRPv3报文"><a href="#2-3-2、VRRPv3报文" class="headerlink" title="2.3.2、VRRPv3报文"></a>2.3.2、VRRPv3报文</h4><ul>
+<li>适用于IPv4和IPv6两种网络；</li>
+<li>不支持认证功能；</li>
+<li>厘秒级（100分之1秒）的通告报文的发送时间间隔；</li>
+</ul>
+<p><img src="https://cdn.bugwz.com/vrrpv3.png" alt="VRRPv3"></p>
+<h4 id="2-3-3、报文字段含义"><a href="#2-3-3、报文字段含义" class="headerlink" title="2.3.3、报文字段含义"></a>2.3.3、报文字段含义</h4><ul>
+<li><code>Version</code>：长度<strong>4比特</strong>，指VRRP协议版本，VRRPv2此字段为2，VRRPv3此字段为3；</li>
+<li><code>Type</code>：长度<strong>4比特</strong>，定义了VRRP报文的类型，本版本的协议仅定义了一个报文类型：<ul>
+<li><code>1</code>：Advertisement 带有未知类型的报文必须被丢弃；</li>
+</ul>
+</li>
+<li><code>Virtual Rtr ID8</code>：长度<strong>8比特</strong>，虚拟路由器标识（VRID）字段标识了此报文所报告状态的虚拟路由器。可配置的范围是1–255。没有缺省值；</li>
+<li><code>Priority</code>：长度<strong>8比特</strong>，申明了发送此报文的VRRP路由器的优先级。值越高优先级越高。如果VRRP路由器是虚拟路由器地址的IP地址所有者，那么其优先级必须为255。备用作用的VRRP路由器的优先级必须在1–254之间。缺省的VRRP路由器优先级为100。优先级值0 用于指示当前虚拟路由器的主路由器停止参与VRRP组。主要用于触发备用路由器快速地迁移到主路由器，而不用等待当前主路由器超时；</li>
+<li><code>Count IP Addrs</code>：长度<strong>8比特</strong>。在此VRRP通告中包含的IP地址的数量；</li>
+<li><code>Auth Type</code>：长度<strong>8比特</strong>，用于标识要用到的认证方法。在一个虚拟路由器组内认证类型是唯一的。如果报文携带未知的认证类型或者该认证类型和本地配置的认证方法不匹配，那么该报文必须被丢弃。目前定义的认证方法有：<ul>
+<li><code>0(No Authentication)</code> : 表明VRRP协议报文的交换不需要认证。在发送VRRP协议报文时，<code>Authentication Data</code> 字段将被置为<code>0</code>，而在接收协议报文时，<code>Authentication Data</code> 字段被忽略；</li>
+<li><code>1(Simple Text Password)</code>: 表示明文认证方式。</li>
+<li><code>2(IP Authentication Header)</code>：表示MD5认证方式；</li>
+</ul>
+</li>
+<li><code>Adver Int</code>：长度<strong>8比特</strong>，VRRP通告间隔时间，单位为秒（默认为1秒），这个字段主要用于错误配置路由器时的故障定位和解决；</li>
+<li><code>Checksum</code>：长度<strong>16比特</strong>，16位校验和，用于检测VRRP报文中的数据破坏情况；</li>
+<li><code>IP Address</code>：长度<strong>32比特</strong>，VRRP备份组的虚拟IPv4地址或者虚拟IPv6地址；</li>
+<li><code>Authentication Data</code>：长度<strong>32比特</strong>，VRRP报文的认证字，目前只有明文认证和MD5认证才用到该部分，对于其它认证方式，一律填0；</li>
+</ul>
+<h3 id="2-4、工作原理"><a href="#2-4、工作原理" class="headerlink" title="2.4、工作原理"></a>2.4、工作原理</h3><h4 id="2-4-1、状态机"><a href="#2-4-1、状态机" class="headerlink" title="2.4.1、状态机"></a>2.4.1、状态机</h4><ul>
+<li><code>初始状态(Initialize)</code>：该状态下VRRP处于<code>不可用</code>的状态，在此状态下设备不会对VRRP报文做任何处理，通常刚配置VRRP时或设备检测到故障时会进入该状态。收到接口startup（启动）的状态，如果设备的优先级为<code>255</code>（表示该设备为虚拟路由器IP地址拥有者），则直接成为Master设备。如果设备的优先级小于255，则会先切换到<code>Backup状态</code>。</li>
+<li><code>活动状态(Master)</code>：处于该状态下的设备为Master设备，Master设备会做如下工作：<ul>
+<li>定时发送VRRP通告报文，时间间隔为<code>Advertisement_Interval</code>；</li>
+<li>以虚拟MAC地址相应对虚拟IP地址的ARP请求；</li>
+<li>转发目的MAC地址为虚拟MAC地址的IP报文；</li>
+<li>抢占模式下，如果收到比自己优先级大的VRRP报文，或者跟自己优先级相等，且本地接口IP地址小于源端接口IP地址时，则转变为Backup状态；</li>
+<li>收到Shutdown(关闭)消息后，则立即转变为<code>初始状态(Initialize)</code>；</li>
+</ul>
+</li>
+<li><code>备份状态(Backup)</code>：处于该状态下的设备接收Master发送的VRRP通告报文，判断Master是否正常。如果一定时间间隔没有收到VRRP通告报文，即<code>Master_Down_Interval（Master_Down_Interval = 3 * Advertisement_Interval + Skew_time</code> 超时，则判断为Master故障。<ul>
+<li>接收Master发送的<code>VRRP通告报文</code>，判断Master是否正常；</li>
+<li>对虚拟IP的ARP请求不做响应；</li>
+<li>丢弃目的MAC地址为虚拟路由器MAC地址的IP报文；</li>
+<li>丢弃目的IP地址为虚拟路由器IP地址的IP报文；</li>
+<li>如果收到优先级比自己高，或与自己相等的VRRP报文，则重置<code>Master_Down_Interval定时器</code>（不进一步比较IP地址）；</li>
+<li>如果收到优先级比自己小的VPPR报文，且优先级为0时，（表示原Master设备声明不参与该VRRP组了），定时器时间设置为Skew_time（偏移时间，<code>Skew_time= (256 - priority)/256）</code>；</li>
+<li>如果收到优先级比自己小的VPPR报文，且优先级不为0时，丢弃该报文，立即转变为Master状态；</li>
+<li><code>Master_Down_Interval定时器</code>超时，立即转变为Master状态；</li>
+<li>收到Shutdown（关闭）消息后，则立即转变为<code>初始状态(Initialize)</code>；</li>
+</ul>
+</li>
+</ul>
+<h2 id="三、参考地址"><a href="#三、参考地址" class="headerlink" title="三、参考地址"></a>三、参考地址</h2><ul>
+<li><a target="_blank" rel="noopener" href="https://www.cnblogs.com/clsn/p/8052649.html">https://www.cnblogs.com/clsn/p/8052649.html</a></li>
+<li><a target="_blank" rel="noopener" href="https://cshihong.github.io/2017/12/18/%E8%99%9A%E6%8B%9F%E8%B7%AF%E7%94%B1%E5%86%97%E4%BD%99%E5%8D%8F%E8%AE%AE-VRRP/">https://cshihong.github.io/2017/12/18/%E8%99%9A%E6%8B%9F%E8%B7%AF%E7%94%B1%E5%86%97%E4%BD%99%E5%8D%8F%E8%AE%AE-VRRP/</a></li>
+</ul>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2020/06/20/keepalived-vrrp/">https://bugwz.com/2020/06/20/keepalived-vrrp/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Linux/">Linux</a><a class="post-meta__tags" href="/tags/Keepalived/">Keepalived</a><a class="post-meta__tags" href="/tags/VRRP/">VRRP</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2020/07/27/hamburg/"><i class="fa fa-chevron-left">  </i><span>Hamburg - 抓包/耗时分析工具</span></a></div><div class="next-post pull-right"><a href="/2020/06/16/keepalived/"><span>Keepalived的学习与使用</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+var disqus_config = function () {
+  this.page.url = 'https://bugwz.com/2020/06/20/keepalived-vrrp/';
+  this.page.identifier = '2020/06/20/keepalived-vrrp/';
+  this.page.title = 'Keepalived的高可用基石 - VRRP协议';
+}
+var d = document, s = d.createElement('script');
+s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
+s.setAttribute('data-timestamp', '' + +new Date());
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-scr" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/keepalived.jpeg)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"><span>Powered by</span> <a target="_blank" rel="noopener" href="https://github.com/wzpan/hexo-generator-search" style="color:#49B1F5;">hexo-generator-search</a></div></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div></body></html>
