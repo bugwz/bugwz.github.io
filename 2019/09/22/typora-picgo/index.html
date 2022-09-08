@@ -1,0 +1,82 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="Typora与PicGo的使用笔记"><meta name="keywords" content="Markdown,Typora,PicGo"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>Typora与PicGo的使用笔记 | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="false"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81Typora"><span class="toc-text">一、Typora</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81PicGo"><span class="toc-text">二、PicGo</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E7%BB%93%E5%90%88%E4%BD%BF%E7%94%A8"><span class="toc-text">三、结合使用</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1%E3%80%81PicGo%E7%9A%84%E9%85%8D%E7%BD%AE%E4%B8%8E%E6%8F%92%E4%BB%B6"><span class="toc-text">3.1、PicGo的配置与插件</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2%E3%80%81%E5%AE%9E%E9%99%85%E4%BD%93%E9%AA%8C"><span class="toc-text">3.2、实际体验</span></a></li></ol></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://cdn.bugwz.com/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">94</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">88</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/write.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span><span class="pull-right"><a class="site-page social-icon search"><i class="fa fa-search"></i><span> Search</span></a></span></div><div id="post-info"><div id="post-title">Typora与PicGo的使用笔记</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2019-09-22</time><span class="post-meta__separator">|</span><i class="fa fa-comment-o post-meta__icon" aria-hidden="true"></i><a href="/2019/09/22/typora-picgo/#disqus_thread"><span class="disqus-comment-count" data-disqus-identifier="2019/09/22/typora-picgo/"></span></a></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h2 id="一、Typora"><a href="#一、Typora" class="headerlink" title="一、Typora"></a>一、Typora</h2><p><a target="_blank" rel="noopener" href="https://typora.io/">Typora</a>是一款极简的Markdown写作编辑器，相比于传统的双栏目预览式编辑，Typora巧妙的实现了一种所见即所得的编辑模式，关于这款工具的详细的介绍，以及它与其他工具的对比，在网上到处都是，这里就不赘述了。我只简单的描述以下我对这个编辑的印象与评价。</p>
+<ul>
+<li>优点：<ul>
+<li>风格极简，支持几种主流的主题风格，同时支持主题自定义；</li>
+<li>所见即所得的创新的写作风格体验；</li>
+<li>支持文档导出为多种格式，PDF，HTML，Word等；</li>
+<li>支持LaTex公式；</li>
+</ul>
+</li>
+<li>待改进：<ul>
+<li>文档列表新建文件的按钮有时候会无响应，点击多次才能新建文件；</li>
+<li>图片插入目前只支持iPic这款付费插件，诸如PicGo还不支持；</li>
+</ul>
+</li>
+</ul>
+<h2 id="二、PicGo"><a href="#二、PicGo" class="headerlink" title="二、PicGo"></a>二、PicGo</h2><p><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/PicGo">PicGo</a>是一款开源的图床软件，该软件与iPic的不分伯仲，目前支持众多图床（SM.MS图床，腾讯云COS，微博图床，GitHub图床，七牛图床，Imgur图床，阿里云OSS，又拍云图床等），这里简单表述一下我的个人使用体验。</p>
+<ul>
+<li>优点：<ul>
+<li>项目开源，文档支持中文，比较齐全；</li>
+<li>支持插件，用户可根据自己需要自定义插件；</li>
+</ul>
+</li>
+</ul>
+<h2 id="三、结合使用"><a href="#三、结合使用" class="headerlink" title="三、结合使用"></a>三、结合使用</h2><p>由于公司内部使用GitLab，在记录一下issue的时候，相关图片又不便于存放在外网，在使用Typora的时候则需要图片信息能够自动保存在公司内部的GitLab中，因此不可避免的便需要Typora与PicGo的相互结合，目前Typora并没有支持PicGo的图片来源扩展，鉴于PicGo支持插件开发，所以充分利用的PicGo的插件来实现公司文档的便捷文档编写。</p>
+<h3 id="3-1、PicGo的配置与插件"><a href="#3-1、PicGo的配置与插件" class="headerlink" title="3.1、PicGo的配置与插件"></a>3.1、PicGo的配置与插件</h3><ul>
+<li><p>配置：</p>
+<ul>
+<li><code>链接格式</code>：在上传区的链接格式中将返回的数据格式选中为<code>Markdown</code>；</li>
+<li><code>快捷键</code>：配置上传剪贴板图片的快捷键<code>Option + S</code>;</li>
+</ul>
+</li>
+<li><p>插件：</p>
+<ul>
+<li><code>picgo-plugin-gitlab</code>：基于picgo-plugin-web-uploader开发，配置项目简单化，将图片上传到内部GitLab的指定的项目中，并返回图片的绝对URL；</li>
+<li><code>picgo-plugin-autocopy</code>：自动复制上传完成后图片返回的URL地址；</li>
+</ul>
+</li>
+</ul>
+<h3 id="3-2、实际体验"><a href="#3-2、实际体验" class="headerlink" title="3.2、实际体验"></a>3.2、实际体验</h3><ul>
+<li><p>截屏获取图片；</p>
+</li>
+<li><p>执行<code>Option + s</code>上传剪贴板的图片信息；</p>
+</li>
+<li><p>待图片上传完成后，在Typora编辑器中直接<code>Command + v</code>粘贴图片（实际写入的为Markdown格式）即可；</p>
+</li>
+</ul>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2019/09/22/typora-picgo/">https://bugwz.com/2019/09/22/typora-picgo/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Markdown/">Markdown</a><a class="post-meta__tags" href="/tags/Typora/">Typora</a><a class="post-meta__tags" href="/tags/PicGo/">PicGo</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2019/09/28/command-nc/"><i class="fa fa-chevron-left">  </i><span>nc指令的使用与源码解析 - 每周指令</span></a></div><div class="next-post pull-right"><a href="/2019/09/19/command-sar/"><span>sar指令的使用与源码解析 - 每周指令</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="disqus_thread"></div><script>var unused = null;
+var disqus_config = function () {
+  this.page.url = 'https://bugwz.com/2019/09/22/typora-picgo/';
+  this.page.identifier = '2019/09/22/typora-picgo/';
+  this.page.title = 'Typora与PicGo的使用笔记';
+}
+var d = document, s = d.createElement('script');
+s.src = "https://" + 'bugwz' +".disqus.com/embed.js";
+s.setAttribute('data-timestamp', '' + +new Date());
+(d.head || d.body).appendChild(s);</script><script id="dsq-count-scr" src="https://bugwz.disqus.com/count.js" async></script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/write.jpg)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Local search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"><span>Powered by</span> <a target="_blank" rel="noopener" href="https://github.com/wzpan/hexo-generator-search" style="color:#49B1F5;">hexo-generator-search</a></div></div></div><span class="search-close-button"><i class="fa fa-times"></i></span></div><div class="search-mask"></div></body></html>
