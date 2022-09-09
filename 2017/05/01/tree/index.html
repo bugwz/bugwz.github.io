@@ -74,7 +74,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>先将根结点放入一对圆括号中，然后把它的子树由左至右的顺序放入括号中，而对子树也采用同样的方法处理；</li>
 <li>同层子树与它的根节点用圆括号括起来，同层子树之间用逗号隔开，最后用闭括号括起来；</li>
 </ul>
-<h3 id="1-5、示例图"><a href="#1-5、示例图" class="headerlink" title="1.5、示例图"></a>1.5、示例图</h3><p><img src="https://cdn.bugwz.com/tree.png" alt="树" loading="lazy"></p>
+<h3 id="1-5、示例图"><a href="#1-5、示例图" class="headerlink" title="1.5、示例图"></a>1.5、示例图</h3><p><img src="/assets/images/tree.png" alt="树" loading="lazy"></p>
 <p>如上图可使用<strong>括号表示法</strong>写成：<code>(A(B(E,F),C(G),D(H,M)))</code></p>
 <h2 id="二、二叉树"><a href="#二、二叉树" class="headerlink" title="二、二叉树"></a>二、二叉树</h2><p>二叉树（Binary Tree）是包含<code>n</code>个节点的有限集合，当n为零时该集合为空集，或者该集合由一个根节点和两棵互不相交的、分别称为根节点的左子树和右子树的二叉树组成。</p>
 <h3 id="2-1、定义"><a href="#2-1、定义" class="headerlink" title="2.1、定义"></a>2.1、定义</h3><ul>
@@ -93,14 +93,14 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><p>完全二叉树：除了树的最后一层外，其他的节点既有左子树又有右子树；</p>
 </li>
 </ul>
-<h3 id="2-3、示例图"><a href="#2-3、示例图" class="headerlink" title="2.3、示例图"></a>2.3、示例图</h3><p><img src="https://cdn.bugwz.com/tree-binary-tree.png" alt="二叉树" loading="lazy"></p>
+<h3 id="2-3、示例图"><a href="#2-3、示例图" class="headerlink" title="2.3、示例图"></a>2.3、示例图</h3><p><img src="/assets/images/tree-binary-tree.png" alt="二叉树" loading="lazy"></p>
 <h2 id="三、完全二叉树"><a href="#三、完全二叉树" class="headerlink" title="三、完全二叉树"></a>三、完全二叉树</h2><p>对于深度为 $k$ ，有 $n$ 个结点的二叉树，当且仅当其每一个结点都与深度为 $k$的满二叉树中编号从<code>1</code>至<code>n</code>的结点一一对应时称之为完全二叉树。</p>
 <h3 id="3-1、定义"><a href="#3-1、定义" class="headerlink" title="3.1、定义"></a>3.1、定义</h3><ul>
 <li>符合二叉树的定义规则；</li>
 <li>除二叉树的最高层<code>h</code>外，其它各层 (<code>1</code>～<code>h-1</code>) 的节点数都达到最大个数；</li>
 <li>第<code>h</code>层有叶子结点，并且叶子结点都是从左到右依次排布；</li>
 </ul>
-<h3 id="3-2、示例图"><a href="#3-2、示例图" class="headerlink" title="3.2、示例图"></a>3.2、示例图</h3><p><img src="https://cdn.bugwz.com/tree-complete-binary-tree.png" alt="完全二叉树" loading="lazy"></p>
+<h3 id="3-2、示例图"><a href="#3-2、示例图" class="headerlink" title="3.2、示例图"></a>3.2、示例图</h3><p><img src="/assets/images/tree-complete-binary-tree.png" alt="完全二叉树" loading="lazy"></p>
 <h2 id="四、满二叉树"><a href="#四、满二叉树" class="headerlink" title="四、满二叉树"></a>四、满二叉树</h2><p>一个二叉树，如果每一个层的结点数都达到最大值，则这个二叉树就是满二叉树。也就是说，如果一个二叉树的层数为 $k$，且结点总数是 $2^k -1$ ，则它就是满二叉树。</p>
 <h3 id="4-1、定义"><a href="#4-1、定义" class="headerlink" title="4.1、定义"></a>4.1、定义</h3><ul>
 <li>符合完全二叉树的定义；</li>
@@ -109,7 +109,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <h3 id="4-2、特点"><a href="#4-2、特点" class="headerlink" title="4.2、特点"></a>4.2、特点</h3><ul>
 <li>满二叉树一定是平衡二叉树，平衡二叉树不一定是满二叉树；</li>
 </ul>
-<h3 id="4-3、示例图"><a href="#4-3、示例图" class="headerlink" title="4.3、示例图"></a>4.3、示例图</h3><p><img src="https://cdn.bugwz.com/tree-full-binary-tree.png" alt="满二叉树" loading="lazy"></p>
+<h3 id="4-3、示例图"><a href="#4-3、示例图" class="headerlink" title="4.3、示例图"></a>4.3、示例图</h3><p><img src="/assets/images/tree-full-binary-tree.png" alt="满二叉树" loading="lazy"></p>
 <h2 id="五、平衡二叉树（AVL树）"><a href="#五、平衡二叉树（AVL树）" class="headerlink" title="五、平衡二叉树（AVL树）"></a>五、平衡二叉树（AVL树）</h2><p>平衡二叉树（又称<code>平衡二叉查找树</code>），由前苏联的数学家 <code>Adelse-Velskil</code> 和 <code>Landis</code> 在 <code>1962年</code>提出的高度平衡的二叉树，根据科学家的英文名也称为 <code>AVL树</code>。平衡二叉树的常用实现方法有<code>红黑树</code>、<code>AVL</code>、<code>替罪羊树</code>、<code>Treap</code>、<code>伸展树</code>等。 </p>
 <p>最小二叉平衡树的节点的公式为<code>F(n)=F(n-1)+F(n-2)+1</code>，这个类似于一个递归的数列，可参考<code>Fibonacci数列</code>，公式解释为：</p>
 <ul>
@@ -126,7 +126,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><code>0</code>：表示右子树比左子树高；</li>
 <li><code>1</code>：表示左子树和右子树等高；</li>
 </ul>
-<h3 id="5-3、示例图"><a href="#5-3、示例图" class="headerlink" title="5.3、示例图"></a>5.3、示例图</h3><p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree.png" alt="平衡二叉树" loading="lazy"></p>
+<h3 id="5-3、示例图"><a href="#5-3、示例图" class="headerlink" title="5.3、示例图"></a>5.3、示例图</h3><p><img src="/assets/images/tree-balanced-binary-tree.png" alt="平衡二叉树" loading="lazy"></p>
 <h3 id="5-4、失衡调整"><a href="#5-4、失衡调整" class="headerlink" title="5.4、失衡调整"></a>5.4、失衡调整</h3><p>平衡二叉树调整后，它的中序遍历的顺序是不会改变的。</p>
 <h4 id="5-4-1、插入时的失衡调整"><a href="#5-4-1、插入时的失衡调整" class="headerlink" title="5.4.1、插入时的失衡调整"></a>5.4.1、插入时的失衡调整</h4><p>所有的不平衡情况中，都是按照<code>寻找最小不平衡树</code>  &#x3D;&gt; <code>寻找所属的不平衡类别</code>  &#x3D;&gt; <code>根据4种类别进行固定化程序的操作</code>；</p>
 <h5 id="5-4-1-1、LL型调整（左子树过高）"><a href="#5-4-1-1、LL型调整（左子树过高）" class="headerlink" title="5.4.1.1、LL型调整（左子树过高）"></a>5.4.1.1、LL型调整（左子树过高）</h5><ul>
@@ -134,13 +134,13 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>旋转之后源根节点的左孩子作为新的根节点，<strong>原来根节点的左孩子作为新的根节点</strong>；</li>
 <li>中序遍历对比：调整前：<code>123</code>；调整后：<code>123</code>；</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-ll.png" alt="LL型调整" loading="lazy"></p>
+<p><img src="/assets/images/tree-balanced-binary-tree-ll.png" alt="LL型调整" loading="lazy"></p>
 <h5 id="5-4-1-2、RR型调整（右子树过高）"><a href="#5-4-1-2、RR型调整（右子树过高）" class="headerlink" title="5.4.1.2、RR型调整（右子树过高）"></a>5.4.1.2、RR型调整（右子树过高）</h5><ul>
 <li>首先找到最小不平衡的子树，再以其根节点向左旋转（向右旋转后相当于左面的子数的树高加1，而右面的子数的树高减1）；</li>
 <li>旋转之后源根节点的右孩子作为新的根节点，<strong>原来根节点的右孩子作为新的根节点</strong>；</li>
 <li>中序遍历对比：调整前：<code>123</code>；调整后：<code>123</code>；</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-rr.png" alt="RR型调整" loading="lazy"></p>
+<p><img src="/assets/images/tree-balanced-binary-tree-rr.png" alt="RR型调整" loading="lazy"></p>
 <h5 id="5-4-1-3、LR型调整（左子树过高）"><a href="#5-4-1-3、LR型调整（左子树过高）" class="headerlink" title="5.4.1.3、LR型调整（左子树过高）"></a>5.4.1.3、LR型调整（左子树过高）</h5><ul>
 <li><p>以较高子树的根节点为中心向左进行旋转（示例图中为左子树较高，左子树的根为<code>节点1</code>），可以理解成先转换为<code>LL型</code>；</p>
 </li>
@@ -151,7 +151,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><p>中序遍历对比：调整前：<code>123</code>；调整后：<code>123</code>；</p>
 </li>
 </ul>
-<p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-lr.png" alt="LR调整" loading="lazy"></p>
+<p><img src="/assets/images/tree-balanced-binary-tree-lr.png" alt="LR调整" loading="lazy"></p>
 <h5 id="5-4-1-4、RL型调整（右子树过高）"><a href="#5-4-1-4、RL型调整（右子树过高）" class="headerlink" title="5.4.1.4、RL型调整（右子树过高）"></a>5.4.1.4、RL型调整（右子树过高）</h5><ul>
 <li><p>以根节点的右孩子为中心向右进行旋转（示例图中为右子树较高，右子树的根为<code>节点3</code>），可以理解成先转换为<code>RR型</code>；</p>
 </li>
@@ -162,15 +162,15 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><p>中序遍历对比：调整前：<code>123</code>；调整后：<code>123</code>；</p>
 </li>
 </ul>
-<p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-rl.png" alt="RL调整" loading="lazy"></p>
+<p><img src="/assets/images/tree-balanced-binary-tree-rl.png" alt="RL调整" loading="lazy"></p>
 <h4 id="5-4-2、删除时的失衡调整"><a href="#5-4-2、删除时的失衡调整" class="headerlink" title="5.4.2、删除时的失衡调整"></a>5.4.2、删除时的失衡调整</h4><h5 id="5-4-2-1、LE型（左子树过高）"><a href="#5-4-2-1、LE型（左子树过高）" class="headerlink" title="5.4.2.1、LE型（左子树过高）"></a>5.4.2.1、LE型（左子树过高）</h5><ul>
 <li>以下初始场景只会在删除时才会出现，删除后可按照<code>LL型</code>的调整策略进行调整；</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-le.png" alt="LE调整" loading="lazy"></p>
+<p><img src="/assets/images/tree-balanced-binary-tree-le.png" alt="LE调整" loading="lazy"></p>
 <h5 id="5-4-2-2、RE型（右子树过高）"><a href="#5-4-2-2、RE型（右子树过高）" class="headerlink" title="5.4.2.2、RE型（右子树过高）"></a>5.4.2.2、RE型（右子树过高）</h5><ul>
 <li>以下初始场景只会在删除时才会出现，删除后可按照<code>RR型</code>的调整策略进行调整；</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/tree-balanced-binary-tree-re.png" alt="RE调整" loading="lazy"></p>
+<p><img src="/assets/images/tree-balanced-binary-tree-re.png" alt="RE调整" loading="lazy"></p>
 <h2 id="六、数据对比"><a href="#六、数据对比" class="headerlink" title="六、数据对比"></a>六、数据对比</h2><table>
 <thead>
 <tr>

@@ -39,7 +39,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>如果服务器在响应上指定Cache-Control或Expires指令，这样客户端就能知道该资源的可用时间为多长，也就能跳过条件请求的步骤，直接使用缓存中的资源了。</li>
 </ul>
 <h2 id="三、gzip压缩Http-body"><a href="#三、gzip压缩Http-body" class="headerlink" title="三、gzip压缩Http body"></a>三、gzip压缩Http body</h2><p>gzip 是 GNUzip 的缩写，最早用于 UNIX 系统的文件压缩。HTTP 协议上的 gzip 编码是一种用来改进 web 应用程序性能的技术，web 服务器和客户端（浏览器）必须共同支持 gzip。目前主流的浏览器，Chrome,firefox,IE 等都支持该协议。常见的服务器如 Apache，Nginx，IIS 同样支持 gzip。gzip压缩比率在3到10倍左右，可以大大节省服务器的网络带宽。而在实际应用中，并不是对所有文件进行压缩，通常只是压缩静态文件。</p>
-<h3 id="3-1、Web服务器处理HTTP压缩的过程图解："><a href="#3-1、Web服务器处理HTTP压缩的过程图解：" class="headerlink" title="3.1、Web服务器处理HTTP压缩的过程图解："></a>3.1、Web服务器处理HTTP压缩的过程图解：</h3><p><img src="https://cdn.bugwz.com/006qpCDTly1ff2bvzib3oj30vr0g40u6.jpg" alt="Web服务器处理HTTP压缩的过程" loading="lazy"></p>
+<h3 id="3-1、Web服务器处理HTTP压缩的过程图解："><a href="#3-1、Web服务器处理HTTP压缩的过程图解：" class="headerlink" title="3.1、Web服务器处理HTTP压缩的过程图解："></a>3.1、Web服务器处理HTTP压缩的过程图解：</h3><p><img src="/assets/images/006qpCDTly1ff2bvzib3oj30vr0g40u6.jpg" alt="Web服务器处理HTTP压缩的过程" loading="lazy"></p>
 <h2 id="四、HSTS策略"><a href="#四、HSTS策略" class="headerlink" title="四、HSTS策略"></a>四、HSTS策略</h2><p>HTTP严格传输安全（英语：HTTP Strict Transport Security，缩写：HSTS）是一套由互联网工程任务组发布的互联网安全策略机制。网站可以选择使用HSTS策略，来让浏览器强制使用HTTPS与网站进行通信，以减少会话劫持风险。</p>
 <h3 id="4-1、HSTS策略的作用以使用说明"><a href="#4-1、HSTS策略的作用以使用说明" class="headerlink" title="4.1、HSTS策略的作用以使用说明"></a>4.1、HSTS策略的作用以使用说明</h3><p>HSTS的作用是强制客户端（如浏览器）使用HTTPS与服务器创建连接。服务器开启HSTS的方法是，当客户端通过HTTPS发出请求时，在服务器返回的超文本传输协议响应头中包含Strict-Transport-Security字段。非加密传输时设置的HSTS字段无效。</p>
 <p>比如，<a target="_blank" rel="noopener" href="https://www.bugwz.com/">https://www.bugwz.com</a> 的响应头含有Strict-Transport-Security: max-age&#x3D;31536000; includeSubDomains。这意味着两点：</p>
@@ -68,10 +68,10 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>chrome 会自动把当前页面的所有带 href 的 link 的 dns 都 prefetch 一遍</li>
 <li>对于一些需要跳转的域名做好预解析，最多可以减少 300~500ms 的加载时间</li>
 </ul>
-<p>兼容性展示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ff2bxe3v6cj30zb0hcgmb.jpg" alt="DNS-Prefetch" loading="lazy"></p>
+<p>兼容性展示：<br><img src="/assets/images/006qpCDTly1ff2bxe3v6cj30zb0hcgmb.jpg" alt="DNS-Prefetch" loading="lazy"></p>
 <h3 id="5-2、预连接-Preconnect"><a href="#5-2、预连接-Preconnect" class="headerlink" title="5.2、预连接 Preconnect"></a>5.2、预连接 Preconnect</h3><p>与 DNS 预解析类似，<code>preconnect</code> 不仅完成 DNS 预解析，同时还将进行 TCP 握手和建立传输层协议。预先建立 socket 连接，从而消除昂贵的 DNS 查找、TCP 握手和 TLS 往返开销。使用方法是在文档顶部的 <head> 标签中加入以下代码：</p>
 <figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">link</span> <span class="attr">rel</span>=<span class="string">&quot;preconnect&quot;</span> <span class="attr">href</span>=<span class="string">&quot;https://bugwz.com&quot;</span> /&gt;</span></span><br></pre></td></tr></table></figure>
-<p>兼容性展示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ff2bywyn6pj30za0ir0ti.jpg" alt="预连接 Preconnect" loading="lazy"></p>
+<p>兼容性展示：<br><img src="/assets/images/006qpCDTly1ff2bywyn6pj30za0ir0ti.jpg" alt="预连接 Preconnect" loading="lazy"></p>
 <h3 id="5-3、预获取-Prefetching"><a href="#5-3、预获取-Prefetching" class="headerlink" title="5.3、预获取 Prefetching"></a>5.3、预获取 Prefetching</h3><p>如果我们确定某个资源将来一定会被使用到，我们可以让浏览器预先请求该资源并放入浏览器缓存中。例如，一个图片和脚本或任何可以被浏览器缓存的资源，使用方法是在文档顶部的 <head> 标签中加入以下代码：</p>
 <figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">link</span> <span class="attr">rel</span>=<span class="string">&quot;prefetch&quot;</span> <span class="attr">href</span>=<span class="string">&quot;image.png&quot;</span> /&gt;</span></span><br></pre></td></tr></table></figure>
 
@@ -79,7 +79,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">link</span> <span class="attr">rel</span>=<span class="string">&quot;subresource&quot;</span> <span class="attr">href</span>=<span class="string">&quot;styles.css&quot;</span> /&gt;</span></span><br></pre></td></tr></table></figure>
 
 <p>注意：与 DNS 预解析不同，预获取真正请求并下载了资源，并储存在缓存中。但预获取还依赖于一些条件，某些预获取可能会被浏览器忽略，例如从一个非常缓慢的网络中获取一个庞大的字体文件。并且，Firefox 只会在浏览器闲置时进行资源预获取。目前，字体文件必须等到 DOM 和 CSS 构建完成之后才开始下载，使用预获取就可以轻松绕过该瓶颈。</p>
-<p>兼容性展示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ff2bywyn6pj30za0ir0ti.jpg" alt="预连接 Preconnect" loading="lazy"><br><img src="https://cdn.bugwz.com/006qpCDTly1ff2c0ao4mrj30za0hsq3m.jpg" alt="预获取 subresource" loading="lazy"></p>
+<p>兼容性展示：<br><img src="/assets/images/006qpCDTly1ff2bywyn6pj30za0ir0ti.jpg" alt="预连接 Preconnect" loading="lazy"><br><img src="/assets/images/006qpCDTly1ff2c0ao4mrj30za0hsq3m.jpg" alt="预获取 subresource" loading="lazy"></p>
 <h3 id="5-4、预渲染-Prerender"><a href="#5-4、预渲染-Prerender" class="headerlink" title="5.4、预渲染 Prerender"></a>5.4、预渲染 Prerender</h3><p>这是一个核武器，因为 prerender 可以预先加载文档的所有资源，代码如下：</p>
 <figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">link</span> <span class="attr">rel</span>=<span class="string">&quot;prerender&quot;</span> <span class="attr">href</span>=<span class="string">&quot;https://bugwz.com/&quot;</span> /&gt;</span></span><br></pre></td></tr></table></figure>
 
@@ -89,10 +89,10 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>不要滥用该特性，当你知道用户一定会点击某个链接时才可以进行预渲染，因为预加载的开销（抢占 CPU 资源，消耗电池，浪费带宽等）是高昂的，所以必须谨慎行事</li>
 <li>使用 <a target="_blank" rel="noopener" href="https://www.w3.org/TR/page-visibility/">Page Visibility API</a> 可以防止页面真正可见前被执行</li>
 </ul>
-<p>兼容性展示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ff2c0v902ij30z90i0t9e.jpg" alt="预渲染 Prerender" loading="lazy"></p>
+<p>兼容性展示：<br><img src="/assets/images/006qpCDTly1ff2c0v902ij30z90i0t9e.jpg" alt="预渲染 Prerender" loading="lazy"></p>
 <h3 id="5-5、Preload"><a href="#5-5、Preload" class="headerlink" title="5.5、Preload"></a>5.5、Preload</h3><p>preload 是一个新规范，与 prefetch 不同（可能被忽略）的是，浏览器一定会预加载该资源,使用代码如下：</p>
 <figure class="highlight html"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">link</span> <span class="attr">rel</span>=<span class="string">&quot;preload&quot;</span> <span class="attr">href</span>=<span class="string">&quot;image.png&quot;</span> /&gt;</span></span><br></pre></td></tr></table></figure>
-<p>兼容性展示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ff2c1f6rb0j30z90hu750.jpg" alt="Preload" loading="lazy"></p>
+<p>兼容性展示：<br><img src="/assets/images/006qpCDTly1ff2c1f6rb0j30z90hu750.jpg" alt="Preload" loading="lazy"></p>
 <h2 id="六、手动管理缓存localStorage"><a href="#六、手动管理缓存localStorage" class="headerlink" title="六、手动管理缓存localStorage"></a>六、手动管理缓存localStorage</h2><p>localStorage是HTML5中的特性，来实现手动控制缓存。大概的思路是，在定义模块时，同时将模块的代码和版本号分别储存到localStorage，在下一次打算请求模块之前，我们先判断模块的最新版本是不是在localStorage中，将不存在的模块组合在一起，请求动态合并的资源。</p>
 <h3 id="6-1、Cookie-LocalStorage-与-SessionStorage"><a href="#6-1、Cookie-LocalStorage-与-SessionStorage" class="headerlink" title="6.1、Cookie, LocalStorage 与 SessionStorage"></a>6.1、Cookie, LocalStorage 与 SessionStorage</h3><ul>
 <li><p>Cookie：Cookie的大小限制为4KB左右，是网景公司的前雇员 Lou Montulli 在1993年3月的发明。它的主要用途有保存登录信息，比如你登录某个网站市场可以看到“记住密码”，这通常就是通过在 Cookie 中存入一段辨别用户身份的数据来实现的。</p>
@@ -103,7 +103,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><p>sessionStorage：sessionStorage 与 localStorage 的接口类似，但保存数据的生命周期与 localStorage 不同。做过后端开发的同学应该知道 Session 这个词的意思，直译过来是“会话”。而 sessionStorage 是一个前端的概念，它只是可以将一部分数据在当前会话中保存下来，刷新页面数据依旧存在。但当页面关闭后，sessionStorage 中的数据就会被清空。创建的代码实例如下：</p>
 <figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">sessionStorage.<span class="property">lastname</span>=<span class="string">&quot;Smith&quot;</span>;</span><br><span class="line"><span class="variable language_">document</span>.<span class="title function_">write</span>(sessionStorage.<span class="property">lastname</span>);</span><br></pre></td></tr></table></figure>
 </li>
-<li><p>三者对比详情如下所示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ff2c1zus6xj30t809e0tk.jpg" alt="sessionStorage：sessionStorage 与 localStorage对比" loading="lazy"></p>
+<li><p>三者对比详情如下所示：<br><img src="/assets/images/006qpCDTly1ff2c1zus6xj30t809e0tk.jpg" alt="sessionStorage：sessionStorage 与 localStorage对比" loading="lazy"></p>
 </li>
 </ul>
 <h3 id="6-2、需要注意的一些地方"><a href="#6-2、需要注意的一些地方" class="headerlink" title="6.2、需要注意的一些地方"></a>6.2、需要注意的一些地方</h3><ul>

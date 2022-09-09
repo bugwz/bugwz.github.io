@@ -73,7 +73,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><code>rolling checksum（轮替校验和）</code>：这是一种弱checksum，会产生32位的checksum，使用的是Mark Adler发明的<a target="_blank" rel="noopener" href="http://en.wikipedia.org/wiki/Adler-32">adler-32算法</a>，用来快速弱检验是否相同；</li>
 <li><code>强checksum</code>：会产生128位的checksum，之前使用的是md4，现在使用的md5 hash算法，用来精准校验是否相同；</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/rsync-checksum.png" alt="checksum校验" loading="lazy"></p>
+<p><img src="/assets/images/rsync-checksum.png" alt="checksum校验" loading="lazy"></p>
 <h3 id="4-2、传输算法"><a href="#4-2、传输算法" class="headerlink" title="4.2、传输算法"></a>4.2、传输算法</h3><p>同步目标端会把<code>DST文件</code>的的一个<code>checksum列表</code>传给同步源，这个列表里包括了三个东西：</p>
 <ul>
 <li>rolling checksum(32bits)</li>
@@ -81,7 +81,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>文件块编号</li>
 </ul>
 <h3 id="4-3、checksum查找算法"><a href="#4-3、checksum查找算法" class="headerlink" title="4.3、checksum查找算法"></a>4.3、checksum查找算法</h3><p>同步源端拿到<code>DST文件</code>的<code>checksum数组</code>后，会把这个数据存到一个<code>hash table</code>中，用<code>rolling checksum</code>做<code>hash</code>，以便获得<code>O(1)</code>时间复杂度的查找性能，<code>hash表</code>大小为<code>16bits</code>的，因此<code>hash表</code>槽位为<code>2的16次方</code>，同时使用链表来解决碰撞冲突。</p>
-<p><img src="https://cdn.bugwz.com/rsync-dst-checksum-hash-table.png" alt="DST文件块checksum组成的hash表" loading="lazy"></p>
+<p><img src="/assets/images/rsync-dst-checksum-hash-table.png" alt="DST文件块checksum组成的hash表" loading="lazy"></p>
 <h3 id="4-4、比对算法"><a href="#4-4、比对算法" class="headerlink" title="4.4、比对算法"></a>4.4、比对算法</h3><ul>
 <li>取<code>SRC文件</code>的<code>第一个</code>文件块（假设文件块大小为<code>512</code>），也就是从<code>SRC文件</code>的第1个字节到第512个字节，取出来后做<code>rolling checksum</code>计算，在<code>hash表</code>中查找计算好的值：<ul>
 <li><code>找到对应的checksum</code>：<ul>
@@ -93,9 +93,9 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<p><img src="https://cdn.bugwz.com/rsync-chunk-comparison.png" alt="数据比对" loading="lazy"></p>
+<p><img src="/assets/images/rsync-chunk-comparison.png" alt="数据比对" loading="lazy"></p>
 <p>最终，在同步源这端，我们的rsync算法可能会得到下面这个样子的一个数据数组，图中，红色块表示在目标端已匹配上，不用传输（注：<strong>图中存在两块<code>Chunk #5</code>指的是两个文件块在计算<code>checksum</code>的时候存在<code>hash冲突</code>，使用了链表进行解决</strong>），而白色的地方就是需要传输的内容（注意：这些白色的块是不定长的），这样，同步源这端把这个数组（白色的就是实际内容，红色的就放一个标号）压缩传到目的端，在目的端的rsync会根据这个表重新生成文件，这样，同步完成。</p>
-<p><img src="https://cdn.bugwz.com/rsync-after-data-comparison.png" alt="数据比对后" loading="lazy"></p>
+<p><img src="/assets/images/rsync-after-data-comparison.png" alt="数据比对后" loading="lazy"></p>
 <h3 id="4-5、补充文档"><a href="#4-5、补充文档" class="headerlink" title="4.5、补充文档"></a>4.5、补充文档</h3><ul>
 <li><a target="_blank" rel="noopener" href="https://www.samba.org/~tridge/phd_thesis.pdf">Andrew Tridgell 关于排序和同步算法的博士论文</a></li>
 <li><a target="_blank" rel="noopener" href="https://rsync.samba.org/tech_report/">rsync算法官方介绍</a></li>

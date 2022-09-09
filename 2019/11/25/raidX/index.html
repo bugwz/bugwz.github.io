@@ -37,7 +37,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-0.png" alt="RAID 0" style="zoom:50%;" />
+<img src="assets/images/raid-0.png" alt="RAID 0" style="zoom:50%;" />
 
 <h2 id="二、RAID-1"><a href="#二、RAID-1" class="headerlink" title="二、RAID 1"></a>二、RAID 1</h2><p><code>RAID 1</code>在写入数据的时候，会同时将数据写入<code>工作盘</code>和<code>镜像盘</code>，每一个<code>工作盘</code>都有一个对应的<code>镜像盘</code>，<code>工作盘</code>和<code>镜像盘</code>保存的数据内容是完全一样的。当<code>工作盘</code>发生故障时，可以从<code>镜像盘</code>读取数据。显然，使用<code>RAID 1</code>后，磁盘的利用率为<code>50%</code>，即有效存储空间变成原来的一半了。<code>RAID 1</code>至少需要两块磁盘。</p>
 <ul>
@@ -54,7 +54,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-1.png" alt="RAID 1" style="zoom:50%;" />
+<img src="assets/images/raid-1.png" alt="RAID 1" style="zoom:50%;" />
 
 <h2 id="三、RAID-2"><a href="#三、RAID-2" class="headerlink" title="三、RAID 2"></a>三、RAID 2</h2><p><code>RAID 2</code> 称为<code>纠错海明码磁盘阵列</code>，其设计思想是利用<code>海明码</code>实现数据校验冗余。<code>海明码</code>是一种在原始数据中加入若干校验码来进行错误检测和纠正的编码技术，其中第 <code>2n</code> 位（ 1, 2, 4, 8, … ）是<code>校验码</code>，其他位置是<code>数据码</code>。因在 <code>RAID 2</code> 中，数据按位存储，每块磁盘存储<code>一位</code>数据编码，磁盘数量取决于所设定的<code>数据存储宽度</code>，可由用户设定。下图中展示了数据宽度为 <code>4</code> 的 <code>RAID 2</code> ，它需要 <code>4</code> 块<code>数据盘</code>和 <code>3</code> 块<code>校验盘</code>。如果是 <code>64 位数据宽度</code>，则需要 <code>64 块数据盘</code>和 <code>7 块校验盘</code>。可见， <code>RAID2</code> 的数据宽度越大，存储空间利用率越高，但同时需要的磁盘数量也越多。</p>
 <ul>
@@ -73,7 +73,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-2.png" alt="RAID 2" style="zoom:50%;" />
+<img src="assets/images/raid-2.png" alt="RAID 2" style="zoom:50%;" />
 
 <h2 id="四、RAID-3"><a href="#四、RAID-3" class="headerlink" title="四、RAID 3"></a>四、RAID 3</h2><p><code>RAID 3</code>使用<code>专用校验盘</code>的<code>并行访问阵列</code>，它采用一个专用的磁盘作为<code>校验盘</code>，其余磁盘作为<code>数据盘</code>，数据以位或字节为单位进行分割存储在各个数据盘中。<code>RAID 3</code>至少需要<code>三块磁盘</code>，不同磁盘上同一带区的数据作 <code>XOR 校验</code>，校验值写入<code>校验盘</code>中。</p>
 <ul>
@@ -90,7 +90,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-3.png" alt="RAID 3" style="zoom:50%;" />
+<img src="assets/images/raid-3.png" alt="RAID 3" style="zoom:50%;" />
 
 <h2 id="五、RAID-4"><a href="#五、RAID-4" class="headerlink" title="五、RAID 4"></a>五、RAID 4</h2><p><code>RAID 4</code> 与 <code>RAID 3</code>的原理大致相同，区别在于<code>条带化</code>的方式不同。 <code>RAID 4</code>按照<code>块方式</code>来组织数据，写操作只涉及当前<code>数据盘</code>和<code>校验盘</code>两个盘，多个 I&#x2F;O 请求可以同时得到处理，提高了系统性能。<code>RAID 4</code>在不同磁盘上的同级数据块同样使用<code>XOR校验</code>，结果存储在校验盘中。写入数据时， <code>RAID 4</code>按这种方式把各磁盘上的同级数据的校验值写入校验盘，读取时进行即时校验。因此，当某块磁盘的数据块损坏， <code>RAID 4</code>可以通过校验值以及其他磁盘上的同级数据块进行数据重建。</p>
 <ul>
@@ -106,7 +106,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-4.png" alt="RAID 4" style="zoom:50%;" />
+<img src="assets/images/raid-4.png" alt="RAID 4" style="zoom:50%;" />
 
 <h2 id="六、RAID-5"><a href="#六、RAID-5" class="headerlink" title="六、RAID 5"></a>六、RAID 5</h2><p><code>RAID 5</code>使用<code>奇偶校验数据</code>来保障数据的恢复。通过将一个（假设为A）磁盘的校验数据保存在另一个（假设为B）磁盘上，使得在如果<code>磁盘A</code>发生了故障，则可以通过<code>磁盘B</code>上保存的校验数据恢复。显然<code>RAID 5</code>在单个磁盘发生故障时，可以恢复数据。RAID 5至少需要三块磁盘。</p>
 <ul>
@@ -122,7 +122,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-5.png" alt="RAID 5" style="zoom:50%;" />
+<img src="assets/images/raid-5.png" alt="RAID 5" style="zoom:50%;" />
 
 <h2 id="七、RAID-6"><a href="#七、RAID-6" class="headerlink" title="七、RAID 6"></a>七、RAID 6</h2><p><code>RAID 6</code> 引入了<code>双重校验</code>的概念，它可以保护阵列中同时出现两个磁盘失效时，阵列仍能够继续工作，不会发生数据丢失。 <code>RAID 6</code>是在<code>RAID 5</code>的基础上为了进一步增强数据保护而设计的一种 <code>RAID</code> 方式，它可以看作是一种扩展的<code>RAID 5</code> 等级。<code>RAID 6</code>思想最常见的实现方式是采用两个独立的校验算法，假设称为<code>P</code>和<code>Q</code> ，校验数据可以分别存储在<code>两个</code>不同的<code>校验盘</code>上，或者分散存储在所有成员磁盘中。当两个磁盘同时失效时，即可通过求解两元方程来重建两个磁盘上的数据。</p>
 <ul>
@@ -138,7 +138,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-6.png" alt="RAID 6" style="zoom:20%;" />
+<img src="assets/images/raid-6.png" alt="RAID 6" style="zoom:20%;" />
 
 
 
@@ -158,7 +158,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<p><img src="https://cdn.bugwz.com/raid-7.png" alt="RAID 7" loading="lazy"></p>
+<p><img src="/assets/images/raid-7.png" alt="RAID 7" loading="lazy"></p>
 <h2 id="九、RAID-组合级别"><a href="#九、RAID-组合级别" class="headerlink" title="九、RAID 组合级别"></a>九、RAID 组合级别</h2><h3 id="9-1、RAID-01"><a href="#9-1、RAID-01" class="headerlink" title="9.1、RAID 01"></a>9.1、RAID 01</h3><p><code>RAID 0+1</code>是将<code>RAID 0</code>和<code>RAID 1</code>有效的组合到了一起，先使用<code>RAID 0</code>将磁盘进行条带化，然后使用<code>RAID 1</code>将磁盘镜像化，分为<code>工作盘</code>和<code>镜像盘</code>。<code>RAID 0+1</code>至少需要四块磁盘。</p>
 <ul>
 <li>优点：<ul>
@@ -172,7 +172,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-01.png" alt="RAID 01" style="zoom:50%;" />
+<img src="assets/images/raid-01.png" alt="RAID 01" style="zoom:50%;" />
 
 <h3 id="9-2、RAID-10"><a href="#9-2、RAID-10" class="headerlink" title="9.2、RAID 10"></a>9.2、RAID 10</h3><p><code>RAID 1+0</code>是将<code>RAID 1</code>和<code>RAID 0</code>有效的组合到了一起。先使用<code>RAID 1</code>将磁盘镜像化，然后使用<code>RAID 0</code>将镜像化后的磁盘进行条带化。<code>RAID 1+0</code>至少需要<code>四块</code>磁盘。</p>
 <ul>
@@ -188,7 +188,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-10.png" alt="RAID 10" style="zoom:50%;" />
+<img src="assets/images/raid-10.png" alt="RAID 10" style="zoom:50%;" />
 
 <h3 id="9-3、RAID-30-x2F-53"><a href="#9-3、RAID-30-x2F-53" class="headerlink" title="9.3、RAID 30&#x2F;53"></a>9.3、RAID 30&#x2F;53</h3><p><code>RAID 30</code>也称为专用奇偶位阵列条带，具有<code>RAID 0</code>和<code>RAID 3</code>的特性，由两组<code>RAID 3</code>的磁盘（每组3个磁盘）组成阵列，使用专用奇偶位，而这两种磁盘再组成一个<code>RAID 0</code>的阵列，实现跨磁盘抽取数据。<code>RAID 30</code>提供容错能力，并支持更大的卷尺寸。像<code>RAID 10</code>一样，<code>RAID 30</code>也提供高可靠性。</p>
 <ul>
@@ -202,7 +202,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-30.png" alt="RAID 30" style="zoom:30%;" />
+<img src="assets/images/raid-30.png" alt="RAID 30" style="zoom:30%;" />
 
 <h3 id="9-4、RAID-50"><a href="#9-4、RAID-50" class="headerlink" title="9.4、RAID 50"></a>9.4、RAID 50</h3><p><code>RAID 50</code> 是<code>RAID 5</code>与<code>RAID 0</code>的结合。它由两组<code>RAID 5</code>磁盘组成，每一组都使用了分布式奇偶位，而两组硬盘再组建成<code>RAID 0</code>，实现跨磁盘抽取数据。每个<code>RAID 5</code>子磁盘组要求至少<code>三块</code>硬盘，最少需要<code>六块</code>磁盘，它最适合需要高可靠性存储、高读取速度、高数据传输性能的应用。这些应用包括事务处理和有许多用户存取小文件的办公应用程序。</p>
 <ul>
@@ -219,7 +219,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-50.png" alt="RAID 50" style="zoom:30%;" />
+<img src="assets/images/raid-50.png" alt="RAID 50" style="zoom:30%;" />
 
 <h3 id="9-5、RAID-60"><a href="#9-5、RAID-60" class="headerlink" title="9.5、RAID 60"></a>9.5、RAID 60</h3><p><code>RAID 60 </code>是 <code>RAID 6</code>与<code>RAID 0</code>的结合，将<code>RAID 0</code>直接块级条带化与<code>RAID 6</code>的分布式双奇偶校验相结合。每个<code>RAID 6</code>集中的两个磁盘可能会在没有数据丢失的情况下发生故障。此外，在一个<code>RAID 6</code>集中重建单个磁盘时磁盘故障不会导致数据丢失。至少需要八个磁盘才能实现。</p>
 <ul>
@@ -236,7 +236,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-60.png" alt="RAID 60" style="zoom:50%;" />
+<img src="assets/images/raid-60.png" alt="RAID 60" style="zoom:50%;" />
 
 <h3 id="9-6、RAID-100"><a href="#9-6、RAID-100" class="headerlink" title="9.6、RAID 100"></a>9.6、RAID 100</h3><p><code>RAID 100</code>  也称为 <code>RAID 10+0</code>，是<code>RAID 10</code>与<code>RAID 0</code>的组合，即条带化的 <code>RAID10</code> 。<code>RAID100</code>最顶层的 <code>RAID 0</code> ，即条带化任务，通常由软件层来完成。<code>RAID 100</code> 突破了单个 RAID 控制器对物理磁盘数量的限制，可以获得更高的 I&#x2F;O 负载均衡， I&#x2F;O 压力分散到更多的磁盘上，进一步提高随机读性能，并有效降低热点盘故障风险。因此， <code>RAID 100</code> 通常是大数据库的最佳选择。</p>
 <ul>
@@ -254,7 +254,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ul>
-<img src="https://cdn.bugwz.com/raid-100.png" alt="RAID 100" style="zoom:40%;" />
+<img src="assets/images/raid-100.png" alt="RAID 100" style="zoom:40%;" />
 
 <h2 id="十、数据表格对比"><a href="#十、数据表格对比" class="headerlink" title="十、数据表格对比"></a>十、数据表格对比</h2><table>
 <thead>

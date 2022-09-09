@@ -30,7 +30,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>当我们请求WEB容器中的JSP页面时，WEB容器便将被访问的页面交给JSP引擎去处理。Tomcat中的JSP引擎就是一个Servlet程序，它负责解释和执行JSP页面。</p>
 <p>每个JSP页面在第一次被访问时，JSP引擎先将它翻译成一个Servlet源程序，接着再把这个Servlet源程序编译成Servlet的class类文件，然后再由WEB容器像调用普通Servlet程序一样的方式来装载和解释执行这个由JSP页面翻译成的Servlet程序。</p>
 <p>由于每台服务器的环境不同，具体的由Tomcat中的JSP引擎转译的源码地址也就不一样。在我本机的环境中，我可以通过查看控制台的相关提示，就可以快速找到与我项目中jsp文件对应的java文件和class文件。示例图如下。(当然如果你实在想了很多办法也没能找到jsp转译的相关文件位置，那就用最笨的方法，来个具体盘搜索，或者直接来个全盘搜索，搜索格式为：jsp文件名+_jsp+.java)</p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fade9ok91ij30pc0csdii.jpg" alt="Console Infos" loading="lazy"></p>
+<p><img src="/assets/images/006qpCDTjw1fade9ok91ij30pc0csdii.jpg" alt="Console Infos" loading="lazy"></p>
 <blockquote>
 <p>JSP的具体执行过程如下：</p>
 </blockquote>

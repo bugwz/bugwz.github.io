@@ -26,9 +26,9 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ol>
 <h1 id="课堂学习目标"><a href="#课堂学习目标" class="headerlink" title="课堂学习目标"></a>课堂学习目标</h1><p>实践servlet的init()、service()与destroy()方法，理解servlet生命周期的三个阶段。</p>
 <h1 id="开始"><a href="#开始" class="headerlink" title="开始"></a>开始</h1><p>我们还是新建一个名为Test的新工程，然后新建一个不带doGet()与doPost()方法的一个基本的servlet，然后我们依次循规蹈矩的手动覆盖重写三个方法，他们分别是init()、service()和destroy()方法，重写后截图如下：</p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa9cyhh80xj30rj0bgwfq.jpg" alt="Servlet_1" loading="lazy"></p>
+<p><img src="/assets/images/006qpCDTjw1fa9cyhh80xj30rj0bgwfq.jpg" alt="Servlet_1" loading="lazy"></p>
 <p>我们在浏览器地址栏中输入进入Servlet_1的虚拟路径后，控制台下便出现了，调用init()方法的输出信息，然后调用了service()方法的输出信息，这两个方法的调用就是servlet的前两个生命周期，初始化阶段，调用init()方法；响应客户请求阶段，调用service()方法，之后每次刷新浏览器界面会发现只出现调用service()方法的输出结果，如下所示：</p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa9d42n3glj30kv08vaaj.jpg" alt="service()输出结果" loading="lazy"></p>
+<p><img src="/assets/images/006qpCDTjw1fa9d42n3glj30kv08vaaj.jpg" alt="service()输出结果" loading="lazy"></p>
 <blockquote>
 <p>提示：</p>
 </blockquote>
@@ -39,7 +39,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>终止进程：servlet容器被强行终止，来不及调用Servlet的destroy()方法。</li>
 </ol>
 <p>我们点击停止服务器后效果图如下所示：</p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa9dbaxac7j30sn0d4wgu.jpg" alt="Stop Server" loading="lazy"></p>
+<p><img src="/assets/images/006qpCDTjw1fa9dbaxac7j30sn0d4wgu.jpg" alt="Stop Server" loading="lazy"></p>
 <h1 id="来些总结"><a href="#来些总结" class="headerlink" title="来些总结"></a>来些总结</h1><p>Servlet生命周期分为三个阶段：</p>
 <ol>
 <li>初始化阶段，调用init()方法</li>
