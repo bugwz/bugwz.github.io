@@ -423,11 +423,11 @@
       
         <tags>
             
+            <tag> Base </tag>
+            
             <tag> Algorithm </tag>
             
             <tag> Linux </tag>
-            
-            <tag> Base </tag>
             
         </tags>
       
@@ -947,11 +947,11 @@
             
             <tag> Linux </tag>
             
+            <tag> hashlimit </tag>
+            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
-            
-            <tag> hashlimit </tag>
             
         </tags>
       
