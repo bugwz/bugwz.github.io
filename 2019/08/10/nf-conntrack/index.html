@@ -29,7 +29,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <ul>
 <li>针对于各种协议的各种连接状态，连接追踪表中会保留对应的记录一段时间，具体时间可参考下文中的详细配置值，因此短链接又可能也会爆表；</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/conntrack.png" alt="nf_conntrack爆表分析"></p>
+<p><img src="https://cdn.bugwz.com/conntrack.png" alt="nf_conntrack爆表分析" loading="lazy"></p>
 </li>
 </ul>
 <p>后续尝试使用<code>redis-benchmark</code>进行<code>client为400000</code>的<code>短链接</code>压测却未能复现，原因是操作系统启用了端口复用（对应参数：<code>/proc/sys/net/ipv4/tcp_tw_reuse</code>），并且单机的socket连接数限制在65535，对于启用了<code>conntrack模块</code>的链接追踪表来说，测试的时候，记录的连接数不会超过65536，后续将<code>/proc/sys/net/netfilter/nf_conntrack_max</code>参数调小之后，稳定复现。</p>

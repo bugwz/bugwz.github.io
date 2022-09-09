@@ -29,13 +29,13 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>测试一：利用servlet3.0之前的版本进行测试</p>
 </blockquote>
 <p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent&#x2F;WEB-INF&#x2F;web.xml文件。</p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project"></p>
+<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project" loading="lazy"></p>
 <p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet"></p>
+<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet" loading="lazy"></p>
 <p>新建一个index.jsp文件后，软件视图如图所示：</p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp"></p>
+<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp" loading="lazy"></p>
 <p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择”源码”,然后选择”覆盖&#x2F;实现方法”中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java"></p>
+<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java" loading="lazy"></p>
 <p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p>
 <h1 id="题外话：什么是web-xml文件？"><a href="#题外话：什么是web-xml文件？" class="headerlink" title="题外话：什么是web.xml文件？"></a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p>
 <p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。 </p>
@@ -63,10 +63,10 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>测试二：利用servlet3.0及其之后的版本进行测试</p>
 </blockquote>
 <p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet&#x2F; 过滤器 &#x2F; 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version"></p>
+<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version" loading="lazy"></p>
 <p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p>
 <p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p>
-<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2"></p>
+<p><img src="https://cdn.bugwz.com/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2" loading="lazy"></p>
 <p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>
 </div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2016/11/29/jsp-1/">https://bugwz.com/2016/11/29/jsp-1/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Notes/">Notes</a><a class="post-meta__tags" href="/tags/JSP/">JSP</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2016/11/30/jsp-homework-2/"><i class="fa fa-chevron-left">  </i><span>利用Servlet完成表单提交验证-JSP作业-2</span></a></div><div class="next-post pull-right"><a href="/2016/11/29/jsp-2/"><span>理解Servlet的init()、service()与destroy()-JSP笔记-2</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="gitalk-container"></div><script>var gitalk = new Gitalk({
   clientID: '6af3be16b94cec39bcf6',

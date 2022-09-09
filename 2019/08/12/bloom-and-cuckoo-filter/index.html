@@ -29,7 +29,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><strong>设置k个hash函数</strong>：初始化<code>k</code>个<code>hash</code>函数，用于元素的数据映射；</li>
 <li><strong>比特位映射</strong>：通过<code>k</code>个<code>hash</code>函数，将元素映射到存储空间对应的比特位，并将对应的比特位设置为<code>1</code>；</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/bloom-filter-principle.png" alt="原理图"></p>
+<p><img src="https://cdn.bugwz.com/bloom-filter-principle.png" alt="原理图" loading="lazy"></p>
 <h3 id="1-2、优缺点"><a href="#1-2、优缺点" class="headerlink" title="1.2、优缺点"></a>1.2、优缺点</h3><ul>
 <li><strong>优点</strong>：<ul>
 <li>散列函数相互之间没有关系，方便由硬件并行实现；</li>
@@ -60,7 +60,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <h4 id="2-1-2、两个hash函数的特性"><a href="#2-1-2、两个hash函数的特性" class="headerlink" title="2.1.2、两个hash函数的特性"></a>2.1.2、两个hash函数的特性</h4><p>因为布谷鸟过滤器中只存储指纹信息，当这个位置上的指纹被挤兑之后，它需要计算出另一个对偶位置，而计算这个对偶位置是需要元素本身的，但是布谷鸟过滤器巧妙的设计了一个独特的 <code>hash函数</code>，使得可以根据 <code>p1</code> 和 <code>元素指纹</code> 直接计算出 <code>p2</code>，而不需要完整的 <code>x 元素</code>。</p>
 <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">fp = fingerprint(x)</span><br><span class="line">p1 = <span class="built_in">hash</span>(x)</span><br><span class="line">p2 = p1 ^ <span class="built_in">hash</span>(fp)  // 异或</span><br></pre></td></tr></table></figure>
 
-<p><img src="https://cdn.bugwz.com/cuckoo-filter-principle.png" alt="原理图"></p>
+<p><img src="https://cdn.bugwz.com/cuckoo-filter-principle.png" alt="原理图" loading="lazy"></p>
 <h3 id="2-2、优缺点"><a href="#2-2、优缺点" class="headerlink" title="2.2、优缺点"></a>2.2、优缺点</h3><ul>
 <li><strong>优点</strong>：<ul>
 <li>查询性能较高；</li>

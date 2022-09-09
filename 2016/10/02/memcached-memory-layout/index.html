@@ -28,7 +28,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><p><code>Chunk</code>：将每一个Slab按照不同大小进行拆分，得到了不同大小的Chunk（每个Slab中的Chunk大小一致），Chunk的初始大小可以指定，并且可以根据不同的业务场景通过调整增长因子（factor：默认为1.25）进行调优；</p>
 </li>
 </ul>
-<p><img src="https://cdn.bugwz.com/memcached-slab-alloction.png" alt="Slab Alloction 构造图 "></p>
+<p><img src="https://cdn.bugwz.com/memcached-slab-alloction.png" alt="Slab Alloction 构造图 " loading="lazy"></p>
 <h2 id="二、存储过程"><a href="#二、存储过程" class="headerlink" title="二、存储过程"></a>二、存储过程</h2><p>Memcached根据收到数据的大小，选择最合适数据大小的Slab Class，根据Memcached中保存的该Slab Class中空闲的Chunk列表，将将数据存储于其中。</p>
 <h2 id="三、相关链接"><a href="#三、相关链接" class="headerlink" title="三、相关链接"></a>三、相关链接</h2><ul>
 <li>[The Slab Allocator: An Object-Caching Kernel Memory Allocator](</li>

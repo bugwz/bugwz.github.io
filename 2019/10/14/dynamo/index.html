@@ -92,7 +92,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <h3 id="2-2-SLA-Service-Level-Agreements"><a href="#2-2-SLA-Service-Level-Agreements" class="headerlink" title="2.2 SLA (Service Level Agreements)"></a>2.2 SLA (Service Level Agreements)</h3><p>要<strong>保证一个应用完成请求所花的时间有一个上限</strong>（bounded time），它所依赖的那些服 务就要有一个更低的上限。<strong>对于给定的系统特性</strong>，其中最主要的是客户端期望的<strong>请求 率分布</strong>（request rate distribution），<strong>客户端和服务端会定义一个 SLA（服务级别 协议）</strong>来作为契约。</p>
 <p>举个简单例子：某个服务向客户端保证，在 500 QPS 的负载下，它处理 <code>99.9%</code> 的请求 所花的时间都在能 <code>300ms</code> 以内。</p>
 <p>在 Amazon 的去中心化的、面向服务的基础设施中，SLA 扮演着重要角色。例如，对购物 页面的一次请求，在典型情况下会使渲染引擎向多达 150 个服务发送子请求，而这些子服 务又都有自己的依赖，最终形成一张多层的（more than one level）调用图（call graph ）。为了保证渲染引擎能在一个上限时间内返回一个页面，调用链中的所有服务就都必须遵 循各自的性能契约（contract）。</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-1.png" alt="图 1 Amazon 平台的面向服务架构"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-1.png" alt="图 1 Amazon 平台的面向服务架构" loading="lazy"></p>
 <p>图 1 是一张简化之后的 Amazon 平台架构图。可以看到，动态 web 内容由页面渲染组件 提供，而它是通过调用其他的一些服务来完成这项工作的。</p>
 <p><strong>每个服务可以选择不同类型的数据仓库（data store）来管理（存储）它们的状态数据， 这些数据仓库只能在各自的服务边界（service boundaries）内访问</strong>。一些服务会通过聚 合其他服务的数据来组合产生一个响应（composite response）。典型情况下，聚合服务（ aggregator service）是无状态的，虽然它们大量使用缓存技术。</p>
 <p>对于面向性能的 SLA（performance oriented SLA），业内一般习惯使用<strong>平均值、中位数 和方差</strong>来描述。但在 Amazon 我们发现，要打造一个让所有用户——而不是大部分用户——都 有良好体验的系统，以上 SLA 并不合适。例如，<strong>如果使用了个性化推荐技术，那用户的 访问历史越多，他的请求被处理的时间就越长，最终落到了性能分布的长尾区</strong>。基于平均 值或中位数的 SLA 并不能反映这种情况。为了解决这个问题，<strong>我们使用了 P99.9 分布。99.9% 这个精度是经过大量实验分析，权衡了成本和性能之后得到的</strong>。 我们在生产环境的实验显示，这比基于均值或中位数的 SLA 有更好的用户体验。</p>
@@ -163,7 +163,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>故障处理（failure handling）</li>
 <li>规模扩展（scaling）</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/dynamo-table-1.png" alt="表 1 总结了 Dynamo 使用的这些技术及每项技术的好处"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-table-1.png" alt="表 1 总结了 Dynamo 使用的这些技术及每项技术的好处" loading="lazy"></p>
 <h4 id="Partition"><a href="#Partition" class="headerlink" title="Partition"></a>Partition</h4><ul>
 <li>技术：<strong>一致性哈希</strong></li>
 <li>好处：增量可扩展性</li>
@@ -222,7 +222,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <h3 id="4-3-数据复制（Replication）"><a href="#4-3-数据复制（Replication）" class="headerlink" title="4.3 数据复制（Replication）"></a>4.3 数据复制（Replication）</h3><p>为了实现高可用性和持久性，Dynamo 将数据复制到多台机器上。每个数据会被复制到 N 台 机器，这里的 N 是每套 Dynamo 可以自己配置的。</p>
 <p>上节介绍到，<strong>每个 key k，会被分配一个 coordinator（协调者）</strong>节点。 coordinator <strong>负责落到它管理的范围内的数据的复制</strong>。它除了自己存储一份之外，还会 在环上顺时针方向的其他 <code>N-1</code> 个节点存储一份副本。因此在系统中，每个节点要负责从 它自己往后的一共 N 个节点。</p>
 <p>例如，图 2 中，B 除了自己存储一份之外，还会将其复制到 C 和 D 节点。因此，D 实际 存储的数据，其 key 的范围包括 <code>(A, B]</code>、<code>(B, C]</code> 和 <code>(C, D]</code>（例如，落在 <code>(A, B]</code> 范围内的 key 会沿顺时针方向找到第一个值比它大的节点，因此找到的是 B，而 B 会 将自己存储的数据复制到 C 和 D，因此 D 会包含 key 在 <code>(A, B]</code> 范围内的对象。其他 几个范围也是类似的。译者注）。</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-2.png" alt="图 2 Dynamo 哈希环上 key 的分散（partition）和复制（replication）"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-2.png" alt="图 2 Dynamo 哈希环上 key 的分散（partition）和复制（replication）" loading="lazy"></p>
 <p>存储某个特定 key 的所有节点组成一个列表，称为 <strong>preference list</strong>（优先列表）。 我们在 4.8 节会看到，Dynamo 的设计是，<strong>对于给定的 key，每个节点都能决定哪些 节点可以进入这个列表</strong>。<strong>为了应对节点失败的情况，preference list 会包含多余 N 个节 点</strong>。</p>
 <p>另外注意，由于我们引入了虚拟节点，存储一个 key 的 N 个节点，实际上对应的物理节 点可能少于 N 个（例如，一个节点可能会占用环上的不止一个节点）。为了避免这个问题 ，<strong>preference list 在选择节点的时候会跳过一些位置，以保证 list 里面的节点都在不 同的物理节点上</strong>。</p>
 <h3 id="4-4-数据版本化（Data-Versioning）"><a href="#4-4-数据版本化（Data-Versioning）" class="headerlink" title="4.4 数据版本化（Data Versioning）"></a>4.4 数据版本化（Data Versioning）</h3><p>Dynamo 提供最终一致性，所有更新操作会异步地传递给所有的副本。</p>
@@ -247,7 +247,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>An update using this context is considered to have reconciled the divergent versions and the branches are collapsed into a single new version.</p>
 </blockquote>
 <h4 id="一个具体例子"><a href="#一个具体例子" class="headerlink" title="一个具体例子"></a>一个具体例子</h4><p>我们通过 图 3 来展示 vector clock 是如何工作的。</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-3.png" alt="图 3 一个对象在一段时间内的版本演进"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-3.png" alt="图 3 一个对象在一段时间内的版本演进" loading="lazy"></p>
 <p>首先，客户端写入一个对象。处理这个 key 的写请求的节点 <code>Sx</code> 增加 key 的序列号（计 数），并用这个序列号创建对象的 vector clock。至此，系统有了一个对象 <code>D1</code> 和它的 时钟 <code>[(Sx, 1)]</code>。</p>
 <p>第二步，客户端更新这个对象。假设还是 <code>Sx</code> 处理这个请求。此时，系统有了对象 <code>D2</code> 和它的时钟 <code>[(Sx, 2)]</code>。<code>D2</code> 是 <code>D1</code> 的后代，因此可以覆盖 <code>D1</code>；<strong>但是，D1 在 其他节点上的副本可能还没有看到 D2 这次更新</strong>。</p>
 <p>第三步，假设还是这个客户端，再次更新了对象，并且这次是由另外的一个节点 <code>Sy</code> 处理 请求。此时，系统有了 <code>D3</code> 和它的时钟 <code>[(Sx, 2), (Sy, 1)]</code>.</p>
@@ -280,7 +280,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>类似地，对于一次 <code>get()</code> 请求，coordinator 会向排在最前面的 N 个（highest-ranked ）可访问的节点请求这个 key 对应的数据的版本，等到 R 个响应之后，就将结果返回给客 户端。如果 coordinator 收集到了多个版本，它会<strong>将所有它认为没有因果关系的版本返 回给客户端</strong>。客户端需要对版本进行 reconcile，合并成一个最新版本，然后将结果写回 Dynamo。</p>
 <h3 id="4-6-短时故障处理-Hinted-Handoff（移交给其他节点临时保存）"><a href="#4-6-短时故障处理-Hinted-Handoff（移交给其他节点临时保存）" class="headerlink" title="4.6 短时故障处理: Hinted Handoff（移交给其他节点临时保存）"></a>4.6 短时故障处理: Hinted Handoff（移交给其他节点临时保存）</h3><p>如果使用传统仲裁算法，Dynamo 无法在服务器宕机或网络分裂的时候仍然保持可用，而且 在遇到最简单故障情况下，持久性（durability）也会降低。</p>
 <p>因此，Dynamo 采用了一种<strong>宽松的仲裁机制</strong>（sloppy quorum）：<strong>所有读和写操作在 preference list 的前 N 个健康节点上执行</strong>；注意这 N 个节点不一定就是前 N 个节点， 因为遇到不健康的节点，会沿着一致性哈希环的顺时针方向顺延。</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-2.png" alt="图 2 Dynamo 哈希环上 key 的分散（partition）和复制（replication）"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-2.png" alt="图 2 Dynamo 哈希环上 key 的分散（partition）和复制（replication）" loading="lazy"></p>
 <p>以图 2 的配置为例，其中 N&#x3D;3。<strong>如果 A 临时不可用，正常情况下应该到达 A 的写请求就 会发送到 D</strong>。这样设计是为了保证期望达到的可用性和持久性。<strong>发送到 D 的副本的元 数据中会提示（hint）这个副本本来应该发送给谁</strong>（这里是 A），然后这个数据会被 D 保存到本地的一个独立数据库中，并且有一个<strong>定期任务不断扫描，一旦 A 可用了，就将 这个数据发送回 A</strong>，然后 D 就可以从本地数据库中将其删除了，这样系统内的副本数还 是保持不变。</p>
 <p>使用这种 hinted handoff 的方式，Dynamo <strong>保证了在节点或网络发生短时故障时读和写 操作不会失败</strong>。希望可用性最高的应用可以将 <code>W</code> 设为 1，这样可以保证只要一个节点 完成写，这次写操作就被系统接受了。在这种情况下，除非全部节点都不可用，否则写操作 就不会被拒绝。但实际上，大部分 Amazon 的应用都是设置一个比 1 大的值，以达到期望 的持久性（durability）等级。我们会在第 6 节更深入地讨论 <code>N</code>、<code>R</code> 和 <code>W</code> 的配置。</p>
 <p><strong>高度可用的存储系统必须能够处理整个数据中心挂掉的情况。</strong>掉电、制冷失效、网络故 障以及自然灾难都会导致整个数据中心发生故障。Dynamo 可以配置<strong>向多个数据中心同步 副本</strong>，只要<strong>将 preference list 里的节点分散到不同数据中心</strong>。这些数据中心之间 通过高速网络互连。这使得我们可以在整个数据中心挂掉的情况下仍然可以提供服务。</p>
@@ -332,7 +332,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>后来我们发现，我们<strong>显式的节点加入和离开机制</strong>使得这种全局一致视图变得多余了。因 为节点的真正（permanent）加入和离开消息，依靠的是我们的显式添加和删除节点机制， 而临时的加入和离开，由于节点之间的互相通信（转发请求时），它们自己就会发现。</p>
 <h3 id="4-9-添加-x2F-移除存储节点"><a href="#4-9-添加-x2F-移除存储节点" class="headerlink" title="4.9 添加&#x2F;移除存储节点"></a>4.9 添加&#x2F;移除存储节点</h3><p>当一个新节点 <code>X</code> 加入到系统后，它会<strong>获得一些随机分散在 ring 上的 token</strong>。对每 个分配给 <code>X</code> 的 key range，当前可能已经有一些（小于等于 <code>N</code> 个）节点在负责处理了 。因此,将 key range 分配给 <code>X</code> 后，这些节点就不需要处理这些 key 对应的请求了，而 要将 keys 转给 <code>X</code>。</p>
 <p>考虑一个简单的情况：<code>X</code> 加入 图 2 中 <code>A</code> 和 <code>B</code> 之间。这样，<code>X</code> 就负责处理落到 <code>(F, G], (G, A] and (A, X]</code> 之间的 key。结果，<code>B</code>、<code>C</code> 和 <code>D</code> 节点就不需负责相应 range 了。因此，在收到 <code>X</code> 的转移 key 请求之后，<strong>B、C 和 D 会向 X 转移相 应的 key</strong>。当移除一个节点时，key 重新分配的顺序和刚才相反。</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-2.png" alt="图 2 Dynamo 哈希环上 key 的分散（partition）和复制（replication）"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-2.png" alt="图 2 Dynamo 哈希环上 key 的分散（partition）和复制（replication）" loading="lazy"></p>
 <p>我们的实际运行经验显示，这种方式<strong>可以在存储节点之间保持 key 的均匀分布</strong>，这对 于保证延迟需求和快速 bootstrapping 是非常重要的。另外，在源和目的节点之间加了确 认（转移），可以保证不会转移重复的 key range。</p>
 <h2 id="5-实现"><a href="#5-实现" class="headerlink" title="5. 实现"></a>5. 实现</h2><p>Dynamo 中的<strong>每个存储节点上主要有三个组件</strong>，都是用 Java 实现的：</p>
 <ul>
@@ -388,11 +388,11 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <h3 id="6-1-性能和持久性的平衡"><a href="#6-1-性能和持久性的平衡" class="headerlink" title="6.1 性能和持久性的平衡"></a>6.1 性能和持久性的平衡</h3><p>虽然 Dynamo 的首要设计目标是一个高可用数据仓库，但性能指标在 Amazon 也同样重要。 前面提到过，为了提供一致的用户体验，Amazon 的服务会设置一个很高的用百分比衡量的 （例如 <code>P99.9</code> 或 <code>P99.99</code>）性能指标。典型的 SLA 指标是：读和写操作的 <code>P99.9</code> 要 在 <code>300ms</code> 以内成。</p>
 <p>由于 Dynamo 是在<strong>通用硬件</strong>上运行的，和高端企业级服务器相比，<strong>I&#x2F;O 吞吐性能要差 很多</strong>，因此提供一致的高性能读写并不是一项简单的工作。而且，每次读&#x2F;写操作都要涉 及多台节点，给这项工作带来了更大的挑战性，因为<strong>最终的性能受限于最慢的那个副本所 在的节点</strong>。</p>
 <h4 id="通用配置下的性能"><a href="#通用配置下的性能" class="headerlink" title="通用配置下的性能"></a>通用配置下的性能</h4><p>图 4 显示了 30 天内 Dynamo 的读和写操作延迟平均值和 <code>P99.9</code>：</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-4.png" alt="图 4 2006 年 12 月峰值请求季的读写延迟平均值和 P99.9。 X 轴一个刻度 12 小时。延迟走势和每天的请求量走势一致，延迟的 P99.9 比平均值要大一个数量级"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-4.png" alt="图 4 2006 年 12 月峰值请求季的读写延迟平均值和 P99.9。 X 轴一个刻度 12 小时。延迟走势和每天的请求量走势一致，延迟的 P99.9 比平均值要大一个数量级" loading="lazy"></p>
 <p>从图上可以看出，延迟曲线每天的走势（diurnal pattern）都类似，这和平台每天的请求 量走势也是一致的（例如，白天和晚上的请求量明显不一样）。另外，写延迟明显高于读延 迟，因为<strong>写操作永远需要访问磁盘</strong>。另外，<strong>P99.9 大约为 200ms，比平均值高一 个数量级</strong>。这是因为 P99.9 有很多影响因素，例如请求负载变化、对象大小和 locality patterns。</p>
 <h4 id="低延迟配置下的性能"><a href="#低延迟配置下的性能" class="headerlink" title="低延迟配置下的性能"></a>低延迟配置下的性能</h4><p>以上性能对很多服务来说都足够了，但有少数面向用户的服务，它们对性能有更高的要求。 对于这种情况，Dynamo 提供了<strong>牺牲持久性换性能</strong>的能力。具体来说，每个存储节点会 <strong>在主内存中维护一个对象缓存</strong>（object buffer），写操作将数据存储到缓存直接返回， 另有一个独立的写线程定期将数据写入磁盘。读操作会先检查缓存中是否有，如果有，就直 接从缓存读，从而避免了访问存储引擎。</p>
 <p>这项优化可以<strong>将峰值流量期间的 P99.9 降低到原来的 1&#x2F;5</strong>，即使只使用一个很小的 、只能存放 1000 个对象的缓存，见图 5。</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-5.png" alt="图 5 带缓存和不带缓存的 P99.9 性能对比，时间跨度 24 小时，X 轴一个刻度一个小时"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-5.png" alt="图 5 带缓存和不带缓存的 P99.9 性能对比，时间跨度 24 小时，X 轴一个刻度一个小时" loading="lazy"></p>
 <p>另外，从图中可以看到，缓存写（write buffering）可以对百分比延迟进行平滑。显然， 这种方案中持久性和性能之间做了折中：一台<strong>节点挂掉会导致缓存里还未落盘的数据丢失</strong>。 为了减小这种风险，写操作进行了优化（refine），由 coordinator <strong>从 N 个副本中选择 一个进行持久化写入</strong>（durable write）。因为 coordinator 只等待 <code>W</code> 个写操作，因此整 体的写操作不受这次写盘操作的影响。</p>
 <blockquote>
 <p>以上优化的意思是，每次写操作到达 coordinator 时，它会将请求转发给相应个节点， 这些节点都是写完内存 buffer 就直接返回的；除此之外，coordinator 还会挑一个节点 进行持久写入，跟其他节点的写是并行进行的，这样可以降低其他节点挂掉时内存数据丢 失的风险。由于 coordinator 只等待 W 个结果就返回了，因此虽然这个执行持久写的节 点（相对）很慢，但 coordinator 并不会依赖它的结果才返回，因此文中说对写性能来 说是没有影响的，译者注。</p>
@@ -400,7 +400,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <h3 id="6-2-均匀负载分布（Uniform-Load-distribution）"><a href="#6-2-均匀负载分布（Uniform-Load-distribution）" class="headerlink" title="6.2 均匀负载分布（Uniform Load distribution）"></a>6.2 均匀负载分布（Uniform Load distribution）</h3><p>Dynamo 通过一致性哈希将它的 key 空间进行 partition，保证负载分布的均匀性。 只要 key 的访问不是极度不均衡，均匀的 key 分布就可以帮助我们实现负载的均衡分布。 特别地，即使出现了明显的 key 访问不平衡的情况，只要这些 key 足够多，Dynamo 也能 保证这些 key 在后端节点之间是均衡分散的。 本节介绍 Dynamo 中的负载不平衡问题，几种解决策略及其对负载分布的影响。</p>
 <p>为了研究负载不平衡（load imbalance）以及它和请求负载（request load）的相关性，我 们测量了 24 个小时内每台节点收到的请求量，以 30 分钟作为一个点。在规定的时间内， 只要节点收到的请求量偏离平均值的程度不超过一个阈值（例如，15%），这台节点就认为 是平衡的（inbalance）；否则，就是不平衡的（out of balance）。</p>
 <p>图 6 展示了不平衡的节点所占的比例（imbalance ratio）：</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-6.png" alt="图 6 不平衡节点比例，及其负载（请求数），X 轴一个刻度 30 分钟"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-6.png" alt="图 6 不平衡节点比例，及其负载（请求数），X 轴一个刻度 30 分钟" loading="lazy"></p>
 <p>作为参考，图中也画出了这段期间系统的总负载（请求量）。从图中可以看出，随着请求量 的上升，不平衡的比例在下降。例如，低负载期间的不平衡比例高达 20%，而高负载期间降 到了 10%。直观上可以解释：随着负载（请求量）的上升，大量的活跃 key 的访问会均匀 的分发到节点，导致负载平衡分布。而低峰期间（请求量只有峰值的 1&#x2F;8），只有很少的 活跃 key 访问，导致负载非常不平衡。</p>
 <p>本节接下来介绍 Dynamo 的 partition scheme 是如何随时间演进的，以及它对负载分布的 影响。</p>
 <h4 id="策略-1：每个节点-T-个随机-token，按-token-值分散"><a href="#策略-1：每个节点-T-个随机-token，按-token-值分散" class="headerlink" title="策略 1：每个节点 T 个随机 token，按 token 值分散"></a>策略 1：每个节点 T 个随机 token，按 token 值分散</h4><p>这是生产环境最早部署的策略（在 4.2 节介绍过了）。</p>
@@ -415,7 +415,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <h4 id="Strategy-2-每个节点-T-个随机-token，平均分散"><a href="#Strategy-2-每个节点-T-个随机-token，平均分散" class="headerlink" title="Strategy 2: 每个节点 T 个随机 token，平均分散"></a>Strategy 2: 每个节点 T 个随机 token，平均分散</h4><p>这种策略将哈希空间分为 <code>Q</code> 个相同大小的 partition&#x2F;range，每个节点分配 <code>T</code> 个 随 机 token。<code>Q</code> 的选择通常要满足：<code>Q &gt;&gt; N</code> 和 <code>Q &gt;&gt; S*T</code>（<code>&gt;&gt;</code>：远大于，译者注）， 其中 <code>S</code> 是系统中节点的数量。</p>
 <p>在这种策略中，token 仅用于<strong>哈希空间的值映射到有序节点列表</strong>的过程，并<strong>不影响数 据 partition</strong>。</p>
 <p>一个 partition 会放在从该 partition 末尾开始<strong>沿顺时针方向得到的前 N 个独立节点</strong>。</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-7.png" alt="图 7 三种策略中 key 的 partition 和 placement。N=3，A、B、 C 是 key k1 的 preference list 中的三个独立节点。阴影区域表示 preference list 是 [A,B,C] 的 key range，箭头表示不同节点对应的 token 位置"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-7.png" alt="图 7 三种策略中 key 的 partition 和 placement。N=3，A、B、 C 是 key k1 的 preference list 中的三个独立节点。阴影区域表示 preference list 是 [A,B,C] 的 key range，箭头表示不同节点对应的 token 位置" loading="lazy"></p>
 <p>图 7 展示了 <code>N=3</code> 时这种策略的示意图。</p>
 <p>这种策略的主要优点：</p>
 <ol>
@@ -428,7 +428,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>一种比较公平的方式是：<strong>所有的策略都使用相同大小的空间存储成员信息时，测量它们的 负载分布倾斜度</strong>（skew in load distribution）。例如，策略 1 中每个节点需要为环上 的全部节点维护各自的 token 位置，而策略 3 中每个节点需要维护系统分配给每个节点的 partition 信息。</p>
 <p>实验中我们将通过改变相关的参数（<code>T</code> 和 <code>Q</code>）来评估这三种策略。测试每个节点需要维 护的成员信息的大小（size）不同时，几种策略的<strong>负载均衡效率</strong>。其中负载均衡效率（ load balancing efficiency）的定义是：每个节点平均处理的请求数 <code>/</code> 负载最高的节点处 理的请求数。</p>
 <p>结果如图 8 所示。</p>
-<p><img src="https://cdn.bugwz.com/dynamo-figure-8.png" alt="图 8 三种策略的负载均衡效率对比，30 个几点，N=3，每个节点维护相同大小的元数据"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-figure-8.png" alt="图 8 三种策略的负载均衡效率对比，30 个几点，N=3，每个节点维护相同大小的元数据" loading="lazy"></p>
 <p>如图所示，<strong>策略 3 取得了最好的负载均衡性能，策略 2 最差</strong>。在某段较短的时期内， 策略 2 充当了将线上的一些 Dynamo 从策略 1 迁移到策略 3 的过渡策略。</p>
 <p>和 策略 1 相比，策略 3 性能更好，而且减少了每个节点所需维护的成员信息的大小。</p>
 <p><strong>虽然存储这些成员信息并不会占用太多存储，但是，节点通过 gossip 协议定期地将成员 信息发送给其他节点</strong>（gossip the membership information periodically），因此<strong>保 持这些信息越紧凑越好。</strong></p>
@@ -460,7 +460,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>显然，这种方式的效率取决于客户端侧的成员信息的新鲜程度（how fresh the membership information）。当前，每个客户端会每隔 <code>10s</code> 随机地轮询（poll）一个 Dynamo 节点， 获取成员更新（membership updates）。这里选用 pull 而不是 push 模型是考虑前者在大 量客户端的情况下可扩展性更好，而且相比于客户端侧，只需在服务端侧维护很少的状态信 息。</p>
 <p>然而，在最差的情况下，客户端的 membership 信息会有 <code>10s</code> 的脏数据。 因此，如果客户端检测到它的成员表（membership table）过期了（例如，当一些成员不可 达的时候），它会立即更新它的成员信息。</p>
 <h4 id="性能对比"><a href="#性能对比" class="headerlink" title="性能对比"></a>性能对比</h4><p>表 2 显示了客户端驱动比服务端驱动的 coordination 的性能提升，测量时间为 24 个小时。</p>
-<p><img src="https://cdn.bugwz.com/dynamo-table-2.png" alt="表 2 客户端驱动和服务端驱动的 coordination 性能对比"></p>
+<p><img src="https://cdn.bugwz.com/dynamo-table-2.png" alt="表 2 客户端驱动和服务端驱动的 coordination 性能对比" loading="lazy"></p>
 <p>从中可以看出，客户端驱动的方式比服务端方式 <code>P99.9</code> 减少了至少 <code>30ms</code>，平均值减少 了 <code>3ms~4ms</code>。</p>
 <p>延迟降低是因为客户端驱动的方式没有了负载均衡器的开销，而且减少了可能的将请求转发 给一个随机节点的网络跳数。</p>
 <p>另外从表中还可以看出，平均延迟远远小于 <code>P99.9</code>。这是因为 Dynamo 的存储引擎缓存（ storage engine caches）和写缓存（write buffer）命中率很高。</p>

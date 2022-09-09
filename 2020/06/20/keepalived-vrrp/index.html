@@ -42,13 +42,13 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>为了兼容早期版本（RFC2338），VRRPv2版本保留报文的认证字段，但是VRRP认证并不能提高安全性；</li>
 <li>秒级的通告报文的发送时间间隔；</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/vrrpv2.png" alt="VRRPv2"></p>
+<p><img src="https://cdn.bugwz.com/vrrpv2.png" alt="VRRPv2" loading="lazy"></p>
 <h4 id="2-3-2、VRRPv3报文"><a href="#2-3-2、VRRPv3报文" class="headerlink" title="2.3.2、VRRPv3报文"></a>2.3.2、VRRPv3报文</h4><ul>
 <li>适用于IPv4和IPv6两种网络；</li>
 <li>不支持认证功能；</li>
 <li>厘秒级（100分之1秒）的通告报文的发送时间间隔；</li>
 </ul>
-<p><img src="https://cdn.bugwz.com/vrrpv3.png" alt="VRRPv3"></p>
+<p><img src="https://cdn.bugwz.com/vrrpv3.png" alt="VRRPv3" loading="lazy"></p>
 <h4 id="2-3-3、报文字段含义"><a href="#2-3-3、报文字段含义" class="headerlink" title="2.3.3、报文字段含义"></a>2.3.3、报文字段含义</h4><ul>
 <li><code>Version</code>：长度<strong>4比特</strong>，指VRRP协议版本，VRRPv2此字段为2，VRRPv3此字段为3；</li>
 <li><code>Type</code>：长度<strong>4比特</strong>，定义了VRRP报文的类型，本版本的协议仅定义了一个报文类型：<ul>

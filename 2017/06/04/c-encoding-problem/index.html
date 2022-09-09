@@ -76,14 +76,14 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </tbody></table>
 <h2 id="二、分析"><a href="#二、分析" class="headerlink" title="二、分析"></a>二、分析</h2><p>以上比较有意思的乱码情况仅出现在使用Visual Studio或者VC6.0自带的MSVC编译器进行编译时才会出现，也就是说通常只有在Windows环境下使用Visual Studio或者VC6.0进行代码开发，并且处于Debug的运行模式才会出现。</p>
 <h3 id="2-1、烫（0xCCCC）"><a href="#2-1、烫（0xCCCC）" class="headerlink" title="2.1、烫（0xCCCC）"></a>2.1、烫（0xCCCC）</h3><p>MSVC编译器会将<strong>未被初始化的栈内存</strong>使用<code>0XCC</code>进行填充，导致我们在使用为初始化的栈内存时便会出现<code>烫烫烫</code>的错误提示；</p>
-<p><img src="https://cdn.bugwz.com/0xcccc.png" alt="烫（0xCCCC）"></p>
+<p><img src="https://cdn.bugwz.com/0xcccc.png" alt="烫（0xCCCC）" loading="lazy"></p>
 <h3 id="2-2、屯（0xCDCD）"><a href="#2-2、屯（0xCDCD）" class="headerlink" title="2.2、屯（0xCDCD）"></a>2.2、屯（0xCDCD）</h3><p><strong>MSVC编译器会将</strong>未被初始化的堆内存使用<code>0XCD</code>进行填充，导致我们在使用为初始化的栈内存时便会出现<code>屯屯屯</code>的错误提示；</p>
-<p><img src="https://cdn.bugwz.com/0xcdcd.png" alt="屯（0xCDCD）"></p>
+<p><img src="https://cdn.bugwz.com/0xcdcd.png" alt="屯（0xCDCD）" loading="lazy"></p>
 <h3 id="2-3、锟斤拷"><a href="#2-3、锟斤拷" class="headerlink" title="2.3、锟斤拷"></a>2.3、锟斤拷</h3><p><strong>锟斤拷</strong>涉及<code>Unicode</code>字符集转换问题，在编码转化你的过程中，当Unicode无法表示一个字符的时候，它会用一个占位符（U+FFFD REPLACEMENT CHARACTER）来表示这些文字。U+FFFD的UTF-8编码是<code>0xEFBFBD</code>，如果重复多次形成<strong>锟斤拷</strong>的盛状。</p>
-<p><img src="https://cdn.bugwz.com/0xefbfbdefbfbd.png" alt="锟斤拷"></p>
+<p><img src="https://cdn.bugwz.com/0xefbfbdefbfbd.png" alt="锟斤拷" loading="lazy"></p>
 <h3 id="2-4、锘"><a href="#2-4、锘" class="headerlink" title="2.4、锘"></a>2.4、锘</h3><p>微软在 <code>UTF-8</code> 文件头部加上了 <code>EF BB BF BOM</code> 标志。在不支持 BOM 的环境下对其停止 UTF-8 解码失掉<strong>锘</strong>字，</p>
 <p><code>BOM</code> 是 <code>Byte Order Mark</code> 的缩写。是UTF编码方案里用于标识编码的标准标记，在<code>UTF-16</code>里本来是<code>FF FE</code>，变成<code>UTF-8</code>就成了<code>EF BB BF</code>。这个标记是可选的，因为<code>UTF8</code>字节没有顺序，所以它可以被用来检测一个字节流是否是<code>UTF-8</code>编码的。</p>
-<p><img src="https://cdn.bugwz.com/0xefbb.png" alt="锘"></p>
+<p><img src="https://cdn.bugwz.com/0xefbb.png" alt="锘" loading="lazy"></p>
 <p>参考地址：<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/27253604">https://zhuanlan.zhihu.com/p/27253604</a></p>
 </div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2017/06/04/c-encoding-problem/">https://bugwz.com/2017/06/04/c-encoding-problem/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/C-C/">C/C++</a><a class="post-meta__tags" href="/tags/Windows/">Windows</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2017/07/12/singnal-semaphore/"><i class="fa fa-chevron-left">  </i><span>Linux的信号与信号量机制</span></a></div><div class="next-post pull-right"><a href="/2017/05/27/ghost-0-11-9/"><span>Ghost博客成功&quot;更新&quot;至0.11.9</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="gitalk-container"></div><script>var gitalk = new Gitalk({
   clientID: '6af3be16b94cec39bcf6',

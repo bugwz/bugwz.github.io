@@ -37,7 +37,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <h3 id="2-3、安装VirtualBox的增强工具："><a href="#2-3、安装VirtualBox的增强工具：" class="headerlink" title="2.3、安装VirtualBox的增强工具："></a>2.3、安装VirtualBox的增强工具：</h3><ul>
 <li>首先确保本机已经安装kernel-devel和gcc两个依赖包，如果没有可以使用下面代码进行安装(如果下面代码使用后出错，请参考<a href="#redhat_3">RedHat无法使用yum在线安装软件解决方法</a>)：<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">yum install kernel-devel</span><br><span class="line">yum install gcc</span><br></pre></td></tr></table></figure></li>
 <li>在虚拟机中进入桌面后，查看该虚拟机的界面右下角，会有一排小图标，其中有个光驱图标，确保它是灰色的，即确保该虚拟机的光驱没有被其他占用，然后点击VirtualBox窗口的”设备”，然后点击”安装增强工具”。</li>
-<li>虚拟机系统界面就会弹出安装提示，点击”OK”，然后点击”RUN”继续即可,最后重启生效。类似图如下：<br><img src="https://cdn.bugwz.com/006qpCDTly1ffxq4t0txlj30sa0nawyk.jpg" alt="RedHat"><br><img src="https://cdn.bugwz.com/006qpCDTly1ffxq4thuugj30s30n17p5.jpg" alt="RedHat"></li>
+<li>虚拟机系统界面就会弹出安装提示，点击”OK”，然后点击”RUN”继续即可,最后重启生效。类似图如下：<br><img src="https://cdn.bugwz.com/006qpCDTly1ffxq4t0txlj30sa0nawyk.jpg" alt="RedHat" loading="lazy"><br><img src="https://cdn.bugwz.com/006qpCDTly1ffxq4thuugj30s30n17p5.jpg" alt="RedHat" loading="lazy"></li>
 </ul>
 <p><a id="redhat_2"></a></p>
 <h3 id="2-4、RedHat的root用户的密码初始化"><a href="#2-4、RedHat的root用户的密码初始化" class="headerlink" title="2.4、RedHat的root用户的密码初始化"></a>2.4、RedHat的root用户的密码初始化</h3><p>由于在VMware中安装的RedHat并没有提示设置root用户密码，并且系统策略也不和Ubuntu一样：Ubuntu中当root用户未设置密码时，普通用户可以使用 <code>sudo passwd root</code> 初始化root账户密码。所以我们需要如下步骤设置root账户密码：</p>
@@ -52,10 +52,10 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>三种办法解决，第一种去用CentOS，第二种我们使用RedHat的光盘ISO镜像作为本地源，第三种我们卸载RedHat自带yum，然后用CentOS的yum进行替换。第二种以及第三种的实现方法具体如下所示：</p>
 <h3 id="2-6、使用RedHat的光盘ISO镜像作为本地源"><a href="#2-6、使用RedHat的光盘ISO镜像作为本地源" class="headerlink" title="2.6、使用RedHat的光盘ISO镜像作为本地源"></a>2.6、使用RedHat的光盘ISO镜像作为本地源</h3><ul>
 <li>首先我们需要挂载本地RedHat的光盘ISO镜像，无论是VMware还是VirtualBox，都是在菜单栏目中将可移动设备光盘中设置为对应的RedHat镜像，并挂在到虚拟机中；</li>
-<li>然后我们修改RedHat镜像的挂载位置(一定要记住之前的挂载点)，目的是便于后面使用，防止空格等字符的存在我们无法进入对应目录等，图示及命令如下所示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ffxxatnllej30gw03eaa7.jpg"><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">umount /dev/sr0</span><br><span class="line"><span class="built_in">mkdir</span> -p /media/cdrom</span><br><span class="line">mount /dev/sr0 /media/cdrom</span><br></pre></td></tr></table></figure></li>
-<li>接着修改系统源设置文件中的信息，将我们新挂载的RedHat镜像源加入改文件中，这个文件位置是 <code>/etc/yum.repos.d/rhel-source.repo</code>，我添加的一个源信息是该文件中最后一个，如下图所示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ffxxd8s1nej30gx09faas.jpg"></li>
+<li>然后我们修改RedHat镜像的挂载位置(一定要记住之前的挂载点)，目的是便于后面使用，防止空格等字符的存在我们无法进入对应目录等，图示及命令如下所示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ffxxatnllej30gw03eaa7.jpg" loading="lazy"><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">umount /dev/sr0</span><br><span class="line"><span class="built_in">mkdir</span> -p /media/cdrom</span><br><span class="line">mount /dev/sr0 /media/cdrom</span><br></pre></td></tr></table></figure></li>
+<li>接着修改系统源设置文件中的信息，将我们新挂载的RedHat镜像源加入改文件中，这个文件位置是 <code>/etc/yum.repos.d/rhel-source.repo</code>，我添加的一个源信息是该文件中最后一个，如下图所示：<br><img src="https://cdn.bugwz.com/006qpCDTly1ffxxd8s1nej30gx09faas.jpg" loading="lazy"></li>
 <li>最后我们清楚yum缓存并获取yum列表尝试一下，代码及成功的图示如下所示：<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">yum clean all</span><br><span class="line">yum makecache</span><br></pre></td></tr></table></figure>
-<img src="https://cdn.bugwz.com/006qpCDTly1ffxxiyhj1tj30gx098my3.jpg"></li>
+<img src="https://cdn.bugwz.com/006qpCDTly1ffxxiyhj1tj30gx098my3.jpg" loading="lazy"></li>
 </ul>
 <h3 id="2-7、使用CentOS的yum进行替换RedHat自带的yum"><a href="#2-7、使用CentOS的yum进行替换RedHat自带的yum" class="headerlink" title="2.7、使用CentOS的yum进行替换RedHat自带的yum"></a>2.7、使用CentOS的yum进行替换RedHat自带的yum</h3><ul>
 <li>首先确定系统是32位的还是64位的，可以使用命令 <code>uname -a</code> 查看，根据系统位数，前往<a href="http://mirrors.163.com/centos/6/os/" target="_blank">网易开源镜像站</a>对应目录下的Packages目录中获取文件链接使用 <code>wget</code> 下载相关软件；</li>
