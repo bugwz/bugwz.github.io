@@ -256,6 +256,25 @@
     
     
     <entry>
+      <title>RocksDB学习 - WriteStall (写停顿)</title>
+      <link href="/2020/01/01/rocksdb-writestall/"/>
+      <url>/2020/01/01/rocksdb-writestall/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一、WriteStall-介绍"><a href="#一、WriteStall-介绍" class="headerlink" title="一、WriteStall 介绍"></a>一、WriteStall 介绍</h2><p>当 RocksDB 中的 Flush或Compaction 赶不上写入速度时，RocksDB 会降低写的速率，极端情况下会停止写入，通过使用这个策略来避免出现以下问题：</p><ul><li>空间放大，导致耗尽磁盘空间；</li><li>读放大， 导致降低读性能；</li></ul><h2 id="二、WriteStall-触发场景"><a href="#二、WriteStall-触发场景" class="headerlink" title="二、WriteStall 触发场景"></a>二、WriteStall 触发场景</h2><p>可能有以下的场景会触发 WriteStall ：</p><ul><li>Memtable 过多 </li><li>L0 层的 SST 文件过多</li><li>等待进行 Compaction 的字节太大</li></ul><h3 id="2-1、Memtable-过多"><a href="#2-1、Memtable-过多" class="headerlink" title="2.1、Memtable 过多"></a>2.1、Memtable 过多</h3><ul><li><strong>触发条件</strong>：<ul><li><strong>慢写</strong>：当 <code>max_write_buffer_number</code> 大于 <code>3</code>， 并且等待进行 Flush 的 MemTables 的个数大于等于 <code>max_write_buffer_number - 1</code> ，则会触发慢写；</li><li><strong>阻写</strong>：当等待进行 Flush 的 MemTables 的个数大于等于 <code>max_write_buffer_number</code> ，则会触发阻写，直到等到 Flush 完成；</li></ul></li><li><strong>异常感知</strong>：<ul><li><strong>监控</strong>：<ul><li><code>io_stalls.memtable_slowdown</code> </li><li><code>io_stalls.memtable_compaction</code></li></ul></li><li><strong>日志</strong>：<ul><li><code>[%s] Stalling writes because we have %d immutable memtables (waiting for flush), max_write_buffer_number is set to %d rate % PRIu64</code></li><li><code>[%s] Stopping writes because we have %d immutable memtables (waiting for flush), max_write_buffer_number is set to %d</code></li></ul></li></ul></li></ul><h3 id="2-2、L0-层的-SST-文件过多"><a href="#2-2、L0-层的-SST-文件过多" class="headerlink" title="2.2、L0 层的 SST 文件过多"></a>2.2、L0 层的 SST 文件过多</h3><ul><li><strong>触发条件</strong>：<ul><li><strong>慢写</strong>：当 L0 层的文件数量达到了 <code>level0_slowdown_writes_trigger</code> ，则触发慢写；</li><li><strong>阻写</strong>：当 L0 层的文件数量达到了 <code>level0_stop_writes_trigger</code> ， 则触发停写，直到 L0 层到 L1 层的 Compaction 减少了 L0 层的文件数量；</li></ul></li><li><strong>异常感知</strong>：<ul><li><strong>监控</strong>：<ul><li><code>io_stalls.level0_slowdown</code></li><li><code>io_stalls.level0_numfiles</code></li></ul></li><li><strong>日志</strong>：<ul><li><code>[%s] Stalling writes because we have %d level-0 files rate % PRIu64</code></li><li><code>[%s] Stopping writes because we have %d level-0 files</code></li></ul></li></ul></li></ul><h3 id="2-3、等待进行-Compaction-的字节太大"><a href="#2-3、等待进行-Compaction-的字节太大" class="headerlink" title="2.3、等待进行 Compaction 的字节太大"></a>2.3、等待进行 Compaction 的字节太大</h3><ul><li><strong>触发条件</strong>：<ul><li><strong>慢写</strong>：当需要进行 Compation 的字节数达到了 <code>soft_pending_compaction_bytes</code> ，则触发慢写；</li><li><strong>阻写</strong>：当需要进行 Compation 的字节数达到了 <code>hard_pending_compaction_bytes</code> ，则触发阻写；</li></ul></li><li><strong>异常感知</strong>：<ul><li><strong>监控</strong>：<ul><li><code>io_stalls.slowdown_for_pending_compaction_bytes</code></li><li><code>io_stalls.stop_for_pending_compaction_bytes</code></li></ul></li><li><strong>日志</strong>：<ul><li><code>[%s] Stopping writes because of estimated pending compaction bytes % PRIu64</code></li><li><code>[%s] Stalling writes because of estimated pending compaction bytes % PRIu64 rate %</code></li></ul></li></ul></li></ul><h2 id="三、WriteStall-实现细节"><a href="#三、WriteStall-实现细节" class="headerlink" title="三、WriteStall 实现细节"></a>三、WriteStall 实现细节</h2><h3 id="3-1、WriteStall-速率计算规则"><a href="#3-1、WriteStall-速率计算规则" class="headerlink" title="3.1、WriteStall 速率计算规则"></a>3.1、WriteStall 速率计算规则</h3><ul><li><strong><code>SetupDelay 函数</code> 速率计算逻辑</strong>：<ul><li>最小的写入速率为 <code>kMinWriteRate</code> （默认为 <code>16KB/s</code>）；</li><li>最大的写入速率为 <code>max_delayed_write_rate_</code> （默认为 <code>32MB/s</code>）；</li><li><strong>以下三种情况选其一</strong>：<ul><li>需要进行 <code>惩罚性写限速 (Penalize Stop)</code>（为了避免直接进行阻写而产生的影响），则本次的写速率设置为上一次写速率的 <code>kNearStopSlowdownRatio 倍</code>（默认为 <code>0.6 倍</code>） ；</li><li>本次需要进行 Compation 的字节大小比上一次的要大，则本次的写速率设置为上一次写速率的 <code>kIncSlowdownRatio 倍</code>（默认为 <code>0.8 倍</code>） ；</li><li>本次需要进行 Compation 的字节大小比上一次的要小，则本次的写速率设置为上一次写速率的 <code>kDecSlowdownRatio 倍</code>（默认为 <code>1.25 倍</code>） ；</li></ul></li></ul></li><li><strong>不同场景下的新的写入速率设置</strong>：<ul><li><strong>Memtable 过多</strong>：遵循以上规则；</li><li><strong>L0 层的 SST 文件过多</strong>：L0 层触发 Delay 的计数大于 <code>level0_stop_writes_trigger - 2</code>，则触发 <code>惩罚性写限速</code>；</li><li><strong>等待进行 Compaction 的字节太大</strong>：如果到硬限制的距离小于软字节限制和硬字节限制之间的间隙的 <code>1/4</code>，我们认为它接近停止并加速了减速，则触发 <code>惩罚性写限速</code>；<ul><li><strong>计算规则</strong>：<code>mutable_cf_options.hard_pending_compaction_bytes_limit &gt; 0 &amp;&amp; (compaction_needed_bytes - mutable_cf_options.soft_pending_compaction_bytes_limit) &gt; 3 * (mutable_cf_options.hard_pending_compaction_bytes_limit - mutable_cf_options.soft_pending_compaction_bytes_limit) / 4</code> ；</li></ul></li></ul></li></ul><h3 id="3-2、WriteStall-影响"><a href="#3-2、WriteStall-影响" class="headerlink" title="3.2、WriteStall 影响"></a>3.2、WriteStall 影响</h3><ul><li>如果触发 WriteStall，执行 Put&#x2F;Merge&#x2F;Delete 等的应用程序线程将阻塞；</li><li>如果触发 <strong>慢写</strong>，则每次写入都会在继续之前休眠一段时间（通常为 1 毫秒）；</li><li>如果触发 <strong>阻写</strong>，则线程可以无限期地阻塞；</li><li>如果某个 CF 触发了 WriteStall, 整个DB都会 Stall (延缓)；</li><li>如果不希望阻塞线程，应用程序可以通过设置 <code>no_slowdown = true</code> 来避免 WriteStall；</li></ul><h3 id="3-3、WriteStall-动态调整"><a href="#3-3、WriteStall-动态调整" class="headerlink" title="3.3、WriteStall 动态调整"></a>3.3、WriteStall 动态调整</h3><p>根据不同的 WriteStall 的触发场景，我们可以通过调整一些参数来控制 WriteStall 的触发概率或者直接禁止 WriteStall 的出现，不同的触发场景的处理手段如下：</p><ul><li><strong>Memtable 过多</strong>：<ul><li>增加 <code>max_background_flushes</code> 使更多的 Thread 用来 Flush；</li></ul><ul><li>增加 <code>max_write_buffer_number</code> 使有更小的 MemTable 来 Flush；</li></ul></li><li><strong>L0 层的 SST 文件过多</strong> 或者 <strong>等待进行 Compaction 的字节太大</strong>：<ul><li>增加 <code>max_background_jobs</code> 以拥有更多的压缩线程；</li></ul><ul><li>增加 <code>write_buffer_size</code> 有大内存表，以减少写放大；</li><li>增加 <code>min_write_buffer_number_to_merge</code> ；</li></ul></li></ul><h3 id="3-4、相关代码"><a href="#3-4、相关代码" class="headerlink" title="3.4、相关代码"></a>3.4、相关代码</h3><ul><li><strong>相关函数</strong>：<ul><li><code>ColumnFamilyData::RecalculateWriteStallConditions</code><ul><li>含义：判断当前的是否需要进行写控制；</li></ul></li><li><code>SetupDelay</code><ul><li>含义：慢写入的情况下，设置下一次的写速率；</li></ul></li></ul></li><li><strong>相关变量</strong>：<ul><li><code>write_stall_condition</code> ：<ul><li>含义：局部变量，标记当前最新的 WriteStall 的状态；</li><li>可选值：<ul><li><code>WriteStallCondition::kNormal</code> ：初始状态；</li><li><code>WriteStallCondition::kDelayed</code> ：触发软限制，对写入执行限速；</li><li><code>WriteStallCondition::kStopped</code> ：触发硬限制，阻止写入请求；</li></ul></li></ul></li><li><code>write_stall_cause</code> ：<ul><li>含义：局部变量，标记触发 WriteStall 的原因；</li><li>可选值：<ul><li><code>WriteStallCause::kNone</code> ：初始状态；</li><li><code>WriteStallCause::kMemtableLimit</code> ：由 Memtable 过多触发；</li><li><code>WriteStallCause::kL0FileCountLimit</code> ：由 L0 层的 SST 文件过多触发；</li><li><code>WriteStallCause::kPendingCompactionBytes</code> ：由 等待进行 Compaction 的字节太大触发；</li></ul></li></ul></li><li><code>write_controller_token_</code> ：<ul><li>含义：<code>ColumnFamilyData</code> 类的成员变量，写控制令牌；</li></ul></li></ul></li><li><strong>相关类</strong>：<ul><li><code>WriteController</code> ：<ul><li>含义：控制写入请求；</li><li>重点函数：<ul><li><code>NeedsDelay</code> ：判断是否需要进行慢写；</li><li><code>WriteController::IsStopped</code> ：判断是否需要进行阻写；</li></ul></li></ul></li></ul></li></ul><h2 id="四、参考资料"><a href="#四、参考资料" class="headerlink" title="四、参考资料"></a>四、参考资料</h2><ul><li><a href="https://github.com/facebook/rocksdb/wiki/Write-Stalls">RocksDB Wiki - WriteStalls</a></li><li><a href="https://www.jianshu.com/p/2e28b1453642">rocksdb系列之write stall</a></li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Rocksdb </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
       <title>lsof指令的使用 - 每周指令</title>
       <link href="/2019/12/12/command-lsof/"/>
       <url>/2019/12/12/command-lsof/</url>
@@ -268,9 +287,9 @@
             
             <tag> Linux </tag>
             
-            <tag> Commands </tag>
-            
             <tag> lsof </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
@@ -593,9 +612,9 @@
       
         <tags>
             
-            <tag> nc </tag>
-            
             <tag> Commands </tag>
+            
+            <tag> nc </tag>
             
         </tags>
       
@@ -1264,27 +1283,6 @@
     
     
     <entry>
-      <title>Linux下的常用指令</title>
-      <link href="/2018/01/01/commands-linux/"/>
-      <url>/2018/01/01/commands-linux/</url>
-      
-        <content type="html"><![CDATA[<h3 id="CPU相关"><a href="#CPU相关" class="headerlink" title="CPU相关"></a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;physical id&#x27;</span> | <span class="built_in">sort</span> -u | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;cpu cores&#x27;</span> | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;processor&#x27;</span> | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a href="#内存相关" class="headerlink" title="内存相关"></a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line"><span class="built_in">cat</span> /proc/meminfo | grep <span class="string">&#x27;Huge&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag&#x27;</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled&#x27;</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="Docker相关"><a href="#Docker相关" class="headerlink" title="Docker相关"></a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id=""><a href="#" class="headerlink" title=""></a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Linux </tag>
-            
-            <tag> Commands </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    
-    
-    <entry>
       <title>Mac下的常用指令</title>
       <link href="/2018/01/01/commands-mac/"/>
       <url>/2018/01/01/commands-mac/</url>
@@ -1298,6 +1296,27 @@
             <tag> Commands </tag>
             
             <tag> Mac </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
+      <title>Linux下的常用指令</title>
+      <link href="/2018/01/01/commands-linux/"/>
+      <url>/2018/01/01/commands-linux/</url>
+      
+        <content type="html"><![CDATA[<h3 id="CPU相关"><a href="#CPU相关" class="headerlink" title="CPU相关"></a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 查看CPU物理核心</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;physical id&#x27;</span> | <span class="built_in">sort</span> -u | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看CPU核心总数</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;cpu cores&#x27;</span> | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看逻辑CPU</span></span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep <span class="string">&#x27;processor&#x27;</span> | <span class="built_in">wc</span> -l</span><br><span class="line"><span class="comment"># 查看指定进程的线程情况</span></span><br><span class="line">ps -mp 8463 -o THREAD,tid,time</span><br><span class="line"><span class="comment"># 查看进程的线程CPU占用</span></span><br><span class="line">top -H -p 32286</span><br></pre></td></tr></table></figure><h3 id="内存相关"><a href="#内存相关" class="headerlink" title="内存相关"></a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 释放页面缓存</span></span><br><span class="line"><span class="built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"><span class="comment"># 释放页面缓存、目录缓存、文件缓存</span></span><br><span class="line"><span class="built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看是否开启内存大页</span></span><br><span class="line"><span class="built_in">cat</span> /proc/meminfo | grep <span class="string">&#x27;Huge&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 关闭透明大页</span></span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line"><span class="built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag&#x27;</span> &gt;&gt; /etc/rc.d/rc.local</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled&#x27;</span> &gt;&gt; /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure><h3 id="Docker相关"><a href="#Docker相关" class="headerlink" title="Docker相关"></a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 清理无用的容器</span></span><br><span class="line">docker system prune</span><br></pre></td></tr></table></figure><h3 id=""><a href="#" class="headerlink" title=""></a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Linux </tag>
+            
+            <tag> Commands </tag>
             
         </tags>
       
@@ -1723,6 +1742,27 @@
     
     
     <entry>
+      <title>初次使用Servlet-JSP笔记-1</title>
+      <link href="/2016/11/29/jsp-1/"/>
+      <url>/2016/11/29/jsp-1/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一、环境"><a href="#一、环境" class="headerlink" title="一、环境"></a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二、课堂学习目标"><a href="#二、课堂学习目标" class="headerlink" title="二、课堂学习目标"></a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent&#x2F;WEB-INF&#x2F;web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三、开始"><a href="#三、开始" class="headerlink" title="三、开始"></a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent&#x2F;WEB-INF&#x2F;web.xml文件。</p><p><img src="/assets/images/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project" loading="lazy"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="/assets/images/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet" loading="lazy"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="/assets/images/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp" loading="lazy"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择”源码”,然后选择”覆盖&#x2F;实现方法”中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="/assets/images/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java" loading="lazy"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a href="#题外话：什么是web-xml文件？" class="headerlink" title="题外话：什么是web.xml文件？"></a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。 </p><h1 id="继续"><a href="#继续" class="headerlink" title="继续"></a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为”servlet所属包名.servlet的类名”，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的&#x2F;Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为&#x2F;*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet&#x2F; 过滤器 &#x2F; 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="/assets/images/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version" loading="lazy"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="/assets/images/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2" loading="lazy"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Notes </tag>
+            
+            <tag> JSP </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
       <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
       <link href="/2016/11/29/jsp-2/"/>
       <url>/2016/11/29/jsp-2/</url>
@@ -1738,27 +1778,6 @@
             <tag> JSP </tag>
             
             <tag> Campus </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    
-    
-    <entry>
-      <title>初次使用Servlet-JSP笔记-1</title>
-      <link href="/2016/11/29/jsp-1/"/>
-      <url>/2016/11/29/jsp-1/</url>
-      
-        <content type="html"><![CDATA[<h2 id="一、环境"><a href="#一、环境" class="headerlink" title="一、环境"></a>一、环境</h2><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h2 id="二、课堂学习目标"><a href="#二、课堂学习目标" class="headerlink" title="二、课堂学习目标"></a>二、课堂学习目标</h2><p>了解servlet的虚拟路径使用方法，这里具体讲解使用Eclipse的servlet3.0之前的版本(使用servlet2.5版本)中关于WebContent&#x2F;WEB-INF&#x2F;web.xml的使用方法以及servlet3.0及之后的版本的虚拟路径使用方法。</p><h2 id="三、开始"><a href="#三、开始" class="headerlink" title="三、开始"></a>三、开始</h2><blockquote><p>测试一：利用servlet3.0之前的版本进行测试</p></blockquote><p>利用Eclipse新建一个Dynamin Web Project,调用安装的Apache Tomcat V8.0版本，然后选择2.5的servlet版本，该IDE会自动新建一个WebContent&#x2F;WEB-INF&#x2F;web.xml文件。</p><p><img src="/assets/images/006qpCDTjw1fa8yo0l2hnj30hy0jmmy9.jpg" alt="New Dynamic Web Project" loading="lazy"></p><p>之后我们新建两个servlet，一个直接全部使用默认设置，另一个我们点击下一步后不使用默认自带的doPost()和doGet()方法。</p><p><img src="/assets/images/006qpCDTjw1fa8ytojjcyj30e60e7wf1.jpg" alt="Create Servlet" loading="lazy"></p><p>新建一个index.jsp文件后，软件视图如图所示：</p><p><img src="/assets/images/006qpCDTjw1fa8z11vt9wj311q0k1gog.jpg" alt="index.jsp" loading="lazy"></p><p>因为本次我们需要利用servlet配置虚拟路径，所以我们直接利用未初始化重写方法doPost()和doGet()的Servlet_2.java进行操作，在Servlet_2.java中的Servlet_2类中空白处点击右键，选择”源码”,然后选择”覆盖&#x2F;实现方法”中选择对应的doGet()，然后我们进行重写操作，输出一行数据。</p><p><img src="/assets/images/006qpCDTjw1fa8z899s4gj30rb0brt9h.jpg" alt="Servlet2.java" loading="lazy"></p><p>然后我们就需要修改web.xml文件进行虚拟路径的部署，这里由于我们提到了web.xml文件，所以，我们需要介绍一下什么是web.xml文件。</p><h1 id="题外话：什么是web-xml文件？"><a href="#题外话：什么是web-xml文件？" class="headerlink" title="题外话：什么是web.xml文件？"></a>题外话：什么是web.xml文件？</h1><p>web.xml文件可以简单的理解成servlet的一个配置文件,通过这个配置文件来寻找对应的servlet处理业务。配置web.xml的目的就是让容器知道你的请求是由那个servlet处理，然后把httprequest和httpresponse对象注入到该servlet中。一个web.xml中当然可以存在多个servlet规则，具体的使用方法下面将进行介绍。</p><p>需要注意的是，所有部署描述符文件的顶层（根）元素为web-app。而XML元素不像HTML，他们是大小写敏感的。因此，web-App和WEB-APP都是不合法的，web-app必须用小写。 </p><h1 id="继续"><a href="#继续" class="headerlink" title="继续"></a>继续</h1><p>web.xml中配置映射servlet的规则十分简单，如下列代码所示：</p><figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">&lt;servlet&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;servlet-class&gt;com.bugwz.servlet.Servlet_2&lt;/servlet-class&gt;</span><br><span class="line">  &lt;/servlet&gt;</span><br><span class="line">  &lt;servlet-mapping&gt;</span><br><span class="line">    &lt;servlet-name&gt;Servlet_2&lt;/servlet-name&gt;</span><br><span class="line">    &lt;url-pattern&gt;/Servlet_2&lt;/url-pattern&gt;</span><br><span class="line">  &lt;/servlet-mapping&gt;</span><br></pre></td></tr></table></figure><p>如果你使用的servlet的版本是3.0之前的版本，如果你想要成功映射的话，你必须将这些代码(上面的代码是必须的，最简化)正确的在web.xml文件的web-app标签中书写，上述代码具体讲解如下：</p><ol><li>servlet标签</li></ol><ul><li>servlet-name标签内的信息对应servlet-mapping标签内的servlet-name的标签内的信息，推荐其内的信息与servlet的类名相同。</li><li>servlet-class标签内的信息为映射对象的信息，具体格式为”servlet所属包名.servlet的类名”，这样才能找到具体的类，并执行。</li></ul><ol start="2"><li>servlet-mapping标签</li></ol><ul><li>servlet-name标签内的信息内容上面已经说了。</li><li>url-pattern标签内的信息为该项目下的虚拟路径，也就是说项目下的&#x2F;Servlet_2就会展示类Servlet_2中的信息，这里的虚拟路径可以根据需求修改。实践可知，url-pattern中信息若为&#x2F;*，则该项目的所有子栏目，全部指向该处对应的类，是否可以通过某种方式存放正则表达式待考证。</li></ul><ol start="3"><li>执行过程为，根据servlet-mapping标签的子标签url-pattern的虚拟路径，按照servlet-mapping标签内的子标签servlet-name的信息，去寻找servlet标签中的子标签servlet-name中相同的信息，然后展示对应的servlet-class标签中的类中的可展示内容。</li></ol><blockquote><p>测试二：利用servlet3.0及其之后的版本进行测试</p></blockquote><p>这里需要说明的是如果你的项目目前使用的是servlet3.0及之后的版本，那么你的项目中不会直接创建web.xml，servlet3.0 及之后的版本中新增的注解支持简化了 Servlet&#x2F; 过滤器 &#x2F; 监听器的声明，从而使得 web.xml 变为可选配置。这里我们使用servlet3.1版本，目前最新的版本。</p><p><img src="/assets/images/006qpCDTjw1fa90a1a2m7j30hu0jjq46.jpg" alt="New Dynamic Web Project - Version" loading="lazy"></p><p>我们依次新建两个<code>Servlet_1.java</code>和<code>Servlet_2.java</code>，然后我们会发现在新建的servlet中带了下面这一行代码，如下图所示：</p><p><code>@WebServlet(&quot;/Servlet_2&quot;)</code></p><p><img src="/assets/images/006qpCDTjw1fa90hj12e6j30su0d9mye.jpg" alt="Servlet_2" loading="lazy"></p><p>上面那一行代码其实就充当了web.xml中的定义的虚拟路径的那几行代码的功能，因此servlet3.0及之后的版本简化了代码的书写量，更加简单易用。</p>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Notes </tag>
-            
-            <tag> JSP </tag>
             
         </tags>
       
