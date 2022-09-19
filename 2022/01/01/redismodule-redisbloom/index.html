@@ -24,25 +24,18 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <ul>
 <li>官网：<a target="_blank" rel="noopener" href="https://redisbloom.io/">https://redisbloom.io/</a></li>
 <li>GitHub 地址：<a target="_blank" rel="noopener" href="https://github.com/RedisBloom/RedisBloom">https://github.com/RedisBloom/RedisBloom</a></li>
-<li>命令文档地址：<a target="_blank" rel="noopener" href="https://redis.io/docs/stack/bloom/">https://redis.io/docs/stack/bloom/</a><ul>
-<li>BloomFilter (布隆过滤器)：<a target="_blank" rel="noopener" href="https://redis.io/commands/bf.add/">https://redis.io/commands/bf.add/</a></li>
-<li>CuckooFilter (布谷鸟过滤器)：<a target="_blank" rel="noopener" href="https://redis.io/commands/cf.add/">https://redis.io/commands/cf.add/</a></li>
-<li>Count-Min Sketch (最小计数草图)：<a target="_blank" rel="noopener" href="https://redis.io/commands/cms.incrby/">https://redis.io/commands/cms.incrby/</a></li>
-<li>T-Digest (近似百分位)：<a target="_blank" rel="noopener" href="https://redis.io/commands/tdigest.add/">https://redis.io/commands/tdigest.add/</a></li>
-<li>TopK ：<a target="_blank" rel="noopener" href="https://redis.io/commands/topk.add/">https://redis.io/commands/topk.add/</a></li>
-</ul>
-</li>
+<li>命令文档地址：<a target="_blank" rel="noopener" href="https://redis.io/docs/stack/bloom/">https://redis.io/docs/stack/bloom/</a></li>
 <li>支持功能：<ul>
-<li>可扩展的 BloomFilter (布隆过滤器) ： 用于确定一个元素是否存在于一个集群中；</li>
-<li>可扩展的 CuckooFilter (布谷鸟过滤器) ： 用于确定一个元素是否存在于一个集合中；</li>
-<li>Count-Min Sketch (最小计数草图) ： 用于估计一个数据的出现次数；</li>
-<li>T-Digest (近似百分位) ：</li>
-<li>TopK ： 维护了 k 个最常见项目的列表；</li>
+<li><a target="_blank" rel="noopener" href="https://redis.io/commands/bf.add/">可扩展的 BloomFilter (布隆过滤器) </a>： 用于确定一个元素是否存在于一个集群中；</li>
+<li><a target="_blank" rel="noopener" href="https://redis.io/commands/cf.add/">可扩展的 CuckooFilter (布谷鸟过滤器)</a> ： 用于确定一个元素是否存在于一个集合中；</li>
+<li><a target="_blank" rel="noopener" href="https://redis.io/commands/cms.incrby/">Count-Min Sketch (最小计数草图)</a> ： 用于估计一个数据的出现次数；</li>
+<li><a target="_blank" rel="noopener" href="https://redis.io/commands/tdigest.add/">T-Digest</a> (近似百分位) ：</li>
+<li><a target="_blank" rel="noopener" href="https://redis.io/commands/topk.add/">TopK</a> ： 维护了 k 个最常见项目的列表；</li>
 </ul>
 </li>
 </ul>
-<h2 id="二、可扩展的-BloomFilter-布隆过滤器"><a href="#二、可扩展的-BloomFilter-布隆过滤器" class="headerlink" title="二、可扩展的 BloomFilter (布隆过滤器)"></a>二、可扩展的 BloomFilter (布隆过滤器)</h2><p>社区在实现可扩展的 BloomFilter 的时候应该参考了论文： <a target="_blank" rel="noopener" href="https://haslab.uminho.pt/cbm/files/dbloom.pdf?spm=a2c4g.11186623.0.0.5a5d7e53oDkkj8&file=dbloom.pdf">《Scalable Bloom Filters》</a> ，这篇论文的翻译稿： <a href=""></a></p>
-<p>RedisBloom 通过将单个的数据表分散到多个数据表中，从而实现了一种可扩展数据表的布隆过滤器，虽然这种方式</p>
+<h2 id="二、可扩展的-BloomFilter-布隆过滤器"><a href="#二、可扩展的-BloomFilter-布隆过滤器" class="headerlink" title="二、可扩展的 BloomFilter (布隆过滤器)"></a>二、可扩展的 BloomFilter (布隆过滤器)</h2><p>社区在实现可扩展的 BloomFilter 的时候应该参考了论文： <a target="_blank" rel="noopener" href="https://haslab.uminho.pt/cbm/files/dbloom.pdf?spm=a2c4g.11186623.0.0.5a5d7e53oDkkj8&file=dbloom.pdf">《Scalable Bloom Filters》</a> ，这篇论文的翻译稿： </p>
+<p>RedisBloom 通过将单个的数据表分散到多个数据表中，从而实现了一种可扩展数据表的布隆过滤器，虽然这种方式使用较为灵活，不受限于初始容量的约束，但是动态的申请多个子布隆过滤器会导致内存的增长比较严重，要这种方式就要在灵活以及内存间做一些取舍。</p>
 <h3 id="2-1、相关命令"><a href="#2-1、相关命令" class="headerlink" title="2.1、相关命令"></a>2.1、相关命令</h3><p>以下命令仅参考当时的最新的代码，详细的准确命令请参考 <a target="_blank" rel="noopener" href="https://redis.io/commands/bf.add/">社区命令文档地址</a> 。</p>
 <ul>
 <li>bf.add : 向目标布隆过滤器中添加一个元素；</li>
