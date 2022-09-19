@@ -171,7 +171,7 @@ table td {
   margin: 1rem 0;
   padding: 0;
   padding-top: 1.4rem;
-  background: #212121;
+  background: #080808;
   color: #eff;
   font-size: 16px;
   line-height: 20px;
@@ -214,7 +214,7 @@ blockquote {
   z-index: 0;
   min-width: 100%;
   height: 1.4rem;
-  background: #141414;
+  background: #000;
   content: "";
 }
 .article-container .highlight pre {
@@ -247,7 +247,7 @@ blockquote {
   z-index: 0;
   width: 100%;
   height: 1.4rem;
-  background: #141414;
+  background: #000;
   content: "";
 }
 .article-container .highlight td {
@@ -302,7 +302,7 @@ blockquote {
 .article-container .highlight .gutter pre {
   padding-right: 0.5rem;
   padding-left: 0.5rem;
-  background-color: #212121;
+  background-color: #080808;
   color: #424242;
   text-align: right;
 }
@@ -310,7 +310,7 @@ blockquote {
   padding-right: 0.5rem;
   padding-left: 0.5rem;
   width: 100%;
-  background-color: #212121;
+  background-color: #080808;
 }
 .article-container .highlight .line {
   height: 1rem;
@@ -340,7 +340,7 @@ blockquote {
   color: #c792ea;
 }
 .article-container pre .comment {
-  color: #4a4a4a;
+  color: #5c98cd;
 }
 .article-container pre .comment::selection {
   background: rgba(97,97,97,0.314);
@@ -1499,7 +1499,7 @@ a.fancybox:focus {
   top: 0;
   right: 0;
   z-index: 1;
-  background: #141414;
+  background: #000;
   color: #89ddff;
   opacity: 0;
   -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=0)";
