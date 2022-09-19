@@ -1350,8 +1350,8 @@ footer.is-mobile {
 }
 #content-inner ol,
 #content-inner ul {
-  margin-top: 0.4rem;
-  padding: 0 0 0 0.8rem;
+  margin-top: 0rem;
+  padding: 0 0 0 0rem;
   list-style: none;
   counter-reset: li;
 }
@@ -1363,7 +1363,7 @@ footer.is-mobile {
 #content-inner ul ol,
 #content-inner ol ul,
 #content-inner ul ul {
-  padding-left: 0.5rem;
+  padding-left: 0rem;
 }
 #content-inner ol li,
 #content-inner ul li {
@@ -1394,15 +1394,15 @@ footer.is-mobile {
   transition: all 0.3s ease-out;
 }
 #content-inner ol > li:before {
-  margin-top: 0.2rem;
-  width: 1.2rem;
-  height: 1.2rem;
-  border-radius: 0.6rem;
+  margin-top: 0.3rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 0.55rem;
   content: counter(li);
   counter-increment: li;
   text-align: center;
   font-size: 0.6rem;
-  line-height: 1.2rem;
+  line-height: 1.1rem;
 }
 #content-inner ul > li:hover:before {
   border-color: #ff7242;
