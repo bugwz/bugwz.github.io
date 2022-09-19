@@ -1780,6 +1780,7 @@ a.fancybox:focus {
   font-size: 18px;
 }
 #sidebar .sidebar-toc .toc-link {
+  font-size: 14px;
   display: block;
   padding-left: 0.2rem;
   border-right: 3px solid transparent;
