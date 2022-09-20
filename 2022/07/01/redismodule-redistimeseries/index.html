@@ -1,0 +1,298 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="RedisModule剖析 - RedisTimeSeries"><meta name="keywords" content="RedisModule,TimeSeries"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>RedisModule剖析 - RedisTimeSeries | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/gitalk/dist/gitalk.min.css"><script src="https://cdn.jsdelivr.net/npm/gitalk@latest/dist/gitalk.min.js"></script><script src="https://cdn.jsdelivr.net/npm/blueimp-md5@2.10.0/js/md5.min.js"></script><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"We didn't find any results for the search: ${query}"}},
+  copy: {
+    success: 'Copy successfully',
+    error: 'Copy error',
+    noSupport: 'The browser does not support'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="false"><div class="toggle-sidebar-info text-center"><span data-toggle="Toggle article">Toggle site</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">Catalog</div><div class="sidebar-toc__progress"><span class="progress-notice">You've read</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E7%AE%80%E4%BB%8B"><span class="toc-text">一、简介</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1"><span class="toc-text">二、架构设计</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1%E3%80%81%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5"><span class="toc-text">2.1、基础概念</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2%E3%80%81%E7%9B%B8%E5%85%B3%E5%91%BD%E4%BB%A4"><span class="toc-text">2.2、相关命令</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3%E3%80%81%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84"><span class="toc-text">2.3、数据结构</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#2-3-1%E3%80%81%E6%97%B6%E5%BA%8F%E4%B8%BB%E4%BD%93%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84"><span class="toc-text">2.3.1、时序主体数据结构</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-3-2%E3%80%81%E6%97%B6%E5%BA%8F%E4%BA%8C%E7%BA%A7%E7%B4%A2%E5%BC%95%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84"><span class="toc-text">2.3.2、时序二级索引数据结构</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4%E3%80%81%E6%8C%81%E4%B9%85%E5%8C%96"><span class="toc-text">2.4、持久化</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#2-4-1%E3%80%81RDB%E7%9A%84%E6%8C%81%E4%B9%85%E5%8C%96"><span class="toc-text">2.4.1、RDB的持久化</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-4-2%E3%80%81AOF%E7%9A%84%E6%8C%81%E4%B9%85%E5%8C%96"><span class="toc-text">2.4.2、AOF的持久化</span></a></li></ol></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%8A%9F%E8%83%BD%E8%AE%BE%E8%AE%A1"><span class="toc-text">三、功能设计</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1%E3%80%81%E6%95%B0%E6%8D%AE%E5%8E%8B%E7%BC%A9"><span class="toc-text">3.1、数据压缩</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#3-1-1%E3%80%81%E6%A0%B7%E6%9C%AC%E6%97%B6%E9%97%B4%E6%95%B0%E6%8D%AE%E5%8E%8B%E7%BC%A9"><span class="toc-text">3.1.1、样本时间数据压缩</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-1-2%E3%80%81%E6%A0%B7%E6%9C%AC%E5%80%BC%E6%95%B0%E6%8D%AE%E5%8E%8B%E7%BC%A9"><span class="toc-text">3.1.2、样本值数据压缩</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2%E3%80%81%E4%BA%8C%E7%BA%A7%E7%B4%A2%E5%BC%95"><span class="toc-text">3.2、二级索引</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#3-2-1%E3%80%81%E7%B4%A2%E5%BC%95%E5%8F%98%E5%8A%A8"><span class="toc-text">3.2.1、索引变动</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-2-2%E3%80%81%E7%B4%A2%E5%BC%95%E6%9F%A5%E8%AF%A2"><span class="toc-text">3.2.2、索引查询</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3%E3%80%81%E6%8F%92%E5%80%BC%E5%8F%98%E6%9B%B4"><span class="toc-text">3.3、插值变更</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#3-3-1%E3%80%81%E6%8F%92%E5%80%BC%E5%8F%98%E6%9B%B4%E7%AD%96%E7%95%A5"><span class="toc-text">3.3.1、插值变更策略</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-3-2%E3%80%81%E6%8F%92%E5%80%BC%E5%8F%98%E6%9B%B4%E4%BC%98%E5%85%88%E7%BA%A7"><span class="toc-text">3.3.2、插值变更优先级</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-3-3%E3%80%81%E6%8F%92%E5%80%BC%E5%8F%98%E6%9B%B4%E5%AE%9E%E7%8E%B0"><span class="toc-text">3.3.3、插值变更实现</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4%E3%80%81%E9%99%8D%E9%87%87%E6%A0%B7%EF%BC%88%E6%95%B0%E6%8D%AE%E5%8E%8B%E7%BC%A9%EF%BC%89"><span class="toc-text">3.4、降采样（数据压缩）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5%E3%80%81%E8%81%9A%E5%90%88%E6%9F%A5%E8%AF%A2"><span class="toc-text">3.5、聚合查询</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%AF%B9%E6%AF%94%E4%B8%8E%E6%80%9D%E8%80%83"><span class="toc-text">四、对比与思考</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1%E3%80%81RedisTimeSeries%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98"><span class="toc-text">4.1、RedisTimeSeries的一些问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1%E3%80%81TairTS%E5%AF%B9%E6%AF%94"><span class="toc-text">4.1、TairTS对比</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2%E3%80%81Redis%E6%97%B6%E5%BA%8F%E6%A8%A1%E5%9E%8B%E5%AD%98%E5%9C%A8%E7%9A%84%E6%84%8F%E4%B9%89"><span class="toc-text">4.2、Redis时序模型存在的意义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E7%9B%B8%E5%85%B3%E9%93%BE%E6%8E%A5"><span class="toc-text">五、相关链接</span></a></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="/assets/images/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">Articles</span><span class="pull-right">97</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">Tags</span><span class="pull-right">95</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/redis.png)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">Home</a><a class="site-page" href="/archives">Archives</a><a class="site-page" href="/tags">Tags</a><a class="site-page" href="/categories">Categories</a></span></div><div id="post-info"><div id="post-title">RedisModule剖析 - RedisTimeSeries</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2022-07-01</time></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h2 id="一、简介"><a href="#一、简介" class="headerlink" title="一、简介"></a>一、简介</h2><p><code>RedisTimeSeries</code> 是一款基于 <code>RedisModule</code> 实现的时序数据库模块，提供了基础的时序操作功能，包括不限于聚合查询，范围查询，保留周期，降采样（数据压缩），插值变更，二级索引等。由于数据存储于内存中，因此提供了高性能读写访问能力，但同时也受限于内存存储，可能并不适合用在极大数据量的时序场景中。考虑到身靠着Redis生态这棵大树，也许能够和Redis生态的众多组件碰撞出有趣的火花。</p>
+<ul>
+<li>官网：<a target="_blank" rel="noopener" href="https://redis.io/docs/stack/timeseries/">https://redis.io/docs/stack/timeseries/</a></li>
+<li>GitHub 地址：<a target="_blank" rel="noopener" href="https://github.com/RedisTimeSeries/RedisTimeSeries">https://github.com/RedisTimeSeries/RedisTimeSeries</a></li>
+<li>命令文档地址：<a target="_blank" rel="noopener" href="https://redis.io/commands/ts.add/">https://redis.io/commands/ts.add/</a></li>
+<li>支持功能：<ul>
+<li>大容量插入，低延迟读取；</li>
+<li>按开始时间和结束时间查询；</li>
+<li>任何时间桶的聚合查询（ Min 、 Max 、 Avg 、 Sum 、 Range 、 Count 、 First 、 Last 、 STD.P 、 STD.S 、 Var.P 、 Var.S 、 twa ）；</li>
+<li>可配置的最长保留期；</li>
+<li>压缩 - 自动更新的聚合时间序列；</li>
+<li>二级索引 - 每个时间序列都有标签（名称-值对），允许按标签查询；</li>
+</ul>
+</li>
+</ul>
+<h2 id="二、架构设计"><a href="#二、架构设计" class="headerlink" title="二、架构设计"></a>二、架构设计</h2><h3 id="2-1、基础概念"><a href="#2-1、基础概念" class="headerlink" title="2.1、基础概念"></a>2.1、基础概念</h3><ul>
+<li><code>sample</code>：样本数据，一个样本数据包含一个 <code>样本时间（int64）</code> 和一个 <code>样本值（double）</code>；</li>
+<li><code>chunk</code>：每个 <code>chunk</code> 中会存储一批的样本数据（连续时间戳的样本数据），随着数据的写入，一个时序类型中会包含多个 <code>chunk</code>；<ul>
+<li><code>非压缩模式</code>：<code>chunk</code> 使用数组来存储样本（插值的时候会进行数组的移动）；</li>
+<li><code>压缩模式</code>：<code>chunk</code> 使用 <code>Delta-Of-Delta</code> 和 <code>XOR</code> 压缩编码存储数据（插值的时候会进行 <code>chunk</code> 拆分）；</li>
+</ul>
+</li>
+<li><code>label</code>：标签，会依据标签创建二次索引，以便于快速查询到指定标签的 <code>key</code> 的信息；</li>
+<li><code>rule</code>：数据聚集的规则，在插入样本的时候会按照指定的规则将数据聚合到特定的 <code>key</code> 中，用于支持数据的降采样；</li>
+</ul>
+<h3 id="2-2、相关命令"><a href="#2-2、相关命令" class="headerlink" title="2.2、相关命令"></a>2.2、相关命令</h3><ul>
+<li>ts.create : 创建一个新的时间序列；</li>
+<li>ts.createrule : 创建一个新的时间序列压缩规则；</li>
+<li>ts.add : 添加一个时间样本到对应的时间序列中；</li>
+<li>ts.madd : 添加一个或多个时间样本到对应的时间序列中；</li>
+<li>ts.get : 从时间序列中获取最新的一个时间样本数据；</li>
+<li>ts.mget : 从符合条件的多个时间序列中获取最新的一个时间样本数据；</li>
+<li>ts.alter : 更新现有时间序列的保留时间、块大小、时间样本重复策略以及标签信息；</li>
+<li>ts.incrby : 更新指定时间序列中最新的时间样本的值，如果不存在则新增对应时间样本；</li>
+<li>ts.decrby : 更新指定时间序列中最新的时间样本的值，如果不存在则新增对应时间样本；</li>
+<li>ts.del : 删除指定范围内的时间序列中的时间样本数据；</li>
+<li>ts.deleterule : 删除一个时间序列压缩规则；</li>
+<li>ts.range : 从一个时间序列中查询范围区间的时间样本数据，按照时间戳从老到新查询；</li>
+<li>ts.revrange :  从一个时间序列中查询范围区间的时间样本数据，按照时间戳从新到老查询；</li>
+<li>ts.mrange : 从符合条件的多个时间序列中查询指定时间区间的时间样本数据，按照时间戳从老到新查询；</li>
+<li>ts.mrevrange : 从符合条件的多个时间序列中查询指定时间区间的时间样本数据，按照时间戳从新到老查询；</li>
+<li>ts.queryindex : 查询所有符合条件的时间序列的信息；</li>
+<li>ts.info : 查询指定时间序列的信息；</li>
+</ul>
+<h3 id="2-3、数据结构"><a href="#2-3、数据结构" class="headerlink" title="2.3、数据结构"></a>2.3、数据结构</h3><h4 id="2-3-1、时序主体数据结构"><a href="#2-3-1、时序主体数据结构" class="headerlink" title="2.3.1、时序主体数据结构"></a>2.3.1、时序主体数据结构</h4><p><img src="/assets/images/redistimeseries-mainstruct.png" alt="时序主体数据结构" loading="lazy"></p>
+<p>一个时间序列数据的存储结构主要由以下几个部分组成：</p>
+<ul>
+<li><code>Rules</code> : <ul>
+<li>含义 : 时间序列的数据压缩规则，记录了当前时间序列数据的所有的数据压缩规则，并在数据写入的过程中逐步进行数据压缩；</li>
+<li>格式 : 链表；</li>
+</ul>
+</li>
+<li><code>Labels</code> :<ul>
+<li>含义 : 时间序列的标签信息，记录了当前时间序列数据的所有标签信息，以便于后续进行索引查询；</li>
+<li>格式 : 数组；</li>
+</ul>
+</li>
+<li><code>Chunks</code> :<ul>
+<li>含义 : 时间序列的样本数据信息，内部记录了当前时间序列的所有样本数据，便于后续的数据分析与查询；</li>
+<li>格式 : 基数树；</li>
+<li>类别 : 压缩格式（样本数据存储经过 <code>Delta-Of-Delta</code> 和 <code>XOR</code> 压缩） 和 非压缩格式（直接存储原始样本数据）；</li>
+</ul>
+</li>
+<li>其他成员变量信息；</li>
+</ul>
+<figure class="highlight c++"><table><tr><td class="code"><pre><span class="line"><span class="comment">// 时序数据的结构体</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="keyword">struct</span> <span class="title class_">Series</span> &#123;</span><br><span class="line">    RedisModuleDict *chunks;             <span class="comment">// 记录所有的桶列表</span></span><br><span class="line">    <span class="type">void</span> *lastChunk;                     <span class="comment">// 记录当前指向的最新的桶</span></span><br><span class="line">    <span class="type">uint64_t</span> retentionTime;              <span class="comment">// 时间样本的保留时间，单位与时间样本的时间戳保持一致，默认都为毫秒</span></span><br><span class="line">    <span class="type">long</span> <span class="type">long</span> chunkSizeBytes;            <span class="comment">// 每个桶的大小，单位字节</span></span><br><span class="line">    <span class="type">short</span> options;                       <span class="comment">// 时序数据的配置信息</span></span><br><span class="line">    CompactionRule *rules;               <span class="comment">// 当前时间序列的压缩数据规则</span></span><br><span class="line">    <span class="type">timestamp_t</span> lastTimestamp;           <span class="comment">// 上一次写入的时间样本的时间戳</span></span><br><span class="line">    <span class="type">double</span> lastValue;                    <span class="comment">// 上一次写入的时间样本的值</span></span><br><span class="line">    Label *labels;                       <span class="comment">// 当前时间序列数据的标签数组</span></span><br><span class="line">    RedisModuleString *keyName;          <span class="comment">// 时序key的名称，用户指定</span></span><br><span class="line">    <span class="type">size_t</span> labelsCount;                  <span class="comment">// 标签的计数</span></span><br><span class="line">    RedisModuleString *srcKey;           <span class="comment">// 如果当前 key 是一个存储压缩时间序列数据的 key，那么srcKey指向原始的时间序列</span></span><br><span class="line">    <span class="type">const</span> ChunkFuncs *funcs;             <span class="comment">// 操作桶的函数指针</span></span><br><span class="line">    <span class="type">size_t</span> totalSamples;                 <span class="comment">// 所有时间样本数量和</span></span><br><span class="line">    DuplicatePolicy duplicatePolicy;     <span class="comment">// 处理重复时间样本时的策略</span></span><br><span class="line">&#125; Series;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 压缩时序数据的压缩规则的结构体</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="keyword">struct</span> <span class="title class_">CompactionRule</span> &#123;</span><br><span class="line">    RedisModuleString *destKey;          <span class="comment">// 压缩时间序列数据的目标 key</span></span><br><span class="line">    <span class="type">timestamp_t</span> bucketDuration;          <span class="comment">// 每个桶的间隔时间，以毫秒为单位</span></span><br><span class="line">    <span class="type">timestamp_t</span> timestampAlignment;      <span class="comment">// 对齐的时间戳，是一个时间点，后续每个对齐都以该时间点为起始位置点，毫秒为单位</span></span><br><span class="line">    AggregationClass *aggClass;          <span class="comment">// 聚合类型相关的函数指针</span></span><br><span class="line">    TS_AGG_TYPES_T aggType;              <span class="comment">// 聚合类型</span></span><br><span class="line">    <span class="type">void</span> *aggContext;                    <span class="comment">// 聚合数据的上下文信息</span></span><br><span class="line">    <span class="keyword">struct</span> <span class="title class_">CompactionRule</span> *nextRule;     <span class="comment">// 下一个压缩时间序列数据规则的信息</span></span><br><span class="line">    <span class="type">timestamp_t</span> startCurrentTimeBucket;  <span class="comment">// 依据不同的时间样本的时间对齐规则，每个桶的初始时间有所不同</span></span><br><span class="line">&#125; CompactionRule;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 标签的结构体</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="keyword">struct</span> &#123;</span><br><span class="line">    RedisModuleString *key;              <span class="comment">// 标签的名称</span></span><br><span class="line">    RedisModuleString *value;            <span class="comment">// 标签的值</span></span><br><span class="line">&#125; Label;</span><br></pre></td></tr></table></figure>
+
+<h4 id="2-3-2、时序二级索引数据结构"><a href="#2-3-2、时序二级索引数据结构" class="headerlink" title="2.3.2、时序二级索引数据结构"></a>2.3.2、时序二级索引数据结构</h4><p><img src="/assets/images/redistimeseries-indexstruct.png" alt="时序二级索引数据结构" loading="lazy"></p>
+<p>为了便于查询指定特征的时间序列，通过二级索引的方式保存了标签与时间序列的映射关系，主要的存储结构如下：</p>
+<ul>
+<li><code>labelsIndex</code> :<ul>
+<li>含义 : 记录 <code>标签名 + 值</code> 与 <code>时间序列</code> 的映射关系；</li>
+<li>格式 : 基数树；</li>
+</ul>
+</li>
+<li><code>tsLabelIndex</code> :<ul>
+<li>含义 : 记录 <code>标签名</code> 与 <code>时间序列</code> 的映射关系；</li>
+<li>格式 : 基数树；</li>
+</ul>
+</li>
+</ul>
+<figure class="highlight c++"><table><tr><td class="code"><pre><span class="line"><span class="comment">// 初始化创建两个基数树</span></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">IndexInit</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    labelsIndex = <span class="built_in">RedisModule_CreateDict</span>(<span class="literal">NULL</span>);</span><br><span class="line">    tsLabelIndex = <span class="built_in">RedisModule_CreateDict</span>(<span class="literal">NULL</span>);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// RedisModule的创建基数树的函数</span></span><br><span class="line"><span class="function">RedisModuleDict *<span class="title">RM_CreateDict</span><span class="params">(RedisModuleCtx *ctx)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">struct</span> <span class="title class_">RedisModuleDict</span> *d = <span class="built_in">zmalloc</span>(<span class="built_in">sizeof</span>(*d));</span><br><span class="line">    d-&gt;rax = <span class="built_in">raxNew</span>();</span><br><span class="line">    <span class="keyword">if</span> (ctx != <span class="literal">NULL</span>) <span class="built_in">autoMemoryAdd</span>(ctx,REDISMODULE_AM_DICT,d);</span><br><span class="line">    <span class="keyword">return</span> d;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-4、持久化"><a href="#2-4、持久化" class="headerlink" title="2.4、持久化"></a>2.4、持久化</h3><h4 id="2-4-1、RDB的持久化"><a href="#2-4-1、RDB的持久化" class="headerlink" title="2.4.1、RDB的持久化"></a>2.4.1、RDB的持久化</h4><p>RDB 的存储过程比较简单，直接把对应结构体的所有信息持久化到 RDB 文件中，一个时序数据的存储流程如下：</p>
+<ul>
+<li>存储时序数据的元信息：<ul>
+<li>存储时序数据的基础信息（包括时序数据的名称，数据保留时间，每个桶的大小，最新的时间样本数据，样本总数，重复样本策略等）；</li>
+<li>存储时序数据的标签信息（包括多个标签的名称及其值）；</li>
+<li>存储时序数据的压缩规则信息（包括多个压缩规则的名称，压缩类型等）；</li>
+</ul>
+</li>
+<li>存储时序数据的数据信息：<ul>
+<li>每个桶中存储的数据（压缩或者非压缩）信息；</li>
+</ul>
+</li>
+</ul>
+<h4 id="2-4-2、AOF的持久化"><a href="#2-4-2、AOF的持久化" class="headerlink" title="2.4.2、AOF的持久化"></a>2.4.2、AOF的持久化</h4><p>AOF 的存储过程没有使用自定义的命令，而直接使用了 <code>RESTORE</code> 命令进行持久化，这种方式直接将整个时序数据作为一个命令存储起来，因此在读取的时候可能受限于 <code>proto-max-bulk-len</code> 参数的大小（默认为 <code>1MB</code> ）而导致加载数据失败；</p>
+<ul>
+<li>相关函数：<code>RMUtil_DefaultAofRewrite</code>；<ul>
+<li>依赖库：<a target="_blank" rel="noopener" href="https://github.com/RedisLabsModules/RedisModulesSDK">RedisModulesSDK</a></li>
+</ul>
+</li>
+<li>具体格式：<code>RESTORE key 0 buffer buffer_len</code> ；</li>
+</ul>
+<h2 id="三、功能设计"><a href="#三、功能设计" class="headerlink" title="三、功能设计"></a>三、功能设计</h2><h3 id="3-1、数据压缩"><a href="#3-1、数据压缩" class="headerlink" title="3.1、数据压缩"></a>3.1、数据压缩</h3><p>考虑到时序样本数据的特征，针对于样本数据的时间戳以及样本值信息，<code>RedisTimeSeries</code> 分别使用不同的压缩算法进行编码，这两种编码算法都来自于论文 <a target="_blank" rel="noopener" href="https://www.vldb.org/pvldb/vol8/p1816-teller.pdf">《Gorilla: A Fast, Scalable, In-Memory Time Series Database》</a> ，基本业界大部分的时序数据库的数据压缩算法都是借鉴了这篇论文中的方式。</p>
+<h4 id="3-1-1、样本时间数据压缩"><a href="#3-1-1、样本时间数据压缩" class="headerlink" title="3.1.1、样本时间数据压缩"></a>3.1.1、样本时间数据压缩</h4><p>针对于时序数据样本中的时间戳，其采用了 <code>Delta-Of-Delta</code> 的编码方式，Redis在实现的时候，时间范围区间相比于论文 <a target="_blank" rel="noopener" href="https://www.vldb.org/pvldb/vol8/p1816-teller.pdf">《Gorilla: A Fast, Scalable, In-Memory Time Series Database》</a> 中更加细化，使用七种时间范围区间来进行编码。</p>
+<ul>
+<li><code>Delta-Of-Delta</code> 中 <code>D</code> 定义：<code>D = (T(N) – T(N-1)) – (T(N-1) – T(N-2))</code></li>
+<li><code>D</code> 区间范围：<ul>
+<li><code>0</code> : 使用 <code>1个bit</code> 存储二进制 <code>0</code>，共 <code>1个bit</code>；</li>
+<li><code>[-15, 16]</code> : 使用 <code>2个bits</code> 存储二进制 <code>10</code> ，后面使用 <code>5个bits</code> 存储D值，共 <code>7个bits</code>；</li>
+<li><code>[-127, 128]</code> : 使用 <code>3个bits</code> 存储二进制 <code>110</code> ，后面使用 <code>8个bits</code> 存储D值，共 <code>11个bits</code>；</li>
+<li><code>[-1023, 1024]</code> : 使用 <code>4个bits</code> 存储二进制 <code>1110</code> ，后面使用 <code>11个bits</code> 存储D值，共 <code>15个bits</code>；</li>
+<li><code>[-16383, 16384]</code> : 使用 <code>5个bits</code> 存储二进制 <code>11110</code> ，后面使用 <code>15个bits</code> 存储D值，共 <code>20个bits</code>；</li>
+<li><code>[-2147483647, 2147483648]</code> : 使用 <code>6个bits</code> 存储二进制 <code>111110</code> ，后面使用 <code>32个bits</code> 存储D值，共 <code>38个bits</code>；</li>
+<li><code>其它区间</code> : 使用 <code>6个bits</code> 存储二进制 <code>111111</code>，后面使用 <code>64个bits</code> 存储D值，共 <code>70个bits</code>；</li>
+</ul>
+</li>
+</ul>
+<p><img src="/assets/images/redistimeseries-timestamp-compress.png" alt="时间戳压缩" loading="lazy"></p>
+<h4 id="3-1-2、样本值数据压缩"><a href="#3-1-2、样本值数据压缩" class="headerlink" title="3.1.2、样本值数据压缩"></a>3.1.2、样本值数据压缩</h4><p>针对于时序数据样本中的样本值，其采用了 <code>XOR</code> 的编码方式，下面介绍 <code>XOR</code> 编码的流程：</p>
+<ul>
+<li>第一个 <code>Value</code> 存储时不做任何压缩；</li>
+<li>从第二个 <code>Value</code> 开始，写入时计算与前一个 <code>Value</code> 的 <code>XOR</code> 值：<ul>
+<li>如果 <code>XOR</code> 值为 <code>0</code>，则代表两值相同，使用 <code>1个bit</code> 存储二进制 <code>0</code> 即可；</li>
+<li>如果 <code>XOR</code> 值为 <code>非0</code>，先使用 <code>1个bit</code> 存储二进制 <code>1</code>，然后计算 <code>XOR</code> 中 <code>前后0的个数</code>（<code>前导零</code> &#x2F; <code>尾随零</code>）：<ul>
+<li>如果 <code>前导零</code> 和 <code>尾随零</code> 与前一个相同，则使用 <code>1个bit</code> 存储二进制 <code>0</code>，然后存储有效 <code>XOR</code> 值；</li>
+<li>如果 <code>前导零</code> 和 <code>尾随零</code> 与前一个不同：<ul>
+<li>使用 <code>1个bit</code> 存储二进制 <code>1</code>；</li>
+<li>使用 <code>5个bit</code> 存储 <code>前导零</code> 的长度；</li>
+<li>使用 <code>6个bit</code> 存储 <code>有效XOR</code> 的长度；</li>
+<li>存储 <code>有效XOR</code> 的值；</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="3-2、二级索引"><a href="#3-2、二级索引" class="headerlink" title="3.2、二级索引"></a>3.2、二级索引</h3><p>为了便于查询指定特征的时间序列key列表，<code>RedisTimeSeries</code> 使用两种不同的索引来记录对应标签与时序key的映射关系。</p>
+<ul>
+<li><code>labelsIndex 索引</code> 记录了 <code>标签名 + 值</code> 与 <code>时间序列</code> 的映射关系，并通过 <code>Redis</code> 提供的基数树的编码结构来存储，最终可以能够精确的筛选出特定标签值的时序key列表；</li>
+<li><code>tsLabelIndex 索引</code> 记录 <code>标签名</code> 与 <code>时间序列</code> 的映射关系，并通过 <code>Redis</code> 提供的基数树的编码结构来存储，最终可以能够精确的筛选出含有特定标签（不检查对应的标签值）的时序key列表；</li>
+</ul>
+<p><img src="/assets/images/redistimeseries-labelsindex.png" alt="labelsIndex 索引" loading="lazy"><br><img src="/assets/images/redistimeseries-tslabelindex.png" alt="tsLabelIndex 索引" loading="lazy"></p>
+<h4 id="3-2-1、索引变动"><a href="#3-2-1、索引变动" class="headerlink" title="3.2.1、索引变动"></a>3.2.1、索引变动</h4><ul>
+<li>新增索引 : <ul>
+<li><code>IndexMetric</code> : 新增时序key，变更时序key标签，restore时序key，rename时序key，copy时序key，加载时序key时会触发调用</li>
+</ul>
+</li>
+<li>删除索引 : <ul>
+<li><code>RemoveIndexedMetric</code> : 删除特定时序key；</li>
+<li><code>RemoveAllIndexedMetrics</code> : 删除所有时序key；</li>
+</ul>
+</li>
+</ul>
+<h4 id="3-2-2、索引查询"><a href="#3-2-2、索引查询" class="headerlink" title="3.2.2、索引查询"></a>3.2.2、索引查询</h4><ul>
+<li>相关命令 :<ul>
+<li><code>ts.mget</code> : 批量查询多个符合条件的时序key，期间会查询标签信息；</li>
+<li><code>ts.queryindex</code> : 查询特定标签的key的列表；</li>
+</ul>
+</li>
+<li>过滤器 :<ul>
+<li><code>label=value</code> : 查询特定的 label 是 value 的 keys ；</li>
+<li><code>label!=value</code> : 查询特定的 label 不是 value 的 keys ；</li>
+<li><code>label=</code> : 查询所有有对应 label 的 key ；</li>
+<li><code>label!=</code> : 查询所有不是对应 label 的 key ；</li>
+<li><code>label=(_value1_,_value2_,...)</code> : 查询 label 是列表中的其中一个值的 key ；</li>
+<li><code>label!=(value1,value2,...)</code> : 查询 label 不是列表中的任何一个值的 key ；</li>
+</ul>
+</li>
+</ul>
+<h3 id="3-3、插值变更"><a href="#3-3、插值变更" class="headerlink" title="3.3、插值变更"></a>3.3、插值变更</h3><p>正常情况下时序数据都是时间戳递增的样本数据，但是在极端的情况下，如果上报服务出现故障，故障恢复后客户可能期望将之前未上报的数据再次上报，这时候就会出现新插入的样本数据的时间戳小于已有样本数据时间戳的情况，这种情况下就需要一定的策略处理这些老数据。</p>
+<h4 id="3-3-1、插值变更策略"><a href="#3-3-1、插值变更策略" class="headerlink" title="3.3.1、插值变更策略"></a>3.3.1、插值变更策略</h4><p>目前提供了多种插值变更（重复&#x2F;乱序）的处理策略，该配置在操作时序数据时的相关参数为 <code>DUPLICATE_POLICY</code> ：</p>
+<ul>
+<li><code>block</code> : 不允许出现乱序样本数据，默认的策略；</li>
+<li><code>first</code> : 忽略任何新样本的值；</li>
+<li><code>last</code> : 每次都更新样本的值；</li>
+<li><code>min</code> : 只有新样本的值较小时，才采用新样本的值；</li>
+<li><code>max</code> : 只有新样本的值较大时，才采用新样本的值；</li>
+<li><code>sum</code> : 保存新样本和老样本值的和；</li>
+</ul>
+<h4 id="3-3-2、插值变更优先级"><a href="#3-3-2、插值变更优先级" class="headerlink" title="3.3.2、插值变更优先级"></a>3.3.2、插值变更优先级</h4><ul>
+<li><code>低优先级</code> : <code>ts.create</code> 和 <code>ts.alter</code> 命令可以初始化时序key的默认插值变更（重复&#x2F;乱序）的策略，该策略的优先级较低；</li>
+<li><code>高优先级</code> : <code>ts.add</code> 和 <code>ts.madd</code> 命令可以指定命令级的插值变更的策略，该优先级较高；</li>
+</ul>
+<h4 id="3-3-3、插值变更实现"><a href="#3-3-3、插值变更实现" class="headerlink" title="3.3.3、插值变更实现"></a>3.3.3、插值变更实现</h4><p>由于差值变更的过程中需要对现有的老的 chunk 进行变更，因此相比如单纯的追加样本数据，该操作的耗时较大，如果 chunk 启用了压缩特性，耗时会更加明显（由于需要解压缩），因此尽量慎用插值变更。</p>
+<ul>
+<li>相关函数 : <code>SeriesUpsertSample</code> ；</li>
+<li>非压缩的chunk :<ul>
+<li>相关函数 : <code>Uncompressed_UpsertSample</code> ；</li>
+<li>执行逻辑 : <ul>
+<li>在对应的 chunk 中找到需要插入的位置；</li>
+<li>将对应的样本数据插入对应的位置中；</li>
+<li>重新分配 chunk 的大小，并插入位置之后的所有内存块（耗时）；</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>压缩的chunk : <ul>
+<li>相关函数 : <code>Compressed_UpsertSample</code> ；</li>
+<li>执行逻辑 : <ul>
+<li>找到对应的 chunk ；</li>
+<li>分配一个新的 chunk ，将比当前样本的时间戳小的数据全部插入新的 chunk 中；</li>
+<li>按照更新策略尝试更新当前样本的新的样本值，并将其加入到新的 chunk 中；</li>
+<li>将对应样本之后的样本数据加入到新的 chunk 中；</li>
+<li>将新的 chunk 替换掉老的 chunk ；</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="3-4、降采样（数据压缩）"><a href="#3-4、降采样（数据压缩）" class="headerlink" title="3.4、降采样（数据压缩）"></a>3.4、降采样（数据压缩）</h3><p>时序数据库在保存样本数据时支持一些数据降采样（数据压缩）策略，以便于节省数据存储空间。当需要对原始时序数据进行降采样时，可以通过 <code>ts.createrule</code> 命令新增一个 <code>特殊的时序key</code> 来存储降采样的时序数据，并且可以指定自定义的降采样规则。</p>
+<ul>
+<li><code>降采样规则</code> :<ul>
+<li>支持多种降采样规则 （Min 、 Max 、 Avg 、 Sum 、 Range 、 Count 、 First 、 Last 、 STD.P 、 STD.S 、 Var.P 、 Var.S 、 twa）；</li>
+<li>支持设置降采样的时间周期，即多长的时间周期内降采样一次数据；</li>
+<li>时间对齐策略；</li>
+</ul>
+</li>
+<li><code>降采样流程</code> :<ul>
+<li>随着对原始时间样本的增加，会自动计算符合条件的降采样规则；</li>
+<li>自动将降采样之后的新的时间样本数据添加到对应的 <code>特殊的时序key</code> 中；</li>
+</ul>
+</li>
+</ul>
+<h3 id="3-5、聚合查询"><a href="#3-5、聚合查询" class="headerlink" title="3.5、聚合查询"></a>3.5、聚合查询</h3><p>业务在查询时序数据的场景下，通常不需要获取完整的时序数据，例如我们需要查看近一年所有股票的平均市值，这种情况下就需要时序数据库本身能够支持对一段时间范围内的样本数据进行聚合查询。</p>
+<ul>
+<li><code>相关命令</code> : <code>ts.range</code> ， <code>ts.revrange</code> ， <code>ts.mrange</code> ， <code>ts.mrevrange</code> ；</li>
+<li><code>聚合方式</code> : Min 、 Max 、 Avg 、 Sum 、 Range 、 Count 、 First 、 Last 、 STD.P 、 STD.S 、 Var.P 、 Var.S 、 twa ；</li>
+<li><code>聚合配置</code> :<ul>
+<li><code>时间周期 (bucketDuration)</code> : 每次聚合的时间周期，单位毫秒；</li>
+</ul>
+</li>
+</ul>
+<h2 id="四、对比与思考"><a href="#四、对比与思考" class="headerlink" title="四、对比与思考"></a>四、对比与思考</h2><h3 id="4-1、RedisTimeSeries的一些问题"><a href="#4-1、RedisTimeSeries的一些问题" class="headerlink" title="4.1、RedisTimeSeries的一些问题"></a>4.1、RedisTimeSeries的一些问题</h3><ul>
+<li>在 <code>RedisCluster</code> 的架构模式下，各节点之间能够知道其他节点的信息，因此能够满足需要一次性获取分布在多个节点上的时序数据的需求（相关命令 <code>ts.mget</code> ， <code>ts.queryindex</code> ， <code>ts.mrange</code> ， <code>ts.mrevrange</code>），<code>RedisTimeSeries</code> 目前使用的是 <a target="_blank" rel="noopener" href="https://github.com/RedisGears/LibMR">LibMR</a> 这个 MapReduce 库来实现多实例的数据聚合，之后再一起返回给客户端，但是如果使用那个独立的 <code>Proxy + Redis</code> 的架构，就需要使得 <code>Proxy</code> 主动访问多 <code>Redis</code> 实例并对数据做聚合处理；</li>
+<li>原始时序样本 key 和 降采样（数据压缩）时序样本 key 都作为实际的 key 存储在 DB 中，容易触发数据误删的风险，并且在扩缩容的场景下也会有数据丢失的问题；</li>
+</ul>
+<h3 id="4-1、TairTS对比"><a href="#4-1、TairTS对比" class="headerlink" title="4.1、TairTS对比"></a>4.1、TairTS对比</h3><p><img src="/assets/images/redistimeseries-tairts.png" alt="TairTs架构设计" loading="lazy"></p>
+<p><code>TairTS</code> 的整体架构类似于 <code>RedisTimeSeries</code> 的设计，比较显著的区别是他们引入了 <code>Pkey</code> 和 <code>Skey</code> 的概念，同时为这两个概念又引入的不同的存储结构，经过简单的试用之后，这里做一下初略的对比介绍。</p>
+<ul>
+<li><code>TairTS</code> 设计实现 :<ul>
+<li><code>Pkey</code> 作为实际的时序 <code>Key</code> 存储在 <code>DB</code> 中；</li>
+<li><code>Skey</code> 只作为 <code>Pkey</code> 的属性存在（测试中通过增加 <code>Skey</code> 发现 <code>keys</code> 数量没有变化）；</li>
+<li><code>Skey</code> 拥有与 <code>RedisTimeSeries</code> 中时序key一样的 <code>标签</code>，<code>样本有效期</code>等属性信息；</li>
+<li>业务的时序样本数据最终需要同时指定 <code>Pkey</code> 和 <code>Skey</code> 才能完成写入（从命令接口上来看与 <code>RedisTimeSeries</code> 有出入）；</li>
+</ul>
+</li>
+<li><code>TairTS</code> 一些思考 :<ul>
+<li>通过引入 <code>Pkey</code> 和 <code>Skey</code> 的概念，能够实现二次数据聚合，完成 <code>RedisTimeSeries</code> 所不支持的功能，<a target="_blank" rel="noopener" href="https://help.aliyun.com/document_detail/408954.html">介绍</a>；</li>
+<li>由于一个 <code>Pkey</code> 中记录了很多的时间线数据，为了避免出现单分片数据的热点访问，数据分布不均以及大Key等情况发生，业务侧需要做一些数据的拆分，具体如何拆分需要结合实际业务场景进行；</li>
+</ul>
+</li>
+</ul>
+<h3 id="4-2、Redis时序模型存在的意义"><a href="#4-2、Redis时序模型存在的意义" class="headerlink" title="4.2、Redis时序模型存在的意义"></a>4.2、Redis时序模型存在的意义</h3><p>众所周知，时序数据是一种数据量极大，写请求很高，极端情况下读请求也很高的数据模型，仅仅使用内存去存储这些数据，所消耗的成本将会非常大，虽然内存相比于硬盘在访问性能上能够带来极大的提升，但是如果仅仅使用一部分数据缓存在内存中，而不是全部使用内存，这种性能的差异会很大吗？初略看了一下目前业界的专业的时序数据库的压测报告，基本上访问性能已经不是瓶颈了，因此单纯的内存型时序数据库的场景到底在哪里，感觉还需要对市场做一些评估和调研。</p>
+<p>Redis社区曾给出了几个使用Redis作为时序数据库的一些案例 <a target="_blank" rel="noopener" href="https://redis.com/blog/3-real-life-apps-built-with-redis-data-source-for-grafana/">3 Real-Life Apps Built with Redis Data Source for Grafana</a> ，其中比较典型的一个案例是关于新冠病毒的病例情况，这种场景偏向于短时间段，或者说数据量不大的场景，从这里来看这的确是Redis时序的一种使用场景，但是这也不是Redis时序独有的场景，其他时序产品也完全能够胜任，甚至于更专业，但是换种方式去考虑一下，数据量较小的场景下，业务也完全可以不使用时序类的产品去存储。因此在这种场景下，Redis时序的蛋糕是被两头不断分割的，最后剩下的也就不多了。</p>
+<h2 id="五、相关链接"><a href="#五、相关链接" class="headerlink" title="五、相关链接"></a>五、相关链接</h2><ul>
+<li><a target="_blank" rel="noopener" href="https://www.vldb.org/pvldb/vol8/p1816-teller.pdf">Gorilla: A Fast, Scalable, In-Memory Time Series Database</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/21b3b61cddf6">基于Redis的时间序列数据库的研究与实现</a></li>
+<li><a target="_blank" rel="noopener" href="http://blog.itpub.net/31557835/viewspace-2637499/">百度时序数据库——存储的省钱之道</a></li>
+</ul>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2022/07/01/redismodule-redistimeseries/">https://bugwz.com/2022/07/01/redismodule-redistimeseries/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/RedisModule/">RedisModule</a><a class="post-meta__tags" href="/tags/TimeSeries/">TimeSeries</a></div><nav id="pagination"><div class="next-post pull-right"><a href="/2022/01/01/redismodule-redisbloom/"><span>RedisModule剖析 - RedisBloom</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="gitalk-container"></div><script>var gitalk = new Gitalk({
+  clientID: '6af3be16b94cec39bcf6',
+  clientSecret: '13a5202ff773ffcea6300b6c8ff25f455566737c',
+  repo: 'bugwz.github.io',
+  owner: 'bugwz',
+  admin: 'bugwz',
+  id: md5(decodeURI(location.pathname)),
+  language: ''
+})
+gitalk.render('gitalk-container')</script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/redis.png)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span>Driven - </span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span>Theme - </span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">Search</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search for Posts"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"></div></div></div></div><div class="search-mask"></div></body></html>
