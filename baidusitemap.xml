@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2021/04/15/redismodule-smartcache/</loc>
+    <lastmod>2022-09-21</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2021/09/01/redismodule-redlock/</loc>
     <lastmod>2022-09-21</lastmod>
   </url>
@@ -173,11 +177,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/12/localtime/</loc>
+    <loc>https://bugwz.com/2018/12/12/linux-tools-notes/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/12/12/linux-tools-notes/</loc>
+    <loc>https://bugwz.com/2019/01/12/localtime/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -189,11 +193,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/12/proxy/</loc>
+    <loc>https://bugwz.com/2019/01/02/python-prettytable/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/02/python-prettytable/</loc>
+    <loc>https://bugwz.com/2019/10/12/proxy/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -241,11 +245,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
+    <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
+    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -273,19 +277,19 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2016/01/01/pptpd-vpn/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/01/redhat-note/</loc>
+    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2019/11/25/raidX/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2016/01/01/redhat-note/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
