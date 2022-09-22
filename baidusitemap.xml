@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2020/05/02/redismodule-ratelimit/</loc>
+    <lastmod>2022-09-22</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2022/03/01/scalable-bloom-filters/</loc>
     <lastmod>2022-09-21</lastmod>
   </url>
@@ -221,15 +225,15 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/12/12/command-lsof/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2019/10/20/command-rsync/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2019/12/12/command-lsof/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -265,11 +269,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2020/06/16/keepalived/</loc>
+    <loc>https://bugwz.com/2019/07/01/leaky-and-token-bucket/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/07/01/leaky-and-token-bucket/</loc>
+    <loc>https://bugwz.com/2020/06/16/keepalived/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -305,11 +309,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/12/01/yum-priorities/</loc>
+    <loc>https://bugwz.com/2017/04/26/web-performance-http2/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2017/04/26/web-performance-http2/</loc>
+    <loc>https://bugwz.com/2019/12/01/yum-priorities/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
