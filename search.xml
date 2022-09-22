@@ -620,11 +620,11 @@
       
         <tags>
             
+            <tag> Base </tag>
+            
             <tag> Algorithm </tag>
             
             <tag> Linux </tag>
-            
-            <tag> Base </tag>
             
         </tags>
       
@@ -1385,11 +1385,11 @@
       
         <tags>
             
-            <tag> Blog </tag>
-            
             <tag> GitHub Pages </tag>
             
             <tag> Hexo </tag>
+            
+            <tag> Blog </tag>
             
         </tags>
       
@@ -1645,9 +1645,9 @@
       
         <tags>
             
-            <tag> Ghost </tag>
-            
             <tag> Blog </tag>
+            
+            <tag> Ghost </tag>
             
         </tags>
       

@@ -197,11 +197,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/09/28/command-nc/</loc>
+    <loc>https://bugwz.com/2018/01/01/commands-mac/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/01/01/commands-mac/</loc>
+    <loc>https://bugwz.com/2019/09/28/command-nc/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -261,11 +261,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/20/command-rsync/</loc>
+    <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
+    <loc>https://bugwz.com/2019/10/20/command-rsync/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -273,11 +273,15 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
+    <loc>https://bugwz.com/2019/10/11/docker-multi-stage-builds/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2018/11/26/gdb-tools/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/11/docker-multi-stage-builds/</loc>
+    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -286,10 +290,6 @@
   </url>
   <url>
     <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -393,15 +393,15 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2018/11/25/tmux/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2015/11/08/ubuntu-openvpn/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
