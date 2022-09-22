@@ -1452,7 +1452,6 @@ a.fancybox:focus {
 #sidebar img {
   padding: 4px;
   max-width: 100%;
-  border: 1px solid #eaeefb;
   -webkit-transition: all 0.2s;
   -moz-transition: all 0.2s;
   -o-transition: all 0.2s;

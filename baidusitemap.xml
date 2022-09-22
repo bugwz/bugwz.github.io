@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
+    <lastmod>2022-09-22</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2021/10/04/redismodule-redisims/</loc>
     <lastmod>2022-09-22</lastmod>
   </url>
@@ -269,11 +273,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/11/docker-multi-stage-builds/</loc>
+    <loc>https://bugwz.com/2018/11/26/gdb-tools/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/11/26/gdb-tools/</loc>
+    <loc>https://bugwz.com/2019/10/11/docker-multi-stage-builds/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -369,11 +373,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/12/14/jsp-7/</loc>
+    <loc>https://bugwz.com/2016/12/11/jsp-6/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/12/11/jsp-6/</loc>
+    <loc>https://bugwz.com/2016/12/14/jsp-7/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
