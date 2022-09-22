@@ -26,7 +26,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><p>Buffer（缓冲）：指在写入磁盘前的存储在内存中的内容，为了提高内存和硬盘（或其他I&#x2F;O设备的数据交换而设计），主要是针对写操作设计的；</p>
 </li>
 </ul>
-<p><img src="/assets/images/image-20190908164902457.png" alt="Cache/Buffer所处位置图解" loading="lazy"></p>
+<p><img src="/assets/images/cache-buffer-1.png" alt="Cache/Buffer所处位置图解" loading="lazy"></p>
 <p>下面为Linux下free指令显示的信息，以下简单描述一下各选项的含义：</p>
 <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">[root@* ~]<span class="comment"># free -g</span></span><br><span class="line">              total        used        free      shared  buff/cache   available</span><br><span class="line">Mem:            125           2         109           1          13         120</span><br><span class="line">Swap:             7           0           7</span><br></pre></td></tr></table></figure>
 
@@ -56,7 +56,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>使用<code>slabtop</code>命令可以实时的显示内核中<code>slab缓冲区</code>的细节信息，相关选项参数为：</p>
 <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">--delay=n, -d n：每n秒更新一次显示的信息，默认是每3秒；</span><br><span class="line">--<span class="built_in">sort</span>=S, -s S：指定排序标准进行排序（排序标准，参照man手册）；</span><br><span class="line">--once, -o：显示一次后退出；</span><br><span class="line">--version, -V：显示版本；</span><br><span class="line">--<span class="built_in">help</span>：显示帮助信息。</span><br></pre></td></tr></table></figure>
 
-<p><img src="/assets/images/image-20190908190424569.png" alt="slabtop运行状态示意图" loading="lazy"></p>
+<p><img src="/assets/images/cache-buffer-2.png" alt="slabtop运行状态示意图" loading="lazy"></p>
 <h4 id="2-2-2、使用fincore-C-或pcstat-Go-分析程序的cache的占用"><a href="#2-2-2、使用fincore-C-或pcstat-Go-分析程序的cache的占用" class="headerlink" title="2.2.2、使用fincore(C)或pcstat(Go)分析程序的cache的占用"></a>2.2.2、使用fincore(C)或pcstat(Go)分析程序的cache的占用</h4><p><code>fincore</code>是<code>linux-ftools</code>工具集中的一个工具，其他的工具还有<code>fallocate</code>和<code>fadvise</code>，<code>linux-ftools</code>项目原来在<code>Google Code</code>上进行维护，但是<code>Google Code</code>已经在2016年就停止维护了，不过依旧可以在Github上寻找到该项目，目前我也将该项目迁移到了我自己的Github主页上，并做了一些简单的变动，项目地址为：<a target="_blank" rel="noopener" href="https://github.com/bugwz/linux-ftools">bugwz&#x2F;linux-ftools</a>，fincore的编译安装在项目中有详细介绍。</p>
 <p><a target="_blank" rel="noopener" href="https://github.com/tobert/pcstat">pcstat</a>工具实现了与<code>fincore</code>相同的功能，并且输出效果看起来更为优雅，不过目前这里只演示<code>fincore</code>的工具使用。</p>
 <p><code>fincore</code>工具运行如下所示：</p>

@@ -31,14 +31,14 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>我发现在使用Eclipse利用servlet3.0及以上的版本写虚拟路径映射的时候，默认没有web.xml的时候(当然与这无关)，在路径都书写正确的情况下始终无法进入对应的路径，Eclipse的控制台提示错误为：</p>
 <p><code>[SetPropertiesRule]&#123;Server/Service/Engine/Host/Context&#125; Setting property &#39;source&#39; to &#39;org.eclipse.jst.jee.server:Test&#39; did not find a matching property.</code></p>
 <p>浏览器会提示404错误，我系统默认浏览器与Eclipse的Internal Web Browser都是这个错误。错误如下图所示：</p>
-<p><img src="/assets/images/006qpCDTjw1fa9c38kniyj30f506z0sw.jpg" alt="404 Error in Chrome" loading="lazy"><br><img src="/assets/images/006qpCDTjw1fa9c6a1qpej30cp06s3ym.jpg" alt="404 Error in Self Browser" loading="lazy"></p>
+<p><img src="/assets/images/jsp-pb-1.jpg" alt="404 Error in Chrome" loading="lazy"><br><img src="/assets/images/jsp-pb-2.jpg" alt="404 Error in Self Browser" loading="lazy"></p>
 <p>然后我尝试选择附带web.xml的情况下重建工程，依旧会出现这个错误，最后经过一番查找，发现原因应该是Tomcat6.0及以后的版本中的server.xml的context节点中不支持source属性，我在官网找到如下信息：</p>
-<p><img src="/assets/images/006qpCDTjw1fa9ce8nzxyj30vo0f1tbr.jpg" alt="Tomcat6.0 Not Support &quot;Source&quot;" loading="lazy"></p>
+<p><img src="/assets/images/jsp-pb-3.jpg" alt="Tomcat6.0 Not Support &quot;Source&quot;" loading="lazy"></p>
 <p>其中最主要的一句好像是：</p>
 <p><code>It is NOT recommended to place &lt;Context&gt; elements directly in the server.xml file. This is because it makes modifying the Context configuration more invasive since the main conf/server.xml file cannot be reloaded without restarting Tomcat.</code></p>
 <p>解决方法为：<br>这里通过修改Tomcat server配置，首先关闭server，然后在server视图中双击server，打开配置界面，选中下面的”Publish module contexts to separate XML files”，保存退出。如下图所示，重启Eclipse即可!</p>
 <p>解决办法的网络参考：<a target="_blank" rel="noopener" href="http://siruoxian.iteye.com/blog/1103347">http://siruoxian.iteye.com/blog/1103347</a></p>
-<p><img src="/assets/images/006qpCDTjw1fa9citv12aj30ld0aywf9.jpg" alt="Change Tomcat Server Config" loading="lazy"></p>
+<p><img src="/assets/images/jsp-pb-4.jpg" alt="Change Tomcat Server Config" loading="lazy"></p>
 <hr>
 <blockquote>
 <p>###在Servlet使用过程中的编码问题</p>
@@ -46,7 +46,7 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>这里不讨论各种编码方式的优缺点，这里只是说明我们在日常使用过程中出现的编码问题，这也是最让人头痛的问题。我使用的UTF-8编码。<br>我们在使用Eclipse进行项目的时候，比如说吧，我说一下我曾记出现的一个问题。</p>
 <p>响应为http的post响应请求，当然这里http的响应请求方式无所谓，然后是我的页面显示编码全部规定是UTF-8，即<code>resp.setHeader(&quot;Content-type&quot;, &quot;text/html;charset=UTF-8&quot;);</code>，resp为HttpServletResponse对象类型，但是我并没有设置<code>req.setCharacterEncoding(&quot;UTF-8&quot;);</code>，此处的req为HttpServletRequest对象，然后我发现，页面的显示就会出现乱码。</p>
 <p>这是我遇到的问题一，还有一个更严重的问题就是页面实际使用的编码与你要求页面显示的编码方式不统一，由于Eclipse本身默认的文本编码为GBK，并且我们在Eclipse中建立的各种工程全部是继承系统默认的文本编码方式，但是我经常使用的页面编码显示为UTF-8，这就会出现意想不到的问题，为了解决这一问题，我强烈建议，你想让页面以什么编码方式显示，一定要用该编码编辑该文本，其中Eclipse的编码设置位置，如下图所示：</p>
-<p><img src="/assets/images/006qpCDTjw1fabgla91ifj30m20imabn.jpg" alt="Change Text Coding" loading="lazy"></p>
+<p><img src="/assets/images/jsp-pb-5.jpg" alt="Change Text Coding" loading="lazy"></p>
 <hr>
 <blockquote>
 <p>###Eclipse的汉化方法</p>
@@ -54,9 +54,9 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>虽然说使用英文的IDE可以不断的锻炼自己的英文水平，并且能够避免很多错译，或者语言文件本身存在的bug导致软件无法正常的运行等等问题。</p>
 <p>但是，但是，因为Eclipse本身软件的影响力，其官方的汉化文件已经做得非常好了，IDE本身的汉化比已经达到80%多，加上英文IDE本身给人的恐惧心理，让我们没法深入探索这个IDE工具的有趣之处，我们可能只是按需的在这款软件内依次点击那几个按钮，完成老师交代的那一丁丁任务而已，我们也只是稍微碰过这款软件，也许是因为英文而没有那种想去探索的勇气，一个英文不好的人去用，的却会浪费很多时间，最起码我是因为英文不想去接触，说实话，我有点怕麻烦，进入正题，汉化过程如下：</p>
 <p>访问Eclipse的官网语言下载链接：<a target="_blank" rel="noopener" href="https://www.eclipse.org/babel/downloads.php">这里</a>；然后我们选择对应我们IDE的语言包进行下载，如下图所示：</p>
-<p><img src="/assets/images/006qpCDTjw1fabhmpqvgjj30oh09x75b.jpg" alt="IDE Language Pack" loading="lazy"></p>
+<p><img src="/assets/images/jsp-pb-6.jpg" alt="IDE Language Pack" loading="lazy"></p>
 <p>下载后，接下，记住解压后的文件的目录绝对路径，然后我们打开Eclipse这个IDE工具，依次选择Help-&gt;Install New Software-&gt;Add…-&gt;Local…；然后添加那个解压的文件的文件夹，然后确定后，进行等待，然后展开下图中的一个语言包：</p>
-<p><img src="/assets/images/006qpCDTjw1fabht9088lj30t70jrgnb.jpg" alt="Install Language Pack" loading="lazy"></p>
+<p><img src="/assets/images/jsp-pb-7.jpg" alt="Install Language Pack" loading="lazy"></p>
 <p>此处切记哈，不要安装这个语言包中的所有插件，因为有一些汉化的极其不好，并且你全部安装后会发现Eclipse的有些功能莫名地无法使用，就是因为有一些语言包插件有问题，为了能最大的汉化并不影响我们的日常使用，我推荐选择其中一款名字接近于”for eclipse…”的插件，目前该插件汉化Eclipse的汉化率在80%以上，其他的操作一次进行即可。</p>
 <hr>
 <blockquote>
@@ -64,9 +64,9 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </blockquote>
 <p>当我们从别人的机器中拷贝出一个工程项目并在我们的电脑中导入该工程后，很容易出现的问题就是出错，无法运行，这其中有很大的原因在于工程项目的构建路径中的JAR和类文件夹出错。</p>
 <p>我们知道，每个工程的构建依赖于电脑自身的Java与Tomcat环境，如果一个人的电脑配置的环境是Java1.7，并且它的Tomcat环境是7.0.73,他新建一个工程的时候Eclipse自然在构建路径中配置这些信息，但是由于我的系统环境为Java1.8,Tomcat8.5.8，这样就会因为找不到对应的配置环境而出错，还有一种可能性是，你环境的安装路径不对，这里仅是推测。出错可能如下图所示：</p>
-<p><img src="/assets/images/006qpCDTjw1fach5an9r3j30t60ce0u8.jpg" alt="Path Error" loading="lazy"></p>
+<p><img src="/assets/images/jsp-pb-8.jpg" alt="Path Error" loading="lazy"></p>
 <p>然后我们的纠错步骤为，修改该工程的构建路径中的的JAR和类文件夹信息，删除出错的，添加我们本机的Java环境以及Tomcat环境，如下图所示：</p>
-<p><img src="/assets/images/006qpCDTjw1fach7tx90lj30p60b3wfa.jpg" alt="Library Error" loading="lazy"><br><img src="/assets/images/006qpCDTjw1fach9xe23dj30v40f7abu.jpg" alt="Runtime Error" loading="lazy"></p>
+<p><img src="/assets/images/jsp-pb-9.jpg" alt="Library Error" loading="lazy"><br><img src="/assets/images/jsp-pb-10.jpg" alt="Runtime Error" loading="lazy"></p>
 <p>这样的话，该工程的错误就回消失，当然还有一点是可能是该工程的原始环境较现在的环境较新，因此出错，这样的话就具体针对错误提示就行排除。</p>
 </div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">Author: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">Link: </span><span class="post-copyright-info"><a href="https://bugwz.com/2016/12/01/jsp-problem/">https://bugwz.com/2016/12/01/jsp-problem/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Notes/">Notes</a><a class="post-meta__tags" href="/tags/JSP/">JSP</a><a class="post-meta__tags" href="/tags/Campus/">Campus</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2016/12/02/jsp-5/"><i class="fa fa-chevron-left">  </i><span>JSP脚本元素指令与动作JSP笔记-5</span></a></div><div class="next-post pull-right"><a href="/2016/11/30/jsp-homework-2/"><span>利用Servlet完成表单提交验证-JSP作业-2</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="gitalk-container"></div><script>var gitalk = new Gitalk({
   clientID: '6af3be16b94cec39bcf6',
