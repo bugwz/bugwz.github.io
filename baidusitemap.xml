@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2021/10/04/redismodule-redisims/</loc>
+    <lastmod>2022-09-22</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2019/01/03/netfilter/</loc>
     <lastmod>2022-09-22</lastmod>
   </url>
@@ -269,10 +273,6 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2018/11/26/gdb-tools/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
@@ -282,6 +282,10 @@
   </url>
   <url>
     <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
