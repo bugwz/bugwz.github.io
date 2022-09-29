@@ -281,10 +281,6 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2018/11/26/gdb-tools/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
@@ -294,6 +290,10 @@
   </url>
   <url>
     <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -313,11 +313,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/01/pptpd-vpn/</loc>
+    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
+    <loc>https://bugwz.com/2016/01/01/pptpd-vpn/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -397,19 +397,19 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2018/11/25/tmux/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2015/11/08/ubuntu-openvpn/</loc>
+    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2019/08/27/use-fpm-to-mkrpm/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2015/11/08/ubuntu-openvpn/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
