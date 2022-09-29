@@ -4,6 +4,27 @@
   
     
     <entry>
+      <title>RedisModule剖析 - RedisTimer</title>
+      <link href="/2022/09/29/redismodule-redistimer/"/>
+      <url>/2022/09/29/redismodule-redistimer/</url>
+      
+        <content type="html"><![CDATA[<h2 id="一、简介"><a href="#一、简介" class="headerlink" title="一、简介"></a>一、简介</h2><p><code>RedisTimer</code> 是一款基于 Redis 的时间事件来实现的计时器的模块，通过时间事件机制来实现延迟&#x2F;循环执行对应的脚本（函数），由于该模块执行脚本（函数）的命令为 <code>FCALL</code>，因此要求Redis版本最低为7.0.0，该模块也支持数据的持久化，用于保证计时器的信息不丢失。</p><ul><li>GitHub 地址：<a href="https://github.com/tzongw/redis-timer">https://github.com/tzongw/redis-timer</a></li></ul><h2 id="二、架构设计"><a href="#二、架构设计" class="headerlink" title="二、架构设计"></a>二、架构设计</h2><h3 id="2-1、相关命令"><a href="#2-1、相关命令" class="headerlink" title="2.1、相关命令"></a>2.1、相关命令</h3><ul><li>timer.new : 创建一个新的计时器，会在指定的时间之后执行对应的脚本（函数），会直接覆盖同名的已经存在的计时器；</li><li>timer.kill : 删除之前创建的计时器，并且删除对应的计时器key；</li><li>timer.info : 查看特定的计时器的信息；</li></ul><h3 id="2-2、数据结构"><a href="#2-2、数据结构" class="headerlink" title="2.2、数据结构"></a>2.2、数据结构</h3><figure class="highlight c++"><table><tr><td class="code"><pre><span class="line"><span class="comment">// 计时器的数据结构</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="keyword">struct</span> <span class="title class_">TimerData</span> &#123;</span><br><span class="line">    RedisModuleString *key;        <span class="comment">// 对应计时器key对象</span></span><br><span class="line">    RedisModuleString *function;   <span class="comment">// 需要执行的脚本</span></span><br><span class="line">    <span class="type">mstime_t</span> interval;             <span class="comment">// 被调用的时间间隔，单位毫秒</span></span><br><span class="line">    <span class="type">int</span> datalen;                   <span class="comment">// 脚本及其参数的数量</span></span><br><span class="line">    <span class="type">int</span> numkeys;                   <span class="comment">// 参数中key的个数</span></span><br><span class="line">    <span class="type">bool</span> loop;                     <span class="comment">// 是否循环执行，每次执行之后间隔 interval 后会再次执行</span></span><br><span class="line">    <span class="type">bool</span> deleted;                  <span class="comment">// 计时器key是否已经从db中删除的标记</span></span><br><span class="line">    RedisModuleTimerID tid;        <span class="comment">// 内部创建计时器时的id</span></span><br><span class="line">    RedisModuleString *data[];     <span class="comment">// 脚本及其参数对象</span></span><br><span class="line">&#125; TimerData;</span><br></pre></td></tr></table></figure><h3 id="2-3、持久化"><a href="#2-3、持久化" class="headerlink" title="2.3、持久化"></a>2.3、持久化</h3><h4 id="2-3-1、RDB的持久化"><a href="#2-3-1、RDB的持久化" class="headerlink" title="2.3.1、RDB的持久化"></a>2.3.1、RDB的持久化</h4><p>RDB 的存储过程比较简单，直接把对应结构体的所有信息持久化到 RDB 文件中，相关函数 <code>timer_RDBSaveCallBack</code> ；</p><h4 id="2-3-2、AOF的持久化"><a href="#2-3-2、AOF的持久化" class="headerlink" title="2.3.2、AOF的持久化"></a>2.3.2、AOF的持久化</h4><p>数据 AOF 的持久化会在 AofRewrite 的时候会用到，这里是将对应的数据结构转换为 <code>timer.new</code> 命令进行存储；</p><h3 id="2-4、其他细节"><a href="#2-4、其他细节" class="headerlink" title="2.4、其他细节"></a>2.4、其他细节</h3><ul><li>创建新的计时器时使用了 RedisModule 的 <code>RM_CreateTimer</code> 接口来注册了一个时间事件，从而实现在指定的时间之后执行对应的自定义的回调函数；</li><li>执行完成单次回调函数之后，依据 <code>loop</code> 字段判断是否需要循环执行，则选择是否再次增加一个时间事件，或者调用 <code>timer.kill</code> 删除计时器；</li><li>使用一个全局静态变量 <code>timers</code> 来记录当前现存的计时器数量，比便于在卸载该模块时进行判断；</li><li>计时器的脚本（函数）调用使用 <code>FCALL</code> 命令，因此对 Redis 版本有一些要求（最低版本<code>7.0.0</code>）；</li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> RedisModule </tag>
+            
+            <tag> RedisTimer </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
       <title>译 - Gorilla: A Fast, Scalable, In-Memory Time Series Database</title>
       <link href="/2022/09/24/gorilla-cn/"/>
       <url>/2022/09/24/gorilla-cn/</url>
@@ -620,11 +641,11 @@
       
         <tags>
             
+            <tag> Base </tag>
+            
             <tag> Algorithm </tag>
             
             <tag> Linux </tag>
-            
-            <tag> Base </tag>
             
         </tags>
       
@@ -1144,11 +1165,11 @@
             
             <tag> Linux </tag>
             
+            <tag> hashlimit </tag>
+            
             <tag> Iptables </tag>
             
             <tag> Netfilter </tag>
-            
-            <tag> hashlimit </tag>
             
         </tags>
       
@@ -1461,27 +1482,6 @@
     
     
     <entry>
-      <title>Mac下的常用指令</title>
-      <link href="/2018/01/01/commands-mac/"/>
-      <url>/2018/01/01/commands-mac/</url>
-      
-        <content type="html"><![CDATA[<h3 id="系统操作相关"><a href="#系统操作相关" class="headerlink" title="系统操作相关"></a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line"><span class="built_in">rm</span> ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id=""><a href="#" class="headerlink" title=""></a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Commands </tag>
-            
-            <tag> Mac </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    
-    
-    <entry>
       <title>Linux下的常用指令</title>
       <link href="/2018/01/01/commands-linux/"/>
       <url>/2018/01/01/commands-linux/</url>
@@ -1495,6 +1495,27 @@
             <tag> Linux </tag>
             
             <tag> Commands </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
+      <title>Mac下的常用指令</title>
+      <link href="/2018/01/01/commands-mac/"/>
+      <url>/2018/01/01/commands-mac/</url>
+      
+        <content type="html"><![CDATA[<h3 id="系统操作相关"><a href="#系统操作相关" class="headerlink" title="系统操作相关"></a>系统操作相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 重置 Launchpad</span></span><br><span class="line"><span class="built_in">cd</span> ~/Library/Application\ Support/Dock/</span><br><span class="line"><span class="built_in">rm</span> ~/Library/Application\ Support/Dock/*.db &amp;&amp; killall Dock</span><br><span class="line">defaults write com.apple.dock ResetLaunchPad -bool <span class="literal">true</span> &amp;&amp; killall Dock</span><br></pre></td></tr></table></figure><h3 id=""><a href="#" class="headerlink" title=""></a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> Commands </tag>
+            
+            <tag> Mac </tag>
             
         </tags>
       
