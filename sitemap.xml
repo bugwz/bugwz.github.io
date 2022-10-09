@@ -470,7 +470,7 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/2018/01/01/commands-mac/</loc>
+    <loc>https://bugwz.com/2019/09/28/command-nc/</loc>
     
     <lastmod>2022-09-09</lastmod>
     
@@ -479,7 +479,7 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/2019/09/28/command-nc/</loc>
+    <loc>https://bugwz.com/2018/01/01/commands-mac/</loc>
     
     <lastmod>2022-09-09</lastmod>
     
@@ -596,15 +596,6 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/2019/12/12/command-lsof/</loc>
-    
-    <lastmod>2022-09-09</lastmod>
-    
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  
-  <url>
     <loc>https://bugwz.com/2019/01/08/clang-format/</loc>
     
     <lastmod>2022-09-09</lastmod>
@@ -614,7 +605,7 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
+    <loc>https://bugwz.com/2019/12/12/command-lsof/</loc>
     
     <lastmod>2022-09-09</lastmod>
     
@@ -633,6 +624,15 @@
   
   <url>
     <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
+    
+    <lastmod>2022-09-09</lastmod>
+    
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
     
     <lastmod>2022-09-09</lastmod>
     
@@ -668,7 +668,7 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
+    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     
     <lastmod>2022-09-09</lastmod>
     
@@ -677,7 +677,7 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
+    <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
     
     <lastmod>2022-09-09</lastmod>
     
@@ -866,7 +866,7 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/2016/12/14/jsp-7/</loc>
+    <loc>https://bugwz.com/2016/12/11/jsp-6/</loc>
     
     <lastmod>2022-09-09</lastmod>
     
@@ -875,7 +875,7 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/2016/12/11/jsp-6/</loc>
+    <loc>https://bugwz.com/2016/12/14/jsp-7/</loc>
     
     <lastmod>2022-09-09</lastmod>
     
@@ -1027,6 +1027,13 @@
   </url>
   
   <url>
+    <loc>https://bugwz.com/tags/BloomFilter/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
     <loc>https://bugwz.com/tags/Network/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
@@ -1048,14 +1055,14 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/lsof/</loc>
+    <loc>https://bugwz.com/tags/Format/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/Commands/</loc>
+    <loc>https://bugwz.com/tags/Tools/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
@@ -1076,14 +1083,21 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/Format/</loc>
+    <loc>https://bugwz.com/tags/lsof/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/Tools/</loc>
+    <loc>https://bugwz.com/tags/Commands/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/tags/nc/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
@@ -1104,6 +1118,13 @@
   </url>
   
   <url>
+    <loc>https://bugwz.com/tags/Mac/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
     <loc>https://bugwz.com/tags/Docker/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
@@ -1118,49 +1139,7 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/Mac/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/tags/nc/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/tags/BloomFilter/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
     <loc>https://bugwz.com/tags/GDB/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/tags/GeoHash/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/tags/Google-S2/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/tags/Linu/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
@@ -1202,6 +1181,27 @@
   </url>
   
   <url>
+    <loc>https://bugwz.com/tags/Paper/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/tags/NoSQL/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/tags/Distributed/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
     <loc>https://bugwz.com/tags/GitHub/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
@@ -1216,21 +1216,21 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/Paper/</loc>
+    <loc>https://bugwz.com/tags/GeoHash/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/Gorilla/</loc>
+    <loc>https://bugwz.com/tags/Google-S2/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/TimeSeries/</loc>
+    <loc>https://bugwz.com/tags/Linu/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
@@ -1258,6 +1258,20 @@
   </url>
   
   <url>
+    <loc>https://bugwz.com/tags/Notions/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/tags/C/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
     <loc>https://bugwz.com/tags/hashlimit/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
@@ -1279,28 +1293,14 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/Notions/</loc>
+    <loc>https://bugwz.com/tags/Gorilla/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/C/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/tags/NoSQL/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/tags/Distributed/</loc>
+    <loc>https://bugwz.com/tags/TimeSeries/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
@@ -1482,13 +1482,6 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/Raft/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
     <loc>https://bugwz.com/tags/RedisModule/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
@@ -1496,7 +1489,14 @@
   </url>
   
   <url>
-    <loc>https://bugwz.com/tags/RedisIntervalSet/</loc>
+    <loc>https://bugwz.com/tags/RateLimit/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/tags/Raft/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
@@ -1504,6 +1504,13 @@
   
   <url>
     <loc>https://bugwz.com/tags/RedisRope/</loc>
+    <lastmod>2022-10-09</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/tags/RedisIntervalSet/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
@@ -1700,13 +1707,6 @@
   
   <url>
     <loc>https://bugwz.com/tags/yum/</loc>
-    <lastmod>2022-10-09</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/tags/RateLimit/</loc>
     <lastmod>2022-10-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
