@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2022/10/04/redismodule-redis-rope/</loc>
+    <lastmod>2022-10-09</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2022/10/02/redismodule-redis-interval-sets/</loc>
     <lastmod>2022-10-09</lastmod>
   </url>
@@ -205,11 +209,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/09/28/command-nc/</loc>
+    <loc>https://bugwz.com/2018/01/01/commands-mac/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/01/01/commands-mac/</loc>
+    <loc>https://bugwz.com/2019/09/28/command-nc/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -249,11 +253,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/11/27/store-website/</loc>
+    <loc>https://bugwz.com/2019/10/09/ssh-proxycommand/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/09/ssh-proxycommand/</loc>
+    <loc>https://bugwz.com/2018/11/27/store-website/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -261,11 +265,15 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
+    <loc>https://bugwz.com/2019/12/12/command-lsof/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2019/01/08/clang-format/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/12/12/command-lsof/</loc>
+    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -274,10 +282,6 @@
   </url>
   <url>
     <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -293,11 +297,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
+    <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
+    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -381,11 +385,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/12/11/jsp-6/</loc>
+    <loc>https://bugwz.com/2016/12/14/jsp-7/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/12/14/jsp-7/</loc>
+    <loc>https://bugwz.com/2016/12/11/jsp-6/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
