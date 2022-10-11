@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
+    <lastmod>2022-10-11</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2022/10/07/redismodule-redis-protobuf/</loc>
     <lastmod>2022-10-10</lastmod>
   </url>
@@ -22,10 +26,6 @@
   </url>
   <url>
     <loc>https://bugwz.com/2022/03/01/scalable-bloom-filters/</loc>
-    <lastmod>2022-09-23</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
     <lastmod>2022-09-23</lastmod>
   </url>
   <url>
@@ -301,11 +301,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
+    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
+    <loc>https://bugwz.com/2020/07/27/hamburg/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -405,11 +405,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/13/tcl-first/</loc>
+    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
+    <loc>https://bugwz.com/2019/01/13/tcl-first/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
