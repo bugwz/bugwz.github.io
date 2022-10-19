@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2022/10/22/redislibrary-libmr/</loc>
+    <lastmod>2022-10-19</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
+    <lastmod>2022-10-15</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2019/11/27/geohash-s2/</loc>
     <lastmod>2022-10-12</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2022/07/01/redismodule-redistimeseries/</loc>
-    <lastmod>2022-10-12</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
     <lastmod>2022-10-12</lastmod>
   </url>
   <url>
