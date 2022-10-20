@@ -2,7 +2,11 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://bugwz.com/2022/10/22/redislibrary-libmr/</loc>
-    <lastmod>2022-10-19</lastmod>
+    <lastmod>2022-10-20</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2022/10/02/redismodule-redis-interval-sets/</loc>
+    <lastmod>2022-10-20</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
@@ -22,10 +26,6 @@
   </url>
   <url>
     <loc>https://bugwz.com/2022/10/04/redismodule-redis-rope/</loc>
-    <lastmod>2022-10-09</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2022/10/02/redismodule-redis-interval-sets/</loc>
     <lastmod>2022-10-09</lastmod>
   </url>
   <url>
@@ -297,19 +297,19 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/11/docker-multi-stage-builds/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2018/11/26/gdb-tools/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
+    <loc>https://bugwz.com/2019/10/11/docker-multi-stage-builds/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2017/05/27/ghost-0-11-9/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2019/10/14/dynamo/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -333,11 +333,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/01/pptpd-vpn/</loc>
+    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
+    <loc>https://bugwz.com/2016/01/01/pptpd-vpn/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
