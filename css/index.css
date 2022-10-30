@@ -1242,19 +1242,14 @@ footer.is-mobile {
 }
 #content-inner ol li:hover:before,
 #content-inner ul li:hover:before {
-  -webkit-transform: rotate(360deg);
-  -moz-transform: rotate(360deg);
-  -o-transform: rotate(360deg);
-  -ms-transform: rotate(360deg);
-  transform: rotate(360deg);
+  color: #ff7242;
 }
 #content-inner ol li:before,
 #content-inner ul li:before {
   position: absolute;
   top: 0;
   left: 0;
-  background: #49b1f5;
-  color: #fff;
+  color: #4c4948;
   cursor: pointer;
   -webkit-transition: all 0.3s ease-out;
   -moz-transition: all 0.3s ease-out;
@@ -1263,15 +1258,12 @@ footer.is-mobile {
   transition: all 0.3s ease-out;
 }
 #content-inner ol > li:before {
-  margin-top: 0.3rem;
-  width: 1.1rem;
-  height: 1.1rem;
-  border-radius: 0.55rem;
-  content: counter(li);
+  margin-top: 0.2rem;
+  content: counter(li) ".";
   counter-increment: li;
   text-align: center;
-  font-size: 0.6rem;
-  line-height: 1.1rem;
+  font-size: 0.7rem;
+  font-weight: 500;
 }
 #content-inner ul > li:hover:before {
   border-color: #ff7242;

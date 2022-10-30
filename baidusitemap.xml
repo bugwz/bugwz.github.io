@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2022/01/01/redismodule-redisbloom/</loc>
+    <lastmod>2022-10-30</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
     <lastmod>2022-10-24</lastmod>
   </url>
@@ -103,10 +107,6 @@
   <url>
     <loc>https://bugwz.com/2021/09/01/redismodule-redlock/</loc>
     <lastmod>2022-09-21</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2022/01/01/redismodule-redisbloom/</loc>
-    <lastmod>2022-09-19</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2020/01/01/rocksdb-writestall/</loc>
@@ -289,11 +289,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
+    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
+    <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -333,11 +333,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
+    <loc>https://bugwz.com/2016/01/01/pptpd-vpn/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/01/pptpd-vpn/</loc>
+    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -409,11 +409,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/13/tcl-first/</loc>
+    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
+    <loc>https://bugwz.com/2019/01/13/tcl-first/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
