@@ -110,16 +110,26 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>Gorilla 是一个基于内存的 TSDB，在监控数据写入 HBase 数据存储时，起到直写缓存（Write-Through Cache）的作用。 Gorilla 中存储的监控数据是一个简单的三元组：字符串键、64 位时间戳整数和双精度浮点值。 Gorilla 采用了一种新的时间序列压缩算法，允许我们将每个序列从 16 个字节压缩到平均 1.37 个字节，大小减少了 12 倍。 此外，我们设计了 Gorilla 的内存数据结构，在保持对单个时间序列查找时间恒定的同时，也能够快速高效的进行全数据扫描。</p>
 <p><img src="/assets/images/gorilla-cn-2.png" alt="图 2" loading="lazy"></p>
 <p>Figure 2: Visualizing the entire compression algorithm. For this example, 48 bytes of values and time stamps<br>are compressed to just under 21 bytes&#x2F;167 bits.</p>
+<p>图 2：可视化整个压缩算法。 对于此示例，48 字节的值和时间戳被压缩到略低于 21 字节（大约167 位）。</p>
 <p>The key specified in the monitoring data is used to uniquely identify a time series. By sharding all monitoring data based on these unique string keys, each time series dataset can be mapped to a single Gorilla host. Thus, we can scale Gorilla by simply adding new hosts and tuning the sharding function to map new time series data to the expanded set of hosts. When Gorilla was launched to production 18 months ago, our dataset of all time series data inserted in the past 26 hours fit into 1.3TB of RAM evenly distributed across 20 machines. Since then, we have had to double the size of the clusters twice due to data growth, and are now running on 80 machines within each Gorilla cluster. This process was simple due to the share-nothing architecture and focus on horizontal scalability.</p>
+<p>监控数据中指定的键用于唯一标识一个时间序列。 通过使用这些唯一的字符串键来对所有的监控数据进行分片，每个时间序列数据集都可以映射到单个 Gorilla 主机。因此，我们可以通过简单地添加新主机并调整分片算法来将新的时间序列数据映射到新的主机上，从而实现扩展 Gorilla 的目的。 当 Gorilla 在 18 个月前投入生产时，我们在过去 26 小时内插入的所有时间序列数据的数据集均匀分布在 20 台机器上的 1.3TB 内存中。 在那之后，由于数据的增长，我们不得不将集群规模翻倍，现在每个 Gorilla 集群运行在 80 台机器上。 由于无共享（Share-Nothing）架构和专注于水平的可扩展性，这个扩展的过程相当简单。</p>
 <p>Gorilla tolerates single node failures, network cuts, and entire datacenter failures by writing each time series value to two hosts in separate geographic regions. On detecting a failure, all read queries are failed over to the alternate region ensuring that users do not experience any disruption.</p>
+<p>Gorilla 通过将每个时间序列值写入不同地域的两台主机中来容忍单节点故障，网络中断，甚至于整个数据中心故障。 检测到故障时，所有读取操作都将故障转移到备用区域，确保用户不会感知任何中断。</p>
 <h3 id="4-1、时序压缩"><a href="#4-1、时序压缩" class="headerlink" title="4.1、时序压缩"></a>4.1、时序压缩</h3><p>In evaluating the feasibility of building an in-memory time series database, we considered several existing compression schemes to reduce the storage overhead. We identified techniques that applied solely to integer data which didn’t meet our requirement of storing double precision floating point values. Other techniques operated on a complete dataset but did not support compression over a stream of data as was stored in Gorilla [7, 13]. We also identified lossy time series approximation techniques used in data mining to make the problem set more easily fit within memory [15, 11], but Gorilla is focused on keeping the full resolution representation of data.</p>
+<p>在评估构建内存时间序列数据库的可行性时，我们考虑了几种现有的压缩方案来降低存储开销。 我们确定了仅适用于整数数据的技术，这些技术不符合我们存储双精度浮点值的要求。 其他技术在完整数据集上运行，但不支持对存储在 Gorilla [7, 13] 中的数据流进行压缩。 我们还确定了数据挖掘中使用的有损的时间序列近似技术（Lossy Time Series Approximation Techniques），尝试使其更适合用内存来存储 [15, 11]，但 Gorilla 专注于保持数据的完整性。</p>
 <p>Our work was inspired by a compression scheme for floating point data derived in scientific computation. This scheme leveraged XOR comparison with previous values to generate a delta encoding [25, 17].</p>
+<p>我们受到了科学计算中浮点数据压缩方案的启发。 该方案利用与先前值的 XOR 比较来生成差值编码 [25, 17]。</p>
 <p>Gorilla compresses data points within a time series with no additional compression used across time series. Each data point is a pair of 64 bit values representing the time stamp and value at that time. Timestamps and values are compressed separately using information about previous values. The overall compression scheme is visualized in Figure 2, showing how time stamps and values are interleaved in the compressed block.</p>
+<p>Gorilla 只对一个时间序列中的数据点进行压缩，不会有跨时间序列压缩。每个数据点是一对 64 位值，表示当时的时间戳和值。时间戳和值根据先前的值分别进行压缩。整体的压缩方案如图 2 所示，图中展示了时间戳和值是如何在压缩块中交错分布的。</p>
 <p>Figure 2.a illustrates the time series data as a stream consisting of pairs of measurements (values) and time stamps. Gorilla compresses this data stream into blocks, partitioned by time. After a simple header with an aligned time stamp (starting at 2 am, in this example) and storing the first value in a less compressed format, Figure 2.b shows that timestamps are compressed using delta-of-delta compression, described in more detail in Section 4.1.1. As shown in Figure 2.b the time stamp delta of delta is −2. This is stored with a two bit header (‘10’), and the value is stored in seven bits, for a total size of just 9 bits. Figure 2.c shows floating-point values are compressed using XOR compression, described in more detail in Section 4.1.2. By XORing the floating point value with the previous value, we find that there is only a single meaningful bit in the XOR. This is then encoded with a two bit header (‘11’), encoding that there are eleven leading zeros, a single meaningful bit, and the actual value (‘1’). This is stored in fourteen total bits.</p>
+<p>图 2.a 表明时间序列数据是由成对的时间戳和测量值组成的数据流。 Gorilla 按照时间分区将数据流压缩到数据块中。这里先定义了一个由基线时间构成的 Header （图例中从 2 点开始），然后将第一个值进行了简单的压缩并存储，图 2.b 显示了时间戳的压缩方式为 delta-of-delta ，这个在第 4.1.1 节由更详细的描述。如图 2.b 所示，时间戳 delta-of-delta 的值为 -2 ，我们使用 2 位来存储 Header （’10’），并且之后使用 7 位来存储该值，总大小只有 9 位。图 2.c 显示了浮点值的压缩方式为 XOR，这个在第 4.1.2 节由更详细的描述。通过将浮点值与前一个值进行异或（XOR）计算，我们发现最后只有 1 个有意义的位，然后使用 2 位来编码 Header（’11’），编码中有 11 个前导零（Leading Zero），1 个有意义的位和实际值（’1’），总大小为 14 位。</p>
 <p><img src="/assets/images/gorilla-cn-3.png" alt="图 3" loading="lazy"></p>
 <p>Figure 3: Distribution of time stamp compression across different ranged buckets. Taken from a sample of 440, 000 real time stamps in Gorilla.</p>
+<p>图 3：不同范围存储桶的时间戳压缩分布。 来自于 Gorilla 中 440, 000 个实时时间戳的样本数据。</p>
 <h4 id="4-1-1、-时间戳压缩"><a href="#4-1-1、-时间戳压缩" class="headerlink" title="4.1.1、 时间戳压缩"></a>4.1.1、 时间戳压缩</h4><p>We analyzed the time series data stored in ODS so we could optimize the compression scheme implemented in Gorilla. We noticed that the vast majority of ODS data points arrived at a fixed interval. For instance, it is common for a time series to log a single point every 60 seconds. Occasionally, the point may have a time stamp that is 1 second early or late, but the window is usually constrained.</p>
+<p>我们分析了 ODS 中存储的时间序列数据，因此我们尝试优化 Gorilla 中实现的数据压缩方案。我们观察到绝大部分的 ODS 数据的时间间隔都是固定的。例如，时间序列通常每 60 秒记录一个点，有时这个点可能会提前或者推迟 1 秒，但是时间窗口通常都是固定的。</p>
 <p>Rather than storing timestamps in their entirety, we store an efficient delta of deltas. If the delta between time stamps for subsequent data points in a time series are 60, 60, 59 and 61 respectively, the delta of deltas is computed by subtracting the current time stamp value from the previous one which gives us 0, -1 and 2. An example of how this works is shown in Figure 2.</p>
+<p>我们不是存储完整的时间戳，而是存储一个有效的差值的差值（ delta of deltas ）。 如果时间序列中后续数据点的时间戳之间的 delta 分别为 60、60、59 和 61，则 delta 的 delta 是通过从前一个时间戳值中减去当前时间戳值来计算的，得到 0、-1 和 2 . 图 2 展示了其工作原理的一个示例。</p>
 <p>We next encode the delta of deltas using variable length encoding with the following algorithm:</p>
 <ol>
 <li><p>The block header stores the starting time stamp, t−1, which is aligned to a two hour window; the first time stamp, t0, in the block is stored as a delta from t−1 in 14 bits.</p>
@@ -141,10 +151,26 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ol>
+<p>接下来，我们使用以下算法使用可变长度编码对 <strong>差值的差值</strong>（delta of delta） 进行编码：</p>
+<ol>
+<li>数据块的头部存储起始时间戳（ t-1 ），对齐窗口为 2 小时；数据块中的第一个时间戳（ t0 ）存储为 14 位中（ t-1 ）的增量。</li>
+<li>对于后续的时间戳（ tn ）：<ol>
+<li>计算差值的差值：D &#x3D; (tn − t(n−1)) − (t(n−1) − t(n−2)) ；</li>
+<li>如果 D 为 0 ，则使用 1 个比特位来存储 ‘0’ ；</li>
+<li>如果 D 的范围位于 [-63, 64] ，则先使用 2 个比特位存储 ‘10’ ，然后再使用 7 个比特位存储 D 值；</li>
+<li>如果 D 的范围位于 [-255, 256] ，则先使用 3 个比特位存储 ‘110’ ，然后再使用 9 个比特位存储 D 值；</li>
+<li>如果 D 的范围位于 [-2047, 2048] ，则先使用 4 个比特位存储 ‘1110’ ，然后再使用 12 个比特位存储 D 值；</li>
+<li>其他情况下，则先使用 4 个比特位存储 ‘1111’ ，然后再使用 32 个比特位存储 D 值；</li>
+</ol>
+</li>
+</ol>
 <p>The limits for the different ranges were selected by sampling a set of real time series from the production system and selecting the ones that gave the best compression ratio. A time series might have data points missing but the existing points likely arrived at fixed intervals. For example if there’s one missing data point the deltas could be 60, 60, 121 and 59. The deltas of deltas would be 0, 61 and -62. Both 61 and -62 fit inside the smallest range and fewer bits can be used to encode these values. The next smallest range [-255, 256] is useful because a lot of the data points come in every 4 minutes and a single data point missing still uses that range.</p>
+<p>这些不同的取值范围是从真实的生产环境的时间序列中采样出来的，每个值都能选择合适的范围以达到最好的压缩比。一个时间序列可能会丢失部分数据点，但是它现存的数据很可能都是以固定的时间间隔产生的。例如，如果缺少了一个数据点，则增量可能是 60，60，121，59，那么差值的差值（ delta of deltas ）将是 0，61 和 -62。其中 61 和 -62 都处于最小的的范围内，并且可以使用较小的位来编码这些值。下一个编码取值范围 [-255, 256] 也很有用，因为还有很多数据点是每 4 分钟出现一次，当缺少了单个数据点时仍然可以使用这个取值范围。</p>
 <p><img src="/assets/images/gorilla-cn-4.png" alt="图 4" loading="lazy"></p>
 <p>Figure 4: Visualizing how XOR with the previous value often has leading and trailing zeros, and for many series, non-zero elements are clustered.</p>
+<p>图 4：展示了与前一个值的 XOR 通常如何具有前导零和尾随零，并且对于许多时间序列，非零元素通常是聚集在一起的。</p>
 <p>Figure 3 show the results of time stamp compression in Gorilla. We have found that about 96% of all time stamps can be compressed to a single bit.</p>
+<p>图 3 显示了 Gorilla 中时间戳压缩的结果。 我们发现大约 96% 的时间戳可以压缩到一个位。</p>
 <h4 id="4-1-2、值压缩"><a href="#4-1-2、值压缩" class="headerlink" title="4.1.2、值压缩"></a>4.1.2、值压缩</h4><p>In addition to the time stamp compression, Gorilla also compresses data values. Gorilla restricts the value element in its tuple to a double floating point type. We use a compression scheme similar to existing floating point compression algorithms, like the ones described in [17] and [25].</p>
 <p>From analyzing our ODS data, we discovered that the value in most time series does not change significantly when compared to its neighboring data points. Further, many data sources only store integers into ODS. This allowed us to tune the expensive prediction scheme in [25] to a simpler implementation that merely compares the current value to the previous value. If values are close together the sign, exponent, and first few bits of the mantissa will be identical. We leverage this to compute a simple XOR of the current and previous values rather than employing a delta encoding scheme.</p>
 <p>We then encode these XOR’d values with the following variable length encoding scheme:</p>
