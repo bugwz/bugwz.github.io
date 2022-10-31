@@ -154,14 +154,14 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>接下来，我们使用以下算法使用可变长度编码对 <strong>差值的差值</strong>（delta of delta） 进行编码：</p>
 <ol>
 <li>数据块的头部存储起始时间戳（ t-1 ），对齐窗口为 2 小时；数据块中的第一个时间戳（ t0 ）存储为 14 位中（ t-1 ）的增量。</li>
-<li>对于后续的时间戳（ tn ）：<ol>
+<li>对于后续的时间戳（ tn ）：<ul>
 <li>计算差值的差值：D &#x3D; (tn − t(n−1)) − (t(n−1) − t(n−2)) ；</li>
 <li>如果 D 为 0 ，则使用 1 个比特位来存储 ‘0’ ；</li>
 <li>如果 D 的范围位于 [-63, 64] ，则先使用 2 个比特位存储 ‘10’ ，然后再使用 7 个比特位存储 D 值；</li>
 <li>如果 D 的范围位于 [-255, 256] ，则先使用 3 个比特位存储 ‘110’ ，然后再使用 9 个比特位存储 D 值；</li>
 <li>如果 D 的范围位于 [-2047, 2048] ，则先使用 4 个比特位存储 ‘1110’ ，然后再使用 12 个比特位存储 D 值；</li>
 <li>其他情况下，则先使用 4 个比特位存储 ‘1111’ ，然后再使用 32 个比特位存储 D 值；</li>
-</ol>
+</ul>
 </li>
 </ol>
 <p>The limits for the different ranges were selected by sampling a set of real time series from the production system and selecting the ones that gave the best compression ratio. A time series might have data points missing but the existing points likely arrived at fixed intervals. For example if there’s one missing data point the deltas could be 60, 60, 121 and 59. The deltas of deltas would be 0, 61 and -62. Both 61 and -62 fit inside the smallest range and fewer bits can be used to encode these values. The next smallest range [-255, 256] is useful because a lot of the data points come in every 4 minutes and a single data point missing still uses that range.</p>
@@ -197,10 +197,10 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li><p>如果与前一个值的异或（XOR）结果为零（相同值），则使用 1 个比特位存储 ‘0’ ；</p>
 </li>
 <li><p>当 XOR 不为零时，计算 XOR 中前导零和尾随零的数量，则使用 1 个比特位存储 ‘1’ ，接下来的值为下面两种之一：</p>
-<ol>
+<ul>
 <li>（控制位 ‘0’ ）如果有意义的位（即中间非 0 部分）的数据块被前一个数据块包含，即，至少有与先前值一样多的前导零和尾随零，那么就可以直接在数据块中使用这些信息，并且仅需要存储非 0 的 XOR 值；</li>
 <li>（控制位 ‘1’ ）将前导零数量的长度存储在接下来的 5 位中，然后将有意义的 XOR 值的长度存储在接下来的 6 位中。 最后存储 XOR 值的有意义的位；</li>
-</ol>
+</ul>
 </li>
 </ol>
 <p><img src="/assets/images/gorilla-cn-5.png" alt="图 5" loading="lazy"></p>
