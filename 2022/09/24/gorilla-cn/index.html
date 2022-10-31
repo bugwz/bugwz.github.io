@@ -172,7 +172,9 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p>Figure 3 show the results of time stamp compression in Gorilla. We have found that about 96% of all time stamps can be compressed to a single bit.</p>
 <p>图 3 显示了 Gorilla 中时间戳压缩的结果。 我们发现大约 96% 的时间戳可以压缩到一个位。</p>
 <h4 id="4-1-2、值压缩"><a href="#4-1-2、值压缩" class="headerlink" title="4.1.2、值压缩"></a>4.1.2、值压缩</h4><p>In addition to the time stamp compression, Gorilla also compresses data values. Gorilla restricts the value element in its tuple to a double floating point type. We use a compression scheme similar to existing floating point compression algorithms, like the ones described in [17] and [25].</p>
+<p>除了压缩时间戳，Gorilla 还会压缩数据值。 Gorilla 将其元组中的数据值限制为双浮点类型。 我们使用类似于现有浮点压缩算法的压缩方案，类似于 [17] 和 [25] 中描述的那些。</p>
 <p>From analyzing our ODS data, we discovered that the value in most time series does not change significantly when compared to its neighboring data points. Further, many data sources only store integers into ODS. This allowed us to tune the expensive prediction scheme in [25] to a simpler implementation that merely compares the current value to the previous value. If values are close together the sign, exponent, and first few bits of the mantissa will be identical. We leverage this to compute a simple XOR of the current and previous values rather than employing a delta encoding scheme.</p>
+<p>通过分析 ODS 的数据，我们发现大多数时间序列中的值与其相邻数据点的值相比没有显著的变化。 此外，许多数据源只会将整数存储到 ODS 中。 这使我们可以将文末参考文献 [25] 中的复杂方案调整为更简单的实现，该实现仅将当前值与先前值进行比较。 如果值接近，那么尾数的符号、指数和前几位将完全相同。 因此对当前值和前一个值做一个简单的异或（XOR）运算，而不是像时间戳那样采用差值编码方案。</p>
 <p>We then encode these XOR’d values with the following variable length encoding scheme:</p>
 <ol>
 <li><p>The first value is stored with no compression</p>
@@ -188,15 +190,35 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 </ul>
 </li>
 </ol>
+<p>我们用下面的规则对异或（XOR）后的值进行可变长编码：</p>
+<ol>
+<li><p>第一个值不进行压缩存储；</p>
+</li>
+<li><p>如果与前一个值的异或（XOR）结果为零（相同值），则使用 1 个比特位存储 ‘0’ ；</p>
+</li>
+<li><p>当 XOR 不为零时，计算 XOR 中前导零和尾随零的数量，则使用 1 个比特位存储 ‘1’ ，接下来的值为下面两种之一：</p>
+<ol>
+<li>（控制位 ‘0’ ）如果有意义的位（即中间非 0 部分）的数据块被前一个数据块包含，即，至少有与先前值一样多的前导零和尾随零，那么就可以直接在数据块中使用这些信息，并且仅需要存储非 0 的 XOR 值；</li>
+<li>（控制位 ‘1’ ）将前导零数量的长度存储在接下来的 5 位中，然后将有意义的 XOR 值的长度存储在接下来的 6 位中。 最后存储 XOR 值的有意义的位；</li>
+</ol>
+</li>
+</ol>
 <p><img src="/assets/images/gorilla-cn-5.png" alt="图 5" loading="lazy"></p>
 <p>Figure 5: Distribution of values compressed across different XOR buckets. Taken from a sample of 1.6 million real values in Gorilla.</p>
+<p>图 5：不同 XOR 存储桶压缩的值分布。 取自 Gorilla 中 160 万个真实值的样本。</p>
 <p>The overall compression scheme is visualized in Figure 2 which depicts how our XOR encoding can store the values in a time series efficiently.</p>
+<p>整体压缩方案如图 2 所示，它描述了我们的 XOR 编码如何有效地将值存储在时间序列中。</p>
 <p>Figure 5 shows the distribution of actual values in Gorilla. Roughly 51% of all values are compressed to a single bit since the current and previous values are identical. About 30% of the values are compressed with the control bits ‘10’ (case b), with an average compressed size of 26.6 bits. The remaining 19% are compressed with control bits ‘11’, with an average size of 36.9 bits, due to the extra 13 bits of overhead required to encode the length of leading zero bits and meaningful bits.</p>
+<p>图 5 显示了 Gorilla 中实际值的分布。 由于当前值和以前的值相同，因此大约 51% 的值被压缩后仅使用 1 个比特位。 大约 30% 的值使用控制位 ‘10’（情况 b）进行压缩，平均压缩大小为 26.6 位。 剩余的 19% 使用控制位 ‘11’ 进行压缩，平均大小为 36.9 位，位数多是因为编码前导零位和有意义位的长度需要额外的 13 位开销。</p>
 <p>This compression algorithm uses both the previous floating point value and the previous XORed value. This results in an additional compression factor because a sequence of XORed values often have a very similar number of leading and trailing zeros, as visualized in Figure 4. Integer values compress especially well because the location of the one bits after the XOR operation is often the same for the whole time series, meaning most values have the same number of trailing zeros.</p>
+<p>这种压缩算法同时使用了前序值和前序XOR值。如图 4 所示，由于 XOR 值的序列通常具有非常相似数量的前导零和尾随零，因此最终的结果会有较好的压缩率。这种算法对于整型的压缩效果尤其好，这是因为经过 XOR 运算后的中间段位的位置一般在整个时间序列中对齐的，意味着大多数XOR值有相同个数的尾随零。</p>
 <p>One trade-off that is inherent in our encoding scheme is the time span over which the compression algorithm operates. Using the same encoding scheme over larger time periods allows us to achieve better compression ratios. However, queries that wish to read data over a short time range might need to expend additional computational resources on decoding data. Figure 6 shows the average compression ratio for the time series stored in ODS as we change the block size. One can see that blocks that extend longer than two hours provide diminishing returns for compressed size. A two-hour block allows us to achieve a compression ratio of 1.37 bytes per data point.</p>
+<p>我们的编码方案有一个折衷是压缩算法运行的时间跨度。 在更长的时间段内使用相同的编码方案可以让我们获得更好的压缩比。但是，这会导致在短时间内读取数据的操作可能需要在解码数据上花费额外的计算资源。图 6 显示了存储在 ODS 中的时间序列在不同数据块大小下的平均压缩率。可以看出，块大小超过两个小时之后，数据的压缩收益率是逐渐减少的。两小时的数据块使得我们能够实现每个数据点占用大约 1.37 个字节。</p>
 <p><img src="/assets/images/gorilla-cn-6.png" alt="图 6" loading="lazy"></p>
 <p>Figure 6: Average bytes used for each ODS data point as the compression bucket is varied from 0 (no compression) to 240 minutes. Bucket size larger than two hours do not give significant additional compression for our dataset. This is across the entire production Gorilla data set (approximately 2 billion time series).</p>
+<p>图 6：每个 ODS 数据点所占用的平均字节数，因为压缩桶（数据块）从 0（无压缩）到 240 分钟不等。 大于两个小时的桶大小不会为我们的数据集提供明显的压缩效果。 这是整个生产 Gorilla 数据集（大约 20 亿个时间序列）。</p>
 <h3 id="4-2、内存数据结构"><a href="#4-2、内存数据结构" class="headerlink" title="4.2、内存数据结构"></a>4.2、内存数据结构</h3><p>The primary data structure in Gorilla’s implementation is a Timeseries Map (TSmap). Figure 7 provides an overview of this data structure. TSmap consists of a vector of C++ standard library shared-pointers to time series and a caseinsensitive, case-preserving map from time series names to the same. The vector allows for efficient paged scans through all the data, while the map enables constant time lookups of particular time series. Constant time lookup is necessary to achieve the design requirement for fast reads while still allowing for efficient data scans.</p>
+<p>Gorilla 实现中的主要数据结构是时间序列 Map （TSmap）。 图 7 提供了该数据结构的概述。 时间序列图包含一个 C++ 标准库中的 vector ，它是一个指向时间序列的指针；还包含一个 map ，其中 key 位时间序列的名称，不区分大小写并且保留原有大小写，值是和 vector 中一样的指针。vector 可以实现全数据分页查询，而 map 可以支撑指定时间序列的定长时间段查询，要满足快速查询的需求必须要具备恒定时间的查询能力，同时也要满足有效的数据扫描。</p>
 <p>The use of C++ shared-pointers enables scans to copy the vector (or pages thereof) in a few microseconds, avoiding lengthy critical sections that would impact the flow of incoming data. On deletion of a time series, a vector entry is tombstoned, and the index is placed in a free pool which is re-used when new time series are created. Tombstoneing a section of memory marks it as ’dead’, and ready to be reused, without actually freeing it to the underlying system.</p>
 <p>Concurrency is attained with a single read-write spin lock protecting map and vector access and 1-byte spin lock on each time series. Since each individual time series has a relatively low write throughput, the spin lock has very low contention between reads and writes.</p>
 <p>As illustrated in Figure 7, the mapping of shard identifier (shardId) to TSmap, named ShardMap, is maintained with a vector of pointers to the TSmaps. Mapping of a time series name to a shard is done using the same caseinsensitive hash in the TSmap, mapping it to an ID between [0,NumberOfShards). Since the total number of shards in the system is constant and numbering in the low thousands, the additional overhead of storing null pointers in the ShardMap is negligible. Like the TSmaps, concurrent access to the ShardMap is managed with a read-write spin lock.</p>
