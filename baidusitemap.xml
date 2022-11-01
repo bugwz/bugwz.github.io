@@ -2,7 +2,7 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
-    <lastmod>2022-10-31</lastmod>
+    <lastmod>2022-11-01</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2021/04/15/redismodule-smartcache/</loc>
@@ -413,11 +413,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/11/25/tmux/</loc>
+    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
+    <loc>https://bugwz.com/2018/11/25/tmux/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
