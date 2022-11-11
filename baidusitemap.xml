@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2019/07/10/perf/</loc>
+    <lastmod>2022-11-11</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
     <lastmod>2022-11-02</lastmod>
   </url>
@@ -241,11 +245,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/12/12/linux-tools-notes/</loc>
+    <loc>https://bugwz.com/2019/01/12/localtime/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/12/localtime/</loc>
+    <loc>https://bugwz.com/2018/12/12/linux-tools-notes/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -257,11 +261,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/02/python-prettytable/</loc>
+    <loc>https://bugwz.com/2019/10/12/proxy/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/12/proxy/</loc>
+    <loc>https://bugwz.com/2019/01/02/python-prettytable/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -285,15 +289,15 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
+    <loc>https://bugwz.com/2019/10/20/command-rsync/</loc>
+    <lastmod>2022-09-09</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2019/10/20/command-rsync/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>

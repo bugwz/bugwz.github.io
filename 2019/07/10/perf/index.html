@@ -1,0 +1,102 @@
+<!DOCTYPE html><html lang="zh-Hans"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="Perf与火焰图"><meta name="keywords" content="Perf,FlameGraph"><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><title>Perf与火焰图 | 咕咕</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.9.1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.9.1"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/gitalk/dist/gitalk.min.css"><script src="https://cdn.jsdelivr.net/npm/gitalk@latest/dist/gitalk.min.js"></script><script src="https://cdn.jsdelivr.net/npm/blueimp-md5@2.10.0/js/md5.min.js"></script><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?e0f19b930da2077e8b159cbe0c8eb5e0";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();</script><link rel="dns-prefetch" href="https://www.google-analytics.com"><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-100348048-1', 'auto');
+ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"search.xml","languages":{"hits_empty":"找不到您查询的内容: ${query}"}},
+  copy: {
+    success: '复制成功',
+    error: '复制错误',
+    noSupport: '浏览器不支持'
+  },
+  hexoVersion: '6.3.0'
+} </script><meta name="generator" content="Hexo 6.3.0"></head><body><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="false"><div class="toggle-sidebar-info text-center"><span data-toggle="文章详情">站点概览</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">目录</div><div class="sidebar-toc__progress"><span class="progress-notice">阅读进度</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81Perf"><span class="toc-text">一、Perf</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1%E3%80%81%E4%BD%BF%E7%94%A8%E7%A4%BA%E4%BE%8B"><span class="toc-text">1.1、使用示例</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E7%81%AB%E7%84%B0%E5%9B%BE"><span class="toc-text">二、火焰图</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1%E3%80%81%E5%B0%86perf%E6%95%B0%E6%8D%AE%E8%BD%AC%E6%8D%A2%E4%B8%BA%E7%81%AB%E7%84%B0%E5%9B%BE"><span class="toc-text">2.1、将perf数据转换为火焰图</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%8F%82%E8%80%83%E9%93%BE%E6%8E%A5"><span class="toc-text">三、参考链接</span></a></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="/assets/images/avatar.jpg"></div><div class="author-info__name text-center">bugwz</div><div class="author-info__description text-center"></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">文章</span><span class="pull-right">109</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">标签</span><span class="pull-right">108</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">友情链接</div><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://blog.nobug.in/">BugSniper</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://ibytes.cn/">i字节</a><a class="author-info-links__name text-center" target="_blank" rel="noopener" href="https://www.hozen.site/">李浩然的博客</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://cdn.bugwz.com/perf-flamegraphs.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">咕咕</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">首页</a><a class="site-page" href="/archives">归档</a><a class="site-page" href="/tags">标签</a><a class="site-page" href="/categories">分类</a></span></div><div id="post-info"><div id="post-title">Perf与火焰图</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2019-07-10</time></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><h2 id="一、Perf"><a href="#一、Perf" class="headerlink" title="一、Perf"></a>一、Perf</h2><p>Perf 是基于Linux 2.6+系统的一款性能分析工具。它可以用来分析应用程序和内核的性能问题，从而全面理解应用程序中的性能瓶颈。</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">[root@bugwz ~]<span class="comment"># perf --help</span></span><br><span class="line"></span><br><span class="line"> usage: perf [--version] [--<span class="built_in">help</span>] [OPTIONS] COMMAND [ARGS]</span><br><span class="line"></span><br><span class="line"> The most commonly used perf commands are:</span><br><span class="line">   annotate        Read perf.data (created by perf record) and display annotated code</span><br><span class="line">   archive         Create archive with object files with build-ids found <span class="keyword">in</span> perf.data file</span><br><span class="line">   bench           General framework <span class="keyword">for</span> benchmark suites</span><br><span class="line">   buildid-cache   Manage build-id cache.</span><br><span class="line">   buildid-list    List the buildids <span class="keyword">in</span> a perf.data file</span><br><span class="line">   data            Data file related processing</span><br><span class="line">   diff            Read perf.data files and display the differential profile</span><br><span class="line">   evlist          List the event names <span class="keyword">in</span> a perf.data file</span><br><span class="line">   inject          Filter to augment the events stream with additional information</span><br><span class="line">   kmem            Tool to trace/measure kernel memory properties</span><br><span class="line">   kvm             Tool to trace/measure kvm guest os</span><br><span class="line">   list            List all symbolic event types</span><br><span class="line">   lock            Analyze lock events</span><br><span class="line">   mem             Profile memory accesses</span><br><span class="line">   record          Run a <span class="built_in">command</span> and record its profile into perf.data</span><br><span class="line">   report          Read perf.data (created by perf record) and display the profile</span><br><span class="line">   <span class="built_in">sched</span>           Tool to trace/measure scheduler properties (latencies)</span><br><span class="line">   script          Read perf.data (created by perf record) and display trace output</span><br><span class="line">   <span class="built_in">stat</span>            Run a <span class="built_in">command</span> and gather performance counter statistics</span><br><span class="line">   <span class="built_in">test</span>            Runs sanity tests.</span><br><span class="line">   timechart       Tool to visualize total system behavior during a workload</span><br><span class="line">   top             System profiling tool.</span><br><span class="line">   probe           Define new dynamic tracepoints</span><br><span class="line">   trace           strace inspired tool</span><br><span class="line"></span><br><span class="line"> See <span class="string">&#x27;perf help COMMAND&#x27;</span> <span class="keyword">for</span> more information on a specific <span class="built_in">command</span>.</span><br></pre></td></tr></table></figure>
+
+
+<ul>
+<li><code>annotate</code>：读取perf record生成的数据文件，如果目标文件具有调试符号，则源代码将与汇编代码一起显示，如果对象中没有调试信息，则会显示带注释的程序集；</li>
+<li><code>archive</code>：根据perf record生成的数据文件记录的build-id，将所有被采样到的elf文件打包，利用此压缩包，可以在任何机器上分析数据文件中记录的采样数据；</li>
+<li><code>bench</code>：perf中内置的benchmark，可对对系统性能进行摸底；</li>
+<li><code>buildid-cache</code>：用来管理perf文件的buildid缓存，每个elf文件都有独一无二的buildid，buildid被perf用来将elf文件和它的性能数据关联起来；</li>
+<li><code>build-list</code>：列出数据文件中记录的所有buildid；</li>
+<li><code>data</code>：数据文件的相关处理；</li>
+<li><code>diff</code>：对比两个数据文件的差异。能够给出每个符号（函数）在热点分析上的具体差异；</li>
+<li><code>evlist</code>：列出数据文件perf.data中所有性能事件；</li>
+<li><code>inject</code>：过滤perf record的数据流，并将其定向到标准输出，在被分析代码中的任何一点，都可以向事件流中注入其它事件；</li>
+<li><code>kmem</code>：针对内核内存（slab）子系统进行追踪测量的工具；</li>
+<li><code>kvm</code>：用来追踪测试运行在KVM虚拟机上的Guest OS；</li>
+<li><code>list</code>：查看当前系统支持的所有性能事件，包括硬件性能事件、软件性能事件以及检查点；</li>
+<li><code>lock</code>：分析内核中的锁信息，包括锁的争用情况，等待延迟等；</li>
+<li><code>mem</code>：分析内存存取情况；</li>
+<li><code>record</code>：收集采样信息，并将其记录在数据文件中，随后可通过其它工具对数据文件进行分析；</li>
+<li><code>report</code>：读取perf record创建的数据文件，并给出热点分析结果；</li>
+<li><code>sched</code>：针对调度器子系统的分析工具；</li>
+<li><code>script</code>：执行perl或python写的功能扩展脚本、生成脚本框架、读取数据文件中的数据信息等；</li>
+<li><code>stat</code>：执行某个命令，收集特定进程的性能概况，包括CPI、Cache丢失率等；</li>
+<li><code>test</code>：对当前软硬件平台进行健全性测试，可用此工具测试当前的软硬件平台是否能支持perf的所有功能；</li>
+<li><code>timechart</code>：针对测试期间系统行为进行可视化的工具；</li>
+<li><code>top</code>：可实时查看当前系统进程函数占用率情况；</li>
+<li><code>probe</code>：关于syscall的工具；</li>
+<li><code>trace</code>：用于定义动态检查点；</li>
+</ul>
+<h3 id="1-1、使用示例"><a href="#1-1、使用示例" class="headerlink" title="1.1、使用示例"></a>1.1、使用示例</h3><p>按照<code>每秒99次</code>的采样频率对<code>进程号为13294</code>的进程进行<code>持续30秒</code>的性能分析，并将结果记录在当前目录的<code>perf.data</code>文件中：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sudo perf record -F 99 -g -p 13204 --<span class="built_in">sleep</span> 30</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>perf record</code>：表示记录；</li>
+<li><code>-F 99</code>：每秒99次采集；</li>
+<li><code>-g</code> ：采集符号；</li>
+<li><code>-p 13204</code>：进程号，即对哪个进程进行分析；</li>
+<li><code>sleep 30</code>：持续30秒；</li>
+</ul>
+<p>监测<code>进程号为10034</code>的进程的函数占用率情况：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sudo perf top -p 10034</span><br></pre></td></tr></table></figure>
+
+<h2 id="二、火焰图"><a href="#二、火焰图" class="headerlink" title="二、火焰图"></a>二、火焰图</h2><p><a target="_blank" rel="noopener" href="https://github.com/brendangregg/FlameGraph">火焰图</a> 是依据 perf 的分析结果而产生的一个 SVG 图片，它是一种可视化堆栈跟踪样本的方法。</p>
+<ul>
+<li><code>x 轴</code>：表示抽样的样本总体，每个函数都被绘制成矩形，其宽度相当于样本数，宽度越大表示该函数被抽到的次数越多，即执行的时间越长；</li>
+<li><code>y 轴</code>：表示堆栈深度，顶部是正在执行的函数，下方是它的父函数，火焰越高表示调用栈越深；</li>
+</ul>
+<h3 id="2-1、将perf数据转换为火焰图"><a href="#2-1、将perf数据转换为火焰图" class="headerlink" title="2.1、将perf数据转换为火焰图"></a>2.1、将perf数据转换为火焰图</h3><ul>
+<li><p>下载火焰图项目，需要用到项目的相关脚本：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">git <span class="built_in">clone</span> https://github.com/brendangregg/FlameGraph.git</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>用 <code>perf script</code> 工具对perf.data进行解析：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">perf script -i perf.data &gt; perf.unfold</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>将 <code>perf.unfold</code> 中的符号进行折叠：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">./FlameGraph/stackcollapse-perf.pl perf.unfold &gt; perf.folded</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>生成svg火焰图：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">./FlameGraph/flamegraph.pl perf.folded &gt; perf.svg</span><br></pre></td></tr></table></figure></li>
+</ul>
+<h2 id="三、参考链接"><a href="#三、参考链接" class="headerlink" title="三、参考链接"></a>三、参考链接</h2><ul>
+<li><a target="_blank" rel="noopener" href="https://blog.csdn.net/qinglongzhan/article/details/89350195">https://blog.csdn.net/qinglongzhan/article/details/89350195</a></li>
+<li><a target="_blank" rel="noopener" href="http://www.ruanyifeng.com/blog/2017/09/flame-graph.html">http://www.ruanyifeng.com/blog/2017/09/flame-graph.html</a></li>
+<li><a target="_blank" rel="noopener" href="https://segmentfault.com/a/1190000021465563">https://segmentfault.com/a/1190000021465563</a></li>
+</ul>
+</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">作者: </span><span class="post-copyright-info"><a href="mailto:undefined">bugwz</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">链接: </span><span class="post-copyright-info"><a href="https://bugwz.com/2019/07/10/perf/">https://bugwz.com/2019/07/10/perf/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来自 <a href="https://bugwz.com">咕咕</a>！</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Perf/">Perf</a><a class="post-meta__tags" href="/tags/FlameGraph/">FlameGraph</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2019/08/10/nf-conntrack/"><i class="fa fa-chevron-left">  </i><span>记一次nf_conntrack模块导致的丢包问题</span></a></div><div class="next-post pull-right"><a href="/2019/07/01/leaky-and-token-bucket/"><span>漏桶与令牌桶速率限制算法</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="gitalk-container"></div><script>var gitalk = new Gitalk({
+  clientID: '6af3be16b94cec39bcf6',
+  clientSecret: '13a5202ff773ffcea6300b6c8ff25f455566737c',
+  repo: 'bugwz.github.io',
+  owner: 'bugwz',
+  admin: 'bugwz',
+  id: md5(decodeURI(location.pathname)),
+  language: 'zh-CN'
+})
+gitalk.render('gitalk-container')</script></div></div><footer class="footer-bg" style="background-image: url(https://cdn.bugwz.com/perf-flamegraphs.jpg)"><div class="layout" id="footer"><div class="copyright">&copy;2014 - 2022 By bugwz</div><div class="framework-info"><span></span><a target="_blank" rel="noopener" href="http://hexo.io"><span>Hexo</span></a><span class="footer-separator">|</span><span></span><a target="_blank" rel="noopener" href="https://github.com/Molunerfinn/hexo-theme-melody"><span>Melody</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/lib/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.9.1"></script><script src="/js/fancybox.js?version=1.9.1"></script><script src="/js/sidebar.js?version=1.9.1"></script><script src="/js/copy.js?version=1.9.1"></script><script src="/js/fireworks.js?version=1.9.1"></script><script src="/js/transition.js?version=1.9.1"></script><script src="/js/scroll.js?version=1.9.1"></script><script src="/js/head.js?version=1.9.1"></script><script src="/js/search/local-search.js"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
+  $('#nav').addClass('is-mobile')
+  $('footer').addClass('is-mobile')
+  $('#top-container').addClass('is-mobile')
+}</script><div class="search-dialog" id="local-search"><div class="search-dialog__title" id="local-search-title">搜索</div><div id="local-input-panel"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章"></div></div></div><hr><div id="local-search-results"><div id="local-hits"></div><div id="local-stats"><div class="local-search-stats__hr" id="hr"></div></div></div></div><div class="search-mask"></div></body></html>
