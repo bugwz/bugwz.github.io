@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2022/11/16/bitcoin/</loc>
+    <lastmod>2022-11-16</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2019/09/13/charles/</loc>
+    <lastmod>2022-11-16</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2019/07/10/perf/</loc>
     <lastmod>2022-11-11</lastmod>
   </url>
@@ -221,10 +229,6 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/09/13/charles/</loc>
-    <lastmod>2022-09-09</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2019/09/28/command-nc/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
@@ -245,11 +249,11 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/12/localtime/</loc>
+    <loc>https://bugwz.com/2018/12/12/linux-tools-notes/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/12/12/linux-tools-notes/</loc>
+    <loc>https://bugwz.com/2019/01/12/localtime/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -285,7 +289,7 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/12/12/command-lsof/</loc>
+    <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
@@ -293,7 +297,7 @@
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
+    <loc>https://bugwz.com/2019/12/12/command-lsof/</loc>
     <lastmod>2022-09-09</lastmod>
   </url>
   <url>
