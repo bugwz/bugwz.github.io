@@ -1095,9 +1095,9 @@ footer.is-mobile {
   background-attachment: fixed;
   background-position: center;
   background-size: cover;
-  opacity: 0;
-  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=0)";
-  filter: alpha(opacity=0);
+  opacity: 1;
+  -ms-filter: none;
+  filter: none;
 }
 #top-container.no-bg {
   background-color: #49b1f5;
@@ -1200,9 +1200,9 @@ footer.is-mobile {
 .layout {
   margin: 0 auto;
   width: 700px;
-  opacity: 0;
-  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=0)";
-  filter: alpha(opacity=0);
+  opacity: 1;
+  -ms-filter: none;
+  filter: none;
 }
 #content-inner h1,
 #content-inner h2,
