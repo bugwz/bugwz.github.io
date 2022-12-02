@@ -335,13 +335,44 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <li>默认情况下每一个缓存区块（replBufBlock 节点）的最小 buffer 大小为 16K （PROTO_REPLY_CHUNK_BYTES）；</li>
 <li>默认情况下每添加 64（REPL_BACKLOG_INDEX_PER_BLOCKS） 个缓存区块，就会记录一些快查索引节点；</li>
 </ul>
-<figure class="highlight c"><table><tr><td class="code"><pre><span class="line"><span class="comment">// server.repl_backlog 的类型变成了 replBacklog* 类型</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">replBacklog</span> &#123;</span></span><br><span class="line">    listNode *ref_repl_buf_node;  <span class="comment">// 复制缓冲区块的引用节点</span></span><br><span class="line">    <span class="type">size_t</span> unindexed_count;       <span class="comment">// 记录从上一次向 blocks_index 添加索引之后增加的缓冲区块数量</span></span><br><span class="line">    rax *blocks_index;            <span class="comment">// 用于快速查询的复制缓冲区块的索引集</span></span><br><span class="line">    <span class="type">long</span> <span class="type">long</span> histlen;            <span class="comment">// 积压缓冲区的实际大小</span></span><br><span class="line">    <span class="type">long</span> <span class="type">long</span> offset;             <span class="comment">// 复制积压缓冲区中记录的第一个有效字节的偏移值</span></span><br><span class="line">&#125; replBacklog;</span><br><span class="line"></span><br><span class="line"><span class="comment">// ref_repl_buf_node 中的每一个节点的数据结构</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">replBufBlock</span> &#123;</span></span><br><span class="line">    <span class="type">int</span> refcount;                 <span class="comment">// 使用该节点的引用计数</span></span><br><span class="line">    <span class="type">long</span> <span class="type">long</span> id;                 <span class="comment">// 复制缓冲区块的唯一编号，递增</span></span><br><span class="line">    <span class="type">long</span> <span class="type">long</span> repl_offset;        <span class="comment">// 该区块的第一有效字节数据对应的复制偏移值</span></span><br><span class="line">    <span class="type">size_t</span> size, used;						<span class="comment">// 记录柔性数组对应内存块大小和使用的大小</span></span><br><span class="line">    <span class="type">char</span> buf[];										<span class="comment">// 柔性数组存储复制堆积数据</span></span><br><span class="line">&#125; replBufBlock;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 客户端连接的数据结构</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">client</span> &#123;</span></span><br><span class="line">    ...</span><br><span class="line">    listNode *ref_repl_buf_node;  <span class="comment">// 复制缓冲区块的引用节点</span></span><br><span class="line">    <span class="type">size_t</span> ref_block_pos;         <span class="comment">// 下一个要发送的偏移量</span></span><br><span class="line">    ...</span><br><span class="line">&#125; client;</span><br></pre></td></tr></table></figure>
+<figure class="highlight c"><table><tr><td class="code"><pre><span class="line"><span class="comment">// server.repl_backlog 的类型变成了 replBacklog* 类型</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">replBacklog</span> &#123;</span></span><br><span class="line">    listNode *ref_repl_buf_node;  <span class="comment">// 复制缓冲区块的引用节点</span></span><br><span class="line">    <span class="type">size_t</span> unindexed_count;       <span class="comment">// 从上一次向 blocks_index 添加索引后增加的区块数量</span></span><br><span class="line">    rax *blocks_index;            <span class="comment">// 用于快速查询的复制缓冲区块的索引集</span></span><br><span class="line">    <span class="type">long</span> <span class="type">long</span> histlen;            <span class="comment">// 积压缓冲区的实际大小</span></span><br><span class="line">    <span class="type">long</span> <span class="type">long</span> offset;             <span class="comment">// 复制积压缓冲区中记录的第一个有效字节的偏移值</span></span><br><span class="line">&#125; replBacklog;</span><br><span class="line"></span><br><span class="line"><span class="comment">// ref_repl_buf_node 中的每一个节点的数据结构</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">replBufBlock</span> &#123;</span></span><br><span class="line">    <span class="type">int</span> refcount;                 <span class="comment">// 使用该节点的引用计数</span></span><br><span class="line">    <span class="type">long</span> <span class="type">long</span> id;                 <span class="comment">// 复制缓冲区块的唯一编号，递增</span></span><br><span class="line">    <span class="type">long</span> <span class="type">long</span> repl_offset;        <span class="comment">// 该区块的第一有效字节数据对应的复制偏移值</span></span><br><span class="line">    <span class="type">size_t</span> size, used;            <span class="comment">// 记录柔性数组对应内存块大小和使用的大小</span></span><br><span class="line">    <span class="type">char</span> buf[];                   <span class="comment">// 柔性数组存储复制堆积数据</span></span><br><span class="line">&#125; replBufBlock;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 客户端连接的数据结构</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">client</span> &#123;</span></span><br><span class="line">    ...</span><br><span class="line">    listNode *ref_repl_buf_node;  <span class="comment">// 复制缓冲区块的引用节点</span></span><br><span class="line">    <span class="type">size_t</span> ref_block_pos;         <span class="comment">// 下一个要发送的偏移量</span></span><br><span class="line">    ...</span><br><span class="line">&#125; client;</span><br></pre></td></tr></table></figure>
 
 
 
 <p><img src="/assets/images/redis-replication-shared-repl-struct.png" alt="共享复制缓冲区数据结构图" loading="lazy"></p>
 </li>
+<li><p>复制状态机：</p>
+<ul>
+<li><p>主库（slave-&gt;replstate）：</p>
+<ul>
+<li>REPL_STATE_NONE ： 创建从库客户端后的初始状态；</li>
+<li>SLAVE_STATE_WAIT_BGSAVE_START ： 等待开始生成一个 rdb 数据文件；</li>
+<li>SLAVE_STATE_WAIT_BGSAVE_END ： 等待生成一个 rdb 数据文件完成；</li>
+<li>SLAVE_STATE_SEND_BULK ：  正在给对应的客户端发送 rdb 数据的状态；</li>
+<li>SLAVE_STATE_ONLINE ： 发送完成 rdb 数据后状态；</li>
 </ul>
+</li>
+<li><p>从库（server.repl_state）：</p>
+<ul>
+<li>REPL_STATE_NONE ： 初始状态；</li>
+<li>REPL_STATE_CONNECT ： 从库执行 slaveof 之后的状态；</li>
+<li>REPL_STATE_CONNECTING ： 从库连接主库之后的状态；</li>
+<li>REPL_STATE_RECEIVE_PING_REPLY ： 从库向主库发送 ping 之后等待接收 pong 时的状态；</li>
+<li>REPL_STATE_SEND_HANDSHAKE ： 从库处于此状态时会依次向主库发送auth（按需）， replconf listening-port $port ， replconf ip-address $ip （按需）， replconf capa eof capa psync2 消息；</li>
+<li>REPL_STATE_RECEIVE_AUTH_REPLY ： 从库按需从主库处接收 auth 消息的回复；；</li>
+<li>REPL_STATE_RECEIVE_PORT_REPLY ： 从库从主库处接收 replconf listening-port $port 消息的回复；</li>
+<li>REPL_STATE_RECEIVE_IP_REPLY ： 从库按需从主库处接收 replconf ip-address $ip 消息的回复；</li>
+<li>REPL_STATE_RECEIVE_CAPA_REPLY ： 从库从主库处接收 replconf capa eof capa psync2 消息的回复；；</li>
+<li>REPL_STATE_SEND_PSYNC ： 从库接下来要向主库发送 psync replid offset 或者 sync 消息；</li>
+<li>REPL_STATE_RECEIVE_PSYNC_REPLY ：  从库向主库发送 psync &#x2F; sync 之后等待接收返回消息时的状态；</li>
+<li>REPL_STATE_TRANSFER ：  从库开始等待接收全量（rdb）的数据；</li>
+<li>REPL_STATE_CONNECTED ：  从库开始等待接收增量的数据；</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p><img src="/assets/images/redis-replication-shared-repl-state.png" alt="Redis7的复制状态机" loading="lazy"></p>
 <h2 id="三、奇思妙想"><a href="#三、奇思妙想" class="headerlink" title="三、奇思妙想"></a>三、奇思妙想</h2><h3 id="3-1、AOF增量同步方案"><a href="#3-1、AOF增量同步方案" class="headerlink" title="3.1、AOF增量同步方案"></a>3.1、AOF增量同步方案</h3><p>我们知道 Redis 实现了基于 Backlog 的增量复制方案，但是考虑到线上实际的资源占用，Backlog 的内存大小通常不会设置的太大。如果 Redis 在写入量很大的情况下出现网络异常导致主从同步中断，从库重连时大概率会由于主库的 Backlog 被冲掉而导致无法进行增量同步的情况。在这种情况下，业界就出现了一些使用 AOF 来扩展 Backlog 数据范围的方案，从而形成了比较典型的基于 AOF 的增量同步方案。</p>
 <ul>
 <li>方案特点：<ul>
