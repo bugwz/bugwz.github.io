@@ -234,9 +234,9 @@
       
         <tags>
             
-            <tag> Paper </tag>
-            
             <tag> BloomFilter </tag>
+            
+            <tag> Paper </tag>
             
         </tags>
       
@@ -255,9 +255,9 @@
       
         <tags>
             
-            <tag> Redis </tag>
-            
             <tag> BloomFilter </tag>
+            
+            <tag> Redis </tag>
             
             <tag> RedisModule </tag>
             
@@ -873,9 +873,9 @@
             
             <tag> Algorithm </tag>
             
-            <tag> Paper </tag>
-            
             <tag> rsync </tag>
+            
+            <tag> Paper </tag>
             
         </tags>
       
