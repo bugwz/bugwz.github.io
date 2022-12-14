@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2021/02/13/github-keyword/</loc>
+    <lastmod>2022-12-14</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2022/12/13/redis-resharding/</loc>
     <lastmod>2022-12-13</lastmod>
   </url>
@@ -241,11 +245,11 @@
     <lastmod>2022-12-12</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2017/01/05/ip-address-modifier/</loc>
+    <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
     <lastmod>2022-12-12</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2022/09/24/gorilla-cn/</loc>
+    <loc>https://bugwz.com/2017/01/05/ip-address-modifier/</loc>
     <lastmod>2022-12-12</lastmod>
   </url>
   <url>

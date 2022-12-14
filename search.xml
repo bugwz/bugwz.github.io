@@ -385,6 +385,25 @@
     
     
     <entry>
+      <title>GitHub黑话/简写大全</title>
+      <link href="/2021/02/13/github-keyword/"/>
+      <url>/2021/02/13/github-keyword/</url>
+      
+        <content type="html"><![CDATA[<p>使用 GitHub 的过程中经常会遇到一些英文的简写，这些简写能够很好的简略高效的表达自己的想法，并且随着广泛的使用已经得到了大家的共识，这里将会介绍一些常用的英文简写。</p><h1 id="一、黑话-x2F-简写集"><a href="#一、黑话-x2F-简写集" class="headerlink" title="一、黑话&#x2F;简写集"></a>一、黑话&#x2F;简写集</h1><ul><li>PR ： 全称为 Pull Request ，合并请求；</li><li>CR ： 全称为 Code Review ，代码审查；</li><li>LGTM ： 全称为 Looks Good To Me ，我觉得没有问题；</li><li>WIP ： 全称为 Work In Progress ，进展中；</li><li>AFAIK ： 全称为 As Far As I Know ，据我所知；</li><li>AFAICT ： 全称为 As Far As I Can Tell ，据我所知；</li><li>TBH ： 全称为 To Be Honest ， 老实说；</li><li>ACK ： 全称为 acknowledgement ，接受&#x2F;同意；</li><li>FYI ： 全称为 For Your Information ，仅供参考；</li><li>PTAL ： 全称为 Please Take A Look ，请看一看；</li><li>SGTM ： 全称为 Sounds Good To Me ，我觉得没有问题；</li><li>IMO ： 全称为 In My Opinion ，在我看来&#x2F;依我所见；</li><li>IMHO ： 全称为 In My Humble Opinion ，依我拙见；</li><li>DNM ： 全称为 Do Not Merge ， 不要合并；</li><li>TL;DR ： 全称为 Too Long; Don’t Read. ，太长了、还没看；</li></ul><h1 id="二、参考链接"><a href="#二、参考链接" class="headerlink" title="二、参考链接"></a>二、参考链接</h1><ul><li><a href="https://zhuanlan.zhihu.com/p/79492703">Github 黑话大全</a></li><li><a href="https://gythialy.github.io/github-keyword/">GitHub review 常用缩写</a></li></ul>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> GitHub </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
       <title>iTerm2配置rz/sz上传下载文件</title>
       <link href="/2020/11/02/iterm2-rzsz/"/>
       <url>/2020/11/02/iterm2-rzsz/</url>
