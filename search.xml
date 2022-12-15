@@ -52,11 +52,11 @@
       
         <tags>
             
-            <tag> Bitcoin </tag>
+            <tag> 比特币 </tag>
             
-            <tag> Blockchain </tag>
+            <tag> 区块链 </tag>
             
-            <tag> Paper </tag>
+            <tag> 论文 </tag>
             
         </tags>
       
@@ -74,6 +74,8 @@
       
       
         <tags>
+            
+            <tag> Redis </tag>
             
             <tag> RedisLibrary </tag>
             
@@ -207,11 +209,11 @@
       
         <tags>
             
-            <tag> Paper </tag>
+            <tag> 论文 </tag>
             
             <tag> Gorilla </tag>
             
-            <tag> TSDB </tag>
+            <tag> 时序数据库 </tag>
             
         </tags>
       
@@ -232,9 +234,9 @@
             
             <tag> Redis </tag>
             
-            <tag> TSDB </tag>
-            
             <tag> RedisModule </tag>
+            
+            <tag> TSDB </tag>
             
         </tags>
       
@@ -253,7 +255,9 @@
       
         <tags>
             
-            <tag> Paper </tag>
+            <tag> 算法 </tag>
+            
+            <tag> 论文 </tag>
             
             <tag> BloomFilter </tag>
             
@@ -276,9 +280,9 @@
             
             <tag> Redis </tag>
             
-            <tag> BloomFilter </tag>
-            
             <tag> RedisModule </tag>
+            
+            <tag> BloomFilter </tag>
             
             <tag> CuckooFilter </tag>
             
@@ -351,7 +355,7 @@
       
         <tags>
             
-            <tag> Paper </tag>
+            <tag> 论文 </tag>
             
             <tag> Raft </tag>
             
@@ -433,6 +437,8 @@
       
         <tags>
             
+            <tag> 抓包 </tag>
+            
             <tag> GitHub </tag>
             
             <tag> Go </tag>
@@ -454,11 +460,11 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Keepalived </tag>
             
             <tag> VRRP </tag>
+            
+            <tag> 协议 </tag>
             
         </tags>
       
@@ -476,8 +482,6 @@
       
       
         <tags>
-            
-            <tag> Linux </tag>
             
             <tag> Keepalived </tag>
             
@@ -498,9 +502,9 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> MIUI </tag>
+            
+            <tag> 刷机 </tag>
             
         </tags>
       
@@ -540,7 +544,7 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
+            <tag> 算法 </tag>
             
             <tag> Memcached </tag>
             
@@ -561,9 +565,9 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
+            <tag> 算法 </tag>
             
-            <tag> BloomFilter </tag>
+            <tag> 布隆过滤器 </tag>
             
         </tags>
       
@@ -628,7 +632,7 @@
             
             <tag> SSD </tag>
             
-            <tag> Hardware </tag>
+            <tag> 存储介质 </tag>
             
         </tags>
       
@@ -651,6 +655,8 @@
             
             <tag> HAProxy </tag>
             
+            <tag> 高可用 </tag>
+            
         </tags>
       
     </entry>
@@ -668,7 +674,7 @@
       
         <tags>
             
-            <tag> Rocksdb </tag>
+            <tag> RocksDB </tag>
             
         </tags>
       
@@ -687,11 +693,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> 常用命令 </tag>
             
             <tag> lsof </tag>
-            
-            <tag> Commands </tag>
             
         </tags>
       
@@ -712,8 +716,6 @@
             
             <tag> Linux </tag>
             
-            <tag> debugfs </tag>
-            
         </tags>
       
     </entry>
@@ -732,8 +734,6 @@
         <tags>
             
             <tag> C/C++ </tag>
-            
-            <tag> Notes </tag>
             
             <tag> Makefile </tag>
             
@@ -754,8 +754,6 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> yum </tag>
             
         </tags>
@@ -775,9 +773,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
-            <tag> Network </tag>
+            <tag> 网络 </tag>
             
             <tag> Interrupt </tag>
             
@@ -798,13 +794,11 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
+            <tag> 算法 </tag>
             
             <tag> GeoHash </tag>
             
             <tag> Google S2 </tag>
-            
-            <tag> Linu </tag>
             
         </tags>
       
@@ -822,8 +816,6 @@
       
       
         <tags>
-            
-            <tag> Linux </tag>
             
             <tag> Raid </tag>
             
@@ -844,9 +836,7 @@
       
         <tags>
             
-            <tag> Base </tag>
-            
-            <tag> Algorithm </tag>
+            <tag> Base编码 </tag>
             
             <tag> Linux </tag>
             
@@ -867,6 +857,8 @@
       
         <tags>
             
+            <tag> 限流 </tag>
+            
             <tag> Nginx </tag>
             
         </tags>
@@ -886,9 +878,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
-            <tag> Commands </tag>
+            <tag> 常用命令 </tag>
             
             <tag> rsync </tag>
             
@@ -909,9 +899,9 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
+            <tag> 算法 </tag>
             
-            <tag> Paper </tag>
+            <tag> 论文 </tag>
             
             <tag> rsync </tag>
             
@@ -932,11 +922,13 @@
       
         <tags>
             
-            <tag> Paper </tag>
+            <tag> 论文 </tag>
             
             <tag> NoSQL </tag>
             
-            <tag> Distributed </tag>
+            <tag> 分布式 </tag>
+            
+            <tag> 数据库 </tag>
             
         </tags>
       
@@ -955,7 +947,7 @@
       
         <tags>
             
-            <tag> Proxy </tag>
+            <tag> 代理服务器 </tag>
             
         </tags>
       
@@ -974,11 +966,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Docker </tag>
             
-            <tag> Notes </tag>
+            <tag> 虚拟化 </tag>
             
         </tags>
       
@@ -1016,8 +1006,6 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> ssh </tag>
             
         </tags>
@@ -1037,9 +1025,9 @@
       
         <tags>
             
-            <tag> Commands </tag>
-            
             <tag> nc </tag>
+            
+            <tag> 常用命令 </tag>
             
         </tags>
       
@@ -1081,7 +1069,7 @@
       
         <tags>
             
-            <tag> Commands </tag>
+            <tag> 常用命令 </tag>
             
             <tag> sar </tag>
             
@@ -1144,7 +1132,7 @@
       
         <tags>
             
-            <tag> Network </tag>
+            <tag> 抓包 </tag>
             
             <tag> MacOS </tag>
             
@@ -1165,11 +1153,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
-            <tag> C/C++ </tag>
-            
             <tag> Redis </tag>
+            
+            <tag> RedisCluster </tag>
             
         </tags>
       
@@ -1187,8 +1173,6 @@
       
       
         <tags>
-            
-            <tag> C/C++ </tag>
             
             <tag> Redis </tag>
             
@@ -1230,9 +1214,9 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
-            
             <tag> Linux </tag>
+            
+            <tag> 算法 </tag>
             
         </tags>
       
@@ -1251,11 +1235,11 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
-            <tag> Iptables </tag>
+            <tag> 网络 </tag>
             
             <tag> nf_conntrack </tag>
+            
+            <tag> Iptables </tag>
             
         </tags>
       
@@ -1276,7 +1260,9 @@
             
             <tag> Perf </tag>
             
-            <tag> FlameGraph </tag>
+            <tag> 火焰图 </tag>
+            
+            <tag> 性能分析 </tag>
             
         </tags>
       
@@ -1295,9 +1281,9 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
+            <tag> 算法 </tag>
             
-            <tag> SpeedLimit </tag>
+            <tag> 限流 </tag>
             
             <tag> Nginx </tag>
             
@@ -1322,8 +1308,6 @@
             
             <tag> Redis </tag>
             
-            <tag> Notes </tag>
-            
         </tags>
       
     </entry>
@@ -1342,8 +1326,6 @@
         <tags>
             
             <tag> Redis </tag>
-            
-            <tag> Notes </tag>
             
             <tag> TCL </tag>
             
@@ -1364,11 +1346,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
-            <tag> C/C++ </tag>
-            
             <tag> Redis </tag>
+            
+            <tag> 锁 </tag>
             
         </tags>
       
@@ -1389,9 +1369,9 @@
             
             <tag> C/C++ </tag>
             
-            <tag> Format </tag>
+            <tag> 编程语言 </tag>
             
-            <tag> Tools </tag>
+            <tag> 工具 </tag>
             
         </tags>
       
@@ -1410,13 +1390,11 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> hashlimit </tag>
             
-            <tag> Iptables </tag>
+            <tag> iptables </tag>
             
-            <tag> Netfilter </tag>
+            <tag> 网络 </tag>
             
         </tags>
       
@@ -1456,8 +1434,6 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> PrettyTable </tag>
             
             <tag> Python </tag>
@@ -1481,7 +1457,7 @@
             
             <tag> Linux </tag>
             
-            <tag> Memory </tag>
+            <tag> 内存 </tag>
             
         </tags>
       
@@ -1502,7 +1478,7 @@
             
             <tag> Linux </tag>
             
-            <tag> Iptables </tag>
+            <tag> iptables </tag>
             
             <tag> Netfilter </tag>
             
@@ -1522,8 +1498,6 @@
       
       
         <tags>
-            
-            <tag> Linux </tag>
             
             <tag> C/C++ </tag>
             
@@ -1547,8 +1521,6 @@
             <tag> Linux </tag>
             
             <tag> C/C++ </tag>
-            
-            <tag> Notes </tag>
             
         </tags>
       
@@ -1609,7 +1581,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
+            <tag> 收藏 </tag>
             
         </tags>
       
@@ -1630,11 +1602,9 @@
             
             <tag> C/C++ </tag>
             
-            <tag> Tools </tag>
-            
-            <tag> Notes </tag>
-            
             <tag> GDB </tag>
+            
+            <tag> 代码调试 </tag>
             
         </tags>
       
@@ -1653,7 +1623,7 @@
       
         <tags>
             
-            <tag> Blog </tag>
+            <tag> 博客 </tag>
             
             <tag> GitHub Pages </tag>
             
@@ -1676,9 +1646,9 @@
       
         <tags>
             
-            <tag> Tools </tag>
-            
             <tag> Tmux </tag>
+            
+            <tag> Tools </tag>
             
         </tags>
       
@@ -1697,9 +1667,7 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
-            
-            <tag> Linux </tag>
+            <tag> 算法 </tag>
             
         </tags>
       
@@ -1718,7 +1686,7 @@
       
         <tags>
             
-            <tag> Network </tag>
+            <tag> 网络 </tag>
             
             <tag> TCP/IP </tag>
             
@@ -1741,7 +1709,7 @@
             
             <tag> Linux </tag>
             
-            <tag> Commands </tag>
+            <tag> 常用命令 </tag>
             
         </tags>
       
@@ -1760,7 +1728,7 @@
       
         <tags>
             
-            <tag> Commands </tag>
+            <tag> 常用命令 </tag>
             
             <tag> Mac </tag>
             
@@ -1781,11 +1749,9 @@
       
         <tags>
             
-            <tag> Tools </tag>
-            
             <tag> Docker </tag>
             
-            <tag> Notes </tag>
+            <tag> 虚拟化 </tag>
             
         </tags>
       
@@ -1804,11 +1770,9 @@
       
         <tags>
             
-            <tag> Tools </tag>
-            
             <tag> Docker </tag>
             
-            <tag> Notes </tag>
+            <tag> 虚拟化 </tag>
             
         </tags>
       
@@ -1829,6 +1793,8 @@
             
             <tag> Linux </tag>
             
+            <tag> 进程 </tag>
+            
         </tags>
       
     </entry>
@@ -1846,11 +1812,9 @@
       
         <tags>
             
-            <tag> Tools </tag>
-            
             <tag> Docker </tag>
             
-            <tag> Notes </tag>
+            <tag> 虚拟化 </tag>
             
         </tags>
       
@@ -1871,9 +1835,9 @@
             
             <tag> Linux </tag>
             
-            <tag> Signal </tag>
+            <tag> 信号 </tag>
             
-            <tag> Semaphore </tag>
+            <tag> 信号量 </tag>
             
         </tags>
       
@@ -1896,6 +1860,8 @@
             
             <tag> Windows </tag>
             
+            <tag> 编程语言 </tag>
+            
         </tags>
       
     </entry>
@@ -1915,7 +1881,7 @@
             
             <tag> Ghost </tag>
             
-            <tag> Blog </tag>
+            <tag> 博客 </tag>
             
         </tags>
       
@@ -1934,9 +1900,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
-            <tag> Tree </tag>
+            <tag> 树 </tag>
             
         </tags>
       
@@ -1955,9 +1919,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Ngrok </tag>
+            
+            <tag> 内网穿透 </tag>
             
         </tags>
       
@@ -1976,7 +1940,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
+            <tag> 读后感 </tag>
             
         </tags>
       
@@ -1985,7 +1949,7 @@
     
     
     <entry>
-      <title>Hash表数据分布及冲突解决方法</title>
+      <title>哈希数据分布及冲突解决方法</title>
       <link href="/2017/03/01/hash/"/>
       <url>/2017/03/01/hash/</url>
       
@@ -1995,9 +1959,9 @@
       
         <tags>
             
-            <tag> Algorithm </tag>
+            <tag> 算法 </tag>
             
-            <tag> Hash </tag>
+            <tag> 哈希表 </tag>
             
         </tags>
       
@@ -2018,8 +1982,6 @@
             
             <tag> Windows </tag>
             
-            <tag> Notions </tag>
-            
             <tag> C# </tag>
             
         </tags>
@@ -2039,11 +2001,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
-            
-            <tag> Campus </tag>
             
         </tags>
       
@@ -2062,11 +2020,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
-            
-            <tag> Campus </tag>
             
         </tags>
       
@@ -2085,9 +2039,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
-            <tag> Licence </tag>
+            <tag> 许可证 </tag>
             
         </tags>
       
@@ -2106,11 +2058,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
-            
-            <tag> Campus </tag>
             
         </tags>
       
@@ -2129,11 +2077,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
-            
-            <tag> Campus </tag>
             
         </tags>
       
@@ -2152,11 +2096,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
-            
-            <tag> Campus </tag>
             
         </tags>
       
@@ -2175,34 +2115,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
-            
-            <tag> Campus </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    
-    
-    <entry>
-      <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
-      <link href="/2016/11/29/jsp-2/"/>
-      <url>/2016/11/29/jsp-2/</url>
-      
-        <content type="html"><![CDATA[<h1 id="环境"><a href="#环境" class="headerlink" title="环境"></a>环境</h1><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h1 id="课堂学习目标"><a href="#课堂学习目标" class="headerlink" title="课堂学习目标"></a>课堂学习目标</h1><p>实践servlet的init()、service()与destroy()方法，理解servlet生命周期的三个阶段。</p><h1 id="开始"><a href="#开始" class="headerlink" title="开始"></a>开始</h1><p>我们还是新建一个名为Test的新工程，然后新建一个不带doGet()与doPost()方法的一个基本的servlet，然后我们依次循规蹈矩的手动覆盖重写三个方法，他们分别是init()、service()和destroy()方法，重写后截图如下：</p><p><img src="/assets/images/jsp-2-1.jpg" alt="Servlet_1" loading="lazy"></p><p>我们在浏览器地址栏中输入进入Servlet_1的虚拟路径后，控制台下便出现了，调用init()方法的输出信息，然后调用了service()方法的输出信息，这两个方法的调用就是servlet的前两个生命周期，初始化阶段，调用init()方法；响应客户请求阶段，调用service()方法，之后每次刷新浏览器界面会发现只出现调用service()方法的输出结果，如下所示：</p><p><img src="/assets/images/jsp-2-2.jpg" alt="service()输出结果" loading="lazy"></p><blockquote><p>提示：</p></blockquote><p>如果你发现你打不开映射的虚拟路径，浏览器并提示了404错误，请尝试移步<a href="http://www.bugwz.com/jsp1/#jsp_1_trouble">这里</a> ，尝试解决问题。</p><p>之后，当我们停止服务器的时候，注意，这不是终止进程，还是有点区别的。</p><ol><li>停止服务器：web应用被终止，或Servlet容器终止运行，或Servlet容器重新装载Servlet新实例时，Servlet容器会先调用Servlet的destroy()方法，在destroy()方法中可以释放掉Servlet所占用的资源。</li><li>终止进程：servlet容器被强行终止，来不及调用Servlet的destroy()方法。</li></ol><p>我们点击停止服务器后效果图如下所示：</p><p><img src="/assets/images/jsp-2-3.jpg" alt="Stop Server" loading="lazy"></p><h1 id="来些总结"><a href="#来些总结" class="headerlink" title="来些总结"></a>来些总结</h1><p>Servlet生命周期分为三个阶段：</p><ol><li>初始化阶段，调用init()方法</li><li>响应客户请求阶段，调用service()方法</li><li>终止阶段，调用destroy()方法</li></ol><p>Servlet初始化阶段：(在下列时刻Servlet容器装载Servlet)</p><ol><li>Servlet容器启动时自动装载某些Servlet。</li><li>在Servlet容器启动后，客户首次向Servlet发送请求。</li><li>Servlet类文件被更新后，重新装载Servlet。</li></ol><blockquote><p>Servlet被装载后，Servlet容器创建一个Servlet实例并且调用Servlet的init()方法进行初始化。在Servlet的整个生命周期内，init()方法只被调用一次。</p></blockquote><p>Servlet响应请求阶段：</p><p>　　对于用户到达Servlet的请求，Servlet容器会创建特定于这个请求的ServletRequest对象和ServletResponse对象，然后调用Servlet的service方法。service方法从ServletRequest对象获得客户请求信息，处理该请求，并通过ServletResponse对象向客户返回响应信息。</p><p>Servlet终止阶段：</p><p>　　当web应用被终止，或Servlet容器终止运行，或Servlet容器重新装载Servlet新实例时，Servlet容器会先调用Servlet的destroy()方法，在destroy()方法中可以释放掉Servlet所占用的资源。</p><blockquote><p>关于Servlet生命周期与工作原理的更详细的信息，推荐访问<a href="http://www.cnblogs.com/cuiliang/archive/2011/10/21/2220671.html">这里</a></p></blockquote>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> Notes </tag>
-            
-            <tag> JSP </tag>
-            
-            <tag> Campus </tag>
             
         </tags>
       
@@ -2221,7 +2134,24 @@
       
         <tags>
             
-            <tag> Notes </tag>
+            <tag> JSP </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
+      <title>理解Servlet的init()、service()与destroy()-JSP笔记-2</title>
+      <link href="/2016/11/29/jsp-2/"/>
+      <url>/2016/11/29/jsp-2/</url>
+      
+        <content type="html"><![CDATA[<h1 id="环境"><a href="#环境" class="headerlink" title="环境"></a>环境</h1><ol><li>Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)</li><li>Apache Tomcat version: 8.0.39</li></ol><h1 id="课堂学习目标"><a href="#课堂学习目标" class="headerlink" title="课堂学习目标"></a>课堂学习目标</h1><p>实践servlet的init()、service()与destroy()方法，理解servlet生命周期的三个阶段。</p><h1 id="开始"><a href="#开始" class="headerlink" title="开始"></a>开始</h1><p>我们还是新建一个名为Test的新工程，然后新建一个不带doGet()与doPost()方法的一个基本的servlet，然后我们依次循规蹈矩的手动覆盖重写三个方法，他们分别是init()、service()和destroy()方法，重写后截图如下：</p><p><img src="/assets/images/jsp-2-1.jpg" alt="Servlet_1" loading="lazy"></p><p>我们在浏览器地址栏中输入进入Servlet_1的虚拟路径后，控制台下便出现了，调用init()方法的输出信息，然后调用了service()方法的输出信息，这两个方法的调用就是servlet的前两个生命周期，初始化阶段，调用init()方法；响应客户请求阶段，调用service()方法，之后每次刷新浏览器界面会发现只出现调用service()方法的输出结果，如下所示：</p><p><img src="/assets/images/jsp-2-2.jpg" alt="service()输出结果" loading="lazy"></p><blockquote><p>提示：</p></blockquote><p>如果你发现你打不开映射的虚拟路径，浏览器并提示了404错误，请尝试移步<a href="http://www.bugwz.com/jsp1/#jsp_1_trouble">这里</a> ，尝试解决问题。</p><p>之后，当我们停止服务器的时候，注意，这不是终止进程，还是有点区别的。</p><ol><li>停止服务器：web应用被终止，或Servlet容器终止运行，或Servlet容器重新装载Servlet新实例时，Servlet容器会先调用Servlet的destroy()方法，在destroy()方法中可以释放掉Servlet所占用的资源。</li><li>终止进程：servlet容器被强行终止，来不及调用Servlet的destroy()方法。</li></ol><p>我们点击停止服务器后效果图如下所示：</p><p><img src="/assets/images/jsp-2-3.jpg" alt="Stop Server" loading="lazy"></p><h1 id="来些总结"><a href="#来些总结" class="headerlink" title="来些总结"></a>来些总结</h1><p>Servlet生命周期分为三个阶段：</p><ol><li>初始化阶段，调用init()方法</li><li>响应客户请求阶段，调用service()方法</li><li>终止阶段，调用destroy()方法</li></ol><p>Servlet初始化阶段：(在下列时刻Servlet容器装载Servlet)</p><ol><li>Servlet容器启动时自动装载某些Servlet。</li><li>在Servlet容器启动后，客户首次向Servlet发送请求。</li><li>Servlet类文件被更新后，重新装载Servlet。</li></ol><blockquote><p>Servlet被装载后，Servlet容器创建一个Servlet实例并且调用Servlet的init()方法进行初始化。在Servlet的整个生命周期内，init()方法只被调用一次。</p></blockquote><p>Servlet响应请求阶段：</p><p>　　对于用户到达Servlet的请求，Servlet容器会创建特定于这个请求的ServletRequest对象和ServletResponse对象，然后调用Servlet的service方法。service方法从ServletRequest对象获得客户请求信息，处理该请求，并通过ServletResponse对象向客户返回响应信息。</p><p>Servlet终止阶段：</p><p>　　当web应用被终止，或Servlet容器终止运行，或Servlet容器重新装载Servlet新实例时，Servlet容器会先调用Servlet的destroy()方法，在destroy()方法中可以释放掉Servlet所占用的资源。</p><blockquote><p>关于Servlet生命周期与工作原理的更详细的信息，推荐访问<a href="http://www.cnblogs.com/cuiliang/archive/2011/10/21/2220671.html">这里</a></p></blockquote>]]></content>
+      
+      
+      
+        <tags>
             
             <tag> JSP </tag>
             
@@ -2242,11 +2172,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
-            
-            <tag> Campus </tag>
             
         </tags>
       
@@ -2265,11 +2191,7 @@
       
         <tags>
             
-            <tag> Notes </tag>
-            
             <tag> JSP </tag>
-            
-            <tag> Campus </tag>
             
         </tags>
       
@@ -2290,6 +2212,8 @@
             
             <tag> Memcached </tag>
             
+            <tag> 内存分配器 </tag>
+            
         </tags>
       
     </entry>
@@ -2306,8 +2230,6 @@
       
       
         <tags>
-            
-            <tag> Linux </tag>
             
             <tag> Hardware </tag>
             
@@ -2327,8 +2249,6 @@
       
       
         <tags>
-            
-            <tag> Notes </tag>
             
             <tag> Markdown </tag>
             
@@ -2370,9 +2290,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
+            <tag> 爬虫 </tag>
             
-            <tag> Spider </tag>
+            <tag> 正则匹配 </tag>
             
         </tags>
       
@@ -2390,8 +2310,6 @@
       
       
         <tags>
-            
-            <tag> Linux </tag>
             
             <tag> Shadowsocks </tag>
             
@@ -2454,8 +2372,6 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> pptpd </tag>
             
             <tag> VPN </tag>
@@ -2476,10 +2392,6 @@
       
       
         <tags>
-            
-            <tag> Notes </tag>
-            
-            <tag> Campus </tag>
             
             <tag> Redhat </tag>
             
