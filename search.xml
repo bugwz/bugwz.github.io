@@ -255,9 +255,9 @@
       
         <tags>
             
-            <tag> 算法 </tag>
-            
             <tag> 论文 </tag>
+            
+            <tag> 算法 </tag>
             
             <tag> BloomFilter </tag>
             
@@ -523,9 +523,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> LVS </tag>
+            
+            <tag> 负载均衡 </tag>
             
         </tags>
       
@@ -651,8 +651,6 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> HAProxy </tag>
             
             <tag> 高可用 </tag>
@@ -693,9 +691,9 @@
       
         <tags>
             
-            <tag> 常用命令 </tag>
-            
             <tag> lsof </tag>
+            
+            <tag> 常用命令 </tag>
             
         </tags>
       
@@ -838,8 +836,6 @@
             
             <tag> Base编码 </tag>
             
-            <tag> Linux </tag>
-            
         </tags>
       
     </entry>
@@ -899,9 +895,9 @@
       
         <tags>
             
-            <tag> 算法 </tag>
-            
             <tag> 论文 </tag>
+            
+            <tag> 算法 </tag>
             
             <tag> rsync </tag>
             
@@ -1025,9 +1021,9 @@
       
         <tags>
             
-            <tag> nc </tag>
-            
             <tag> 常用命令 </tag>
+            
+            <tag> nc </tag>
             
         </tags>
       
@@ -1193,8 +1189,6 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> RPM </tag>
             
         </tags>
@@ -1213,8 +1207,6 @@
       
       
         <tags>
-            
-            <tag> Linux </tag>
             
             <tag> 算法 </tag>
             
@@ -1413,9 +1405,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> Netfilter </tag>
+            
+            <tag> Linux </tag>
             
         </tags>
       
@@ -1455,8 +1447,6 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> 内存 </tag>
             
         </tags>
@@ -1475,8 +1465,6 @@
       
       
         <tags>
-            
-            <tag> Linux </tag>
             
             <tag> iptables </tag>
             
@@ -1518,9 +1506,7 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
-            <tag> C/C++ </tag>
+            <tag> RPM </tag>
             
         </tags>
       
@@ -1706,8 +1692,6 @@
       
       
         <tags>
-            
-            <tag> Linux </tag>
             
             <tag> 常用命令 </tag>
             
@@ -2349,8 +2333,6 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> vsftpd </tag>
             
             <tag> FTP </tag>
@@ -2412,9 +2394,9 @@
       
         <tags>
             
-            <tag> Linux </tag>
-            
             <tag> OpenVPN </tag>
+            
+            <tag> Ubuntu </tag>
             
         </tags>
       
