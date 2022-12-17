@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2022/12/04/redis-persistence/</loc>
+    <lastmod>2022-12-17</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2020/05/23/bloom-filter-summary-cache-paper/</loc>
     <lastmod>2022-12-15</lastmod>
   </url>
@@ -30,10 +34,6 @@
   </url>
   <url>
     <loc>https://bugwz.com/2019/09/01/redis-multithreading/</loc>
-    <lastmod>2022-12-15</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2022/12/04/redis-persistence/</loc>
     <lastmod>2022-12-15</lastmod>
   </url>
   <url>

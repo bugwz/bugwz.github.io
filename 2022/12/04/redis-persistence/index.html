@@ -1389,10 +1389,12 @@ ga('send', 'pageview');</script><meta http-equiv="Cache-Control" content="no-tra
 <p><img src="/assets/images/redis-persistence-rdb-and-aof.png" alt="RDB + AOF 混合持久化模型" loading="lazy"></p>
 <h2 id="4-4、RDB-Forkless-持久化方案"><a href="#4-4、RDB-Forkless-持久化方案" class="headerlink" title="4.4、RDB Forkless 持久化方案"></a>4.4、RDB Forkless 持久化方案</h2><p>以上讨论了很多持久化的方式，全部都需要调用 fork 利用子进程来进行持久化的工作。fork 也不可避免的会导致进程的内存使用增长，Redis 7.0.0 中也做了一些工作，尽可能的想要减少 CoW 导致的内存开销。换个思维去想一下，Redis 能否不通过 fork 来进行数据的持久化，业界提供了一种新的思路： Forkless 方案。</p>
 <ul>
-<li>方案设计：</li>
+<li>方案设计：<ul>
 <li>利用 Redis 提供的迭代字典数据的思想来实现对已有数据的持久化；</li>
 <li>锁定字典的状态，禁止执行 Rehash 操作；</li>
 <li>使用单独线程，按照哈希表的下标，有序遍历其中的全部数据，然后将所有数据持久化；</li>
+</ul>
+</li>
 <li>字典中哈希下标的分类（考虑遍历过程中的数据变更）：<ul>
 <li>已经遍历的：当前桶中的数据已经被持久化，需要记录该变更命令，遍历完成后将记录的变更命令追加到持久化数据中；</li>
 <li>正在遍历的：拷贝变更冲突的数据；</li>
