@@ -26,11 +26,11 @@ body {
   line-height: 2;
 }
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 3px;
+  height: 3px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #49b1f5;
+  background: #d3d3d3;
 }
 *::-webkit-scrollbar-track {
   background-color: transparent;
@@ -1239,6 +1239,8 @@ footer.is-mobile {
   position: relative;
   margin: 0.1rem 0;
   padding: 0.1rem 0.5rem 0.1rem 1rem;
+  overflow-wrap: break-word;
+  overflow: auto;
 }
 #content-inner ol li:hover:before,
 #content-inner ul li:hover:before {
