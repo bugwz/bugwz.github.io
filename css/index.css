@@ -235,6 +235,7 @@ blockquote {
 .article-container .highlight td {
   padding: 0;
   border: none;
+  min-width: 800px;
 }
 .article-container .highlight figcaption {
   zoom: 1;
