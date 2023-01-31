@@ -21,7 +21,7 @@ body {
   min-height: 100%;
   background: #fff;
   color: #4c4948;
-  font-size: 16px;
+  font-size: 1rem;
   font-family: PingFang SC, Hiragino Sans GB, Microsoft YaHei, Helvetica Neue, Helvetica, Arial, sans-serif;
   line-height: 2;
 }
@@ -65,18 +65,18 @@ h6 {
 }
 #toggle-sidebar {
   position: fixed;
-  bottom: 20px;
-  left: 16px;
+  bottom: 1rem;
+  left: 1rem;
   z-index: 100;
-  font-size: 16px;
+  font-size: 1rem;
   cursor: pointer;
 }
 #go-up {
   position: fixed;
-  right: -16px;
-  bottom: 20px;
+  right: 0.5rem;
+  bottom: 0.5rem;
   z-index: 100;
-  font-size: 16px;
+  font-size: 1rem;
   opacity: 0;
   -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=0)";
   filter: alpha(opacity=0);
@@ -155,7 +155,7 @@ table td {
   padding-top: 1.4rem;
   background: #080808;
   color: #eff;
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 20px;
   counter-reset: line;
   white-space: pre-wrap;
@@ -178,7 +178,7 @@ blockquote {
   background: rgba(27,31,35,0.05);
   color: #1f2d3d;
   word-wrap: break-word;
-  font-size: 16px;
+  font-size: 1rem;
 }
 .article-container pre code {
   padding: 0;
@@ -546,7 +546,7 @@ footer.is-mobile {
 }
 #site-title {
   font-weight: bold;
-  font-size: 1.3rem;
+  font-size: 2rem;
 }
 #site-sub-title {
   font-size: 0.8rem;
@@ -603,10 +603,10 @@ footer.is-mobile {
 }
 #page-header .site-page {
   position: relative;
-  margin-left: 0.6rem;
+  margin-left: 0.8rem;
   padding-bottom: 0.3rem;
   text-shadow: 0.05rem 0.05rem 0.1rem rgba(0,0,0,0.3);
-  font-size: 0.7rem;
+  font-size: 1.1rem;
   cursor: pointer;
 }
 #page-header .site-page::after {
@@ -667,6 +667,7 @@ footer.is-mobile {
 #page-header #site-name {
   text-shadow: 0.1rem 0.1rem 0.2rem rgba(0,0,0,0.15);
   font-weight: bold;
+  font-size: 1.2rem;
   cursor: pointer;
 }
 @media screen and (min-width: 768px) {
@@ -902,10 +903,11 @@ footer.is-mobile {
 }
 .article-sort-item__title {
   display: block;
-  margin-left: 5rem;
+  margin-left: 7rem;
   color: #4c4948;
   text-decoration: none;
-  font-size: 0.8rem;
+  margin-top: 0.1rem;
+  font-size: 1rem;
   cursor: pointer;
 }
 .category-lists {
@@ -979,10 +981,10 @@ footer.is-mobile {
   transform: translate3d(0, 4.5rem, 0);
 }
 @media screen and (max-width: 768px) {
-  .recent-post-item .article-title {
-    font-size: 1rem;
+  html {
+    font-size: 15px;
   }
-  .recent-post-item .article-meta.tags {
+  html .article-meta.tags {
     display: none;
   }
   .gallery-item {
@@ -1058,7 +1060,7 @@ footer.is-mobile {
   cursor: default;
 }
 #post-title {
-  font-size: 1.4rem;
+  font-size: 2rem;
 }
 #post-title.plain {
   margin-bottom: 0.3rem;
@@ -1162,7 +1164,6 @@ footer.is-mobile {
 }
 #top-container #post-title {
   text-shadow: 0.1rem 0.1rem 0.2rem rgba(0,0,0,0.15);
-  font-size: 1.3rem;
 }
 #top-container i.fa.fa-angle-right {
   margin: 0 0.3rem 0 0.2rem;
@@ -1186,7 +1187,7 @@ footer.is-mobile {
   background: #fff;
   color: #49b1f5;
   text-decoration: none;
-  font-size: 12px;
+  font-size: 0.8rem;
   cursor: pointer;
   -webkit-transition: all 0.2s ease-in-out;
   -moz-transition: all 0.2s ease-in-out;
@@ -1443,26 +1444,16 @@ a.fancybox:focus {
   #top-container {
     background-attachment: local;
   }
-  #top-container #post-title {
-    color: #eee;
-    font-size: 1.1rem;
-  }
   #post-title {
     color: #eee;
-    font-size: 1.1rem;
-  }
-}
-@media screen and (min-width: 768px) {
-  #top-container #post-title {
-    font-size: 2rem;
   }
 }
 @media screen and (min-width: 1300px) {
   .layout {
-    width: 900px;
+    width: 1200px;
   }
   .recent-post-item .content iframe {
-    width: 900px;
+    width: 1200px;
     height: 506.25px;
   }
 }
@@ -1568,6 +1559,7 @@ a.fancybox:focus {
   height: 1.8rem;
   background: #fff;
   color: #49b1f5;
+  font-size: 1.1rem;
   text-align: center;
   line-height: 1.8rem;
   -webkit-transition: all 0.2s ease-in-out;
@@ -1642,7 +1634,7 @@ a.fancybox:focus {
   font-size: 18px;
 }
 #sidebar .sidebar-toc .toc-link {
-  font-size: 14px;
+  font-size: 0.9rem;
   display: block;
   padding-left: 0.2rem;
   border-right: 3px solid transparent;
@@ -1739,7 +1731,7 @@ a.fancybox:focus {
   outline: none;
   border: 2px solid #49b1f5;
   border-radius: 2rem;
-  font-size: 14px;
+  font-size: 1rem;
 }
 #local-search .local-search__hit-item {
   position: relative;
@@ -1769,7 +1761,7 @@ a.fancybox:focus {
   display: block;
   color: #4c4948;
   text-decoration: none;
-  font-size: 14px;
+  font-size: 0.8rem;
   cursor: pointer;
 }
 #local-search .local-search__hit-item a:hover {
