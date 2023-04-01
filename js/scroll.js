@@ -4,7 +4,11 @@ $(function () {
 
   // main of scroll
   $(window).scroll(throttle(function (event) {
+    var windowHeight = $(window).height();
+    var documentHeight = $(document).height();
     var currentTop = $(this).scrollTop()
+    var currentBottom = documentHeight - (windowHeight + currentTop);
+
     if (!isMobile()) {
       // percentage inspired by hexo-theme-next
       scrollPercent(currentTop)
@@ -12,6 +16,8 @@ $(function () {
       findHeadPosition(currentTop)
     }
     var isUp = scrollDirection(currentTop)
+
+    // display or not display go up button
     if (currentTop > 56) {
       if (isUp) {
         $('#page-header').hasClass('visible') ? $('#page-header').removeClass('visible') : console.log()
@@ -42,6 +48,31 @@ $(function () {
         duration: 200
       })
     }
+
+    // display or not display go down button
+    if (currentBottom > 56) {
+      if ($('#go-down').css('opacity') === '0') {
+        $('#go-down').velocity('stop').velocity({
+          translateX: -30,
+          rotateZ: 0,
+          opacity: 1
+        }, {
+          easing: 'linear',
+          duration: 200
+        })
+      }
+    } else {
+      $('#go-down').velocity('stop').velocity({
+        translateX: 0,
+        rotateZ: 180,
+        opacity: 0
+      }, {
+        easing: 'easeOutQuart',
+        duration: 200
+      })
+    }
+
+
   }, 50, 100))
 
   // go up smooth scroll
@@ -49,6 +80,15 @@ $(function () {
     $('body').velocity('stop').velocity('scroll', {
       duration: 500,
       easing: 'easeOutQuart'
+    })
+  })
+
+  // go down smooth scroll
+  $('#go-down').on('click', function () {
+    $('body').velocity('stop').velocity('scroll', {
+      duration: 500,
+      easing: 'easeOutQuart',
+      offset: $(document).height()
     })
   })
 
