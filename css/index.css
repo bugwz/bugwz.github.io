@@ -2125,20 +2125,20 @@ a.fancybox:focus {
 }
 @media screen and (min-width: 1024px) and (max-width: 1400px) {
   .search-dialog {
-    margin-left: -45%;
-    width: 90%;
+    margin-left: -25%;
+    width: 50%;
   }
 }
 @media screen and (min-width: 1400px) and (max-width: 1800px) {
   .search-dialog {
-    margin-left: -45%;
-    width: 90%;
+    margin-left: -25%;
+    width: 50%;
   }
 }
 @media screen and (min-width: 1800px) {
   .search-dialog {
-    margin-left: -45%;
-    width: 90%;
+    margin-left: -25%;
+    width: 50%;
   }
 }
 #local-search .local-search-box {
