@@ -149,6 +149,9 @@ table td {
 .pull-right {
   float: right;
 }
+.author-info-articles .article-meta .pull-left {
+  line-height: 1.4rem;
+}
 @media screen and (max-width: 768px) {
   body {
     padding-left: 0 !important;
@@ -886,6 +889,7 @@ footer.is-mobile {
 }
 .recent-post-item .content {
   margin-top: 0.5rem;
+  margin-bottom: 1.5rem;
   word-break: break-word;
 }
 .recent-post-item .content p {
@@ -901,6 +905,10 @@ footer.is-mobile {
 }
 .recent-post-item .article-meta {
   color: #858585;
+  float: right;
+}
+.recent-post-item .article-meta a {
+  color: #858585;
 }
 .recent-post-item .article-meta .sticky {
   color: #ff7242;
@@ -911,9 +919,16 @@ footer.is-mobile {
 .recent-post-item .article-meta__separator {
   margin-left: 0.3rem;
 }
+.recent-post-item .article-meta__tag-separator {
+  margin-left: 0.3rem;
+  margin-right: 0.3rem;
+}
 .recent-post-item .article-meta .fa-angle-right,
 .recent-post-item .article-meta__link {
-  margin: 0 0 0 0.3rem;
+  margin: 0 0.3rem 0 0.3rem;
+}
+.recent-post-item .article-meta.tags {
+  margin-right: 0.3rem;
 }
 .recent-post-item time {
   color: #858585;
@@ -1918,10 +1933,10 @@ a.fancybox:focus {
 #sidebar .author-info-links__name {
   position: relative;
   float: left;
-  margin-right: 0.3rem;
-  margin-bottom: 0.3rem;
-  padding: 0 0.4rem 0 0.8rem;
-  height: 1.3rem;
+  margin-right: 0.4rem;
+  margin-bottom: 0.4rem;
+  padding: 0.4rem 0.4rem 0.4rem 0.4rem;
+  height: 2rem;
   background: #49b1f5;
   color: #fff;
   text-decoration: none;
@@ -1934,17 +1949,6 @@ a.fancybox:focus {
 }
 #sidebar .author-info-links__name:hover {
   background: #ff7242;
-}
-#sidebar .author-info-links__name:before {
-  position: absolute;
-  top: 50%;
-  left: 0.25rem;
-  margin-top: -0.15rem;
-  width: 0.3rem;
-  height: 0.3rem;
-  border-radius: 0.3rem;
-  background: #fff;
-  content: "";
 }
 #sidebar .sidebar-toc ol,
 #sidebar .sidebar-toc li {
