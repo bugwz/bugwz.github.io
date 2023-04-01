@@ -1502,7 +1502,7 @@ footer.is-mobile {
   transition: all 0.3s ease-out;
 }
 #content-inner ol > li:before {
-  margin-top: 0.2rem;
+  margin-top: 0.1rem;
   content: counter(li) ".";
   counter-increment: li;
   text-align: center;
@@ -1701,6 +1701,9 @@ a.fancybox:focus {
   body {
     font-size: 16.8px;
   }
+  #content-inner ol > li:before {
+    font-size: 16.8px;
+  }
   .layout {
     width: 700px;
   }
@@ -1711,6 +1714,9 @@ a.fancybox:focus {
 }
 @media screen and (min-width: 1024px) and (max-width: 1400px) {
   body {
+    font-size: 17.6px;
+  }
+  #content-inner ol > li:before {
     font-size: 17.6px;
   }
   .layout {
@@ -1725,6 +1731,9 @@ a.fancybox:focus {
   body {
     font-size: 18.4px;
   }
+  #content-inner ol > li:before {
+    font-size: 18.4px;
+  }
   .layout {
     width: 900px;
   }
@@ -1735,6 +1744,9 @@ a.fancybox:focus {
 }
 @media screen and (min-width: 1800px) {
   body {
+    font-size: 20.8px;
+  }
+  #content-inner ol > li:before {
     font-size: 20.8px;
   }
   .layout {
