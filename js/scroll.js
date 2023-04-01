@@ -9,12 +9,18 @@ $(function () {
     var currentTop = $(this).scrollTop()
     var currentBottom = documentHeight - (windowHeight + currentTop);
 
-    if (!isMobile()) {
-      // percentage inspired by hexo-theme-next
-      scrollPercent(currentTop)
-      // head position
-      findHeadPosition(currentTop)
-    }
+    // if (!isMobile()) {
+    //   // percentage inspired by hexo-theme-next
+    //   scrollPercent(currentTop)
+    //   // head position
+    //   findHeadPosition(currentTop)
+    // }
+
+    // percentage inspired by hexo-theme-next
+    scrollPercent(currentTop)
+    // head position
+    findHeadPosition(currentTop)
+
     var isUp = scrollDirection(currentTop)
 
     // display or not display go up button
@@ -27,7 +33,7 @@ $(function () {
       $('#page-header').addClass('fixed')
       if ($('#go-up').css('opacity') === '0') {
         $('#go-up').velocity('stop').velocity({
-          translateX: -30,
+          translateX: -10,
           rotateZ: 360,
           opacity: 1
         }, {
@@ -53,7 +59,7 @@ $(function () {
     if (currentBottom > 56) {
       if ($('#go-down').css('opacity') === '0') {
         $('#go-down').velocity('stop').velocity({
-          translateX: -30,
+          translateX: -10,
           rotateZ: 0,
           opacity: 1
         }, {

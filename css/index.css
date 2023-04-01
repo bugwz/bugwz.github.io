@@ -159,12 +159,12 @@ table td {
   }
   #go-up {
     font-size: 1rem;
-    right: -1rem;
+    right: 0.1rem;
     bottom: 4rem;
   }
   #go-down {
     font-size: 1rem;
-    right: -1rem;
+    right: 0.1rem;
     bottom: 2rem;
   }
 }
@@ -176,7 +176,7 @@ table td {
   #go-up {
     font-size: 1rem;
     right: 0.2rem;
-    bottom: 2rem;
+    bottom: 3rem;
   }
   #go-down {
     font-size: 1rem;
@@ -186,32 +186,32 @@ table td {
 }
 @media screen and (min-width: 1024px) and (max-width: 1400px) {
   #toggle-sidebar {
-    font-size: 1.1rem;
+    font-size: 1rem;
     bottom: 0.6rem;
   }
   #go-up {
-    font-size: 1.1rem;
+    font-size: 1rem;
     right: 0.6rem;
     bottom: 1.9rem;
   }
   #go-down {
-    font-size: 1.1rem;
+    font-size: 1rem;
     right: 0.6rem;
     bottom: 0.6rem;
   }
 }
 @media screen and (min-width: 1400px) and (max-width: 1800px) {
   #toggle-sidebar {
-    font-size: 1.1rem;
+    font-size: 1rem;
     bottom: 0.65rem;
   }
   #go-up {
-    font-size: 1.1rem;
+    font-size: 1rem;
     right: 0.65rem;
     bottom: 1.95rem;
   }
   #go-down {
-    font-size: 1.1rem;
+    font-size: 1rem;
     right: 0.65rem;
     bottom: 0.65rem;
   }
@@ -1704,6 +1704,14 @@ a.fancybox:focus {
   #content-inner ol > li:before {
     font-size: 16.8px;
   }
+  #content-inner ul > li:before {
+    top: 1rem;
+    width: 0.4rem;
+    height: 0.4rem;
+    border: 0.12rem solid #4c4948;
+    border-radius: 0.4rem;
+    line-height: 0.4rem;
+  }
   .layout {
     width: 700px;
   }
@@ -1718,6 +1726,14 @@ a.fancybox:focus {
   }
   #content-inner ol > li:before {
     font-size: 17.6px;
+  }
+  #content-inner ul > li:before {
+    top: 1rem;
+    width: 0.4rem;
+    height: 0.4rem;
+    border: 0.12rem solid #4c4948;
+    border-radius: 0.4rem;
+    line-height: 0.4rem;
   }
   .layout {
     width: 800px;
@@ -1734,6 +1750,14 @@ a.fancybox:focus {
   #content-inner ol > li:before {
     font-size: 18.4px;
   }
+  #content-inner ul > li:before {
+    top: 1rem;
+    width: 0.4rem;
+    height: 0.4rem;
+    border: 0.12rem solid #4c4948;
+    border-radius: 0.4rem;
+    line-height: 0.4rem;
+  }
   .layout {
     width: 900px;
   }
@@ -1749,6 +1773,14 @@ a.fancybox:focus {
   #content-inner ol > li:before {
     font-size: 20.8px;
   }
+  #content-inner ul > li:before {
+    top: 1rem;
+    width: 0.4rem;
+    height: 0.4rem;
+    border: 0.12rem solid #4c4948;
+    border-radius: 0.4rem;
+    line-height: 0.4rem;
+  }
   .layout {
     width: 1300px;
   }
@@ -1761,7 +1793,7 @@ a.fancybox:focus {
   position: fixed;
   top: 0;
   left: -300px;
-  z-index: 10;
+  z-index: 50;
   overflow-y: auto;
   padding: 1rem 0 2rem 0.5rem;
   width: 300px;
