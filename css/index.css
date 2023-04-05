@@ -71,6 +71,17 @@ h6 {
   font-size: 1rem;
   cursor: pointer;
 }
+#change-lang-layout {
+  position: fixed;
+  right: 0.5rem;
+  bottom: 3.1rem;
+  z-index: 100;
+  font-size: 1rem;
+  opacity: 0;
+  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=0)";
+  filter: alpha(opacity=0);
+  cursor: pointer;
+}
 #go-up {
   position: fixed;
   right: 0.5rem;
@@ -156,18 +167,25 @@ table td {
   body {
     padding-left: 0 !important;
   }
-  #toggle-sidebar {
+  #change-lang-layout {
     font-size: 1rem;
-    bottom: 2rem;
+    right: 0.4rem;
+    bottom: 8rem;
   }
   #go-up {
     font-size: 1rem;
-    right: 0.1rem;
+    right: 0.4rem;
+    bottom: 6rem;
+  }
+  #toggle-sidebar {
+    font-size: 1rem;
+    left: auto;
+    right: 0.4rem;
     bottom: 4rem;
   }
   #go-down {
     font-size: 1rem;
-    right: 0.1rem;
+    right: 0.4rem;
     bottom: 2rem;
   }
 }
@@ -175,6 +193,11 @@ table td {
   #toggle-sidebar {
     font-size: 1rem;
     bottom: 1rem;
+  }
+  #change-lang-layout {
+    font-size: 1rem;
+    right: 0.2rem;
+    bottom: 5rem;
   }
   #go-up {
     font-size: 1rem;
@@ -190,23 +213,33 @@ table td {
 @media screen and (min-width: 1024px) and (max-width: 1400px) {
   #toggle-sidebar {
     font-size: 1rem;
-    bottom: 0.6rem;
+    bottom: 1rem;
+  }
+  #change-lang-layout {
+    font-size: 1rem;
+    right: 0.6rem;
+    bottom: 3.6rem;
   }
   #go-up {
     font-size: 1rem;
     right: 0.6rem;
-    bottom: 1.9rem;
+    bottom: 2.3rem;
   }
   #go-down {
     font-size: 1rem;
     right: 0.6rem;
-    bottom: 0.6rem;
+    bottom: 1rem;
   }
 }
 @media screen and (min-width: 1400px) and (max-width: 1800px) {
   #toggle-sidebar {
     font-size: 1rem;
     bottom: 0.65rem;
+  }
+  #change-lang-layout {
+    font-size: 1rem;
+    right: 0.65rem;
+    bottom: 3.25rem;
   }
   #go-up {
     font-size: 1rem;
@@ -223,6 +256,11 @@ table td {
   #toggle-sidebar {
     font-size: 1.1rem;
     bottom: 0.7rem;
+  }
+  #change-lang-layout {
+    font-size: 1rem;
+    right: 0.7rem;
+    bottom: 3.3rem;
   }
   #go-up {
     font-size: 1.1rem;
@@ -1495,7 +1533,7 @@ footer.is-mobile {
 #content-inner ul li {
   position: relative;
   margin: 0.1rem 0;
-  padding: 0.1rem 0.5rem 0.1rem 1rem;
+  padding: 0.1rem 0.5rem 0.1rem 1.5rem;
   overflow-wrap: break-word;
   overflow: auto;
 }
@@ -1539,6 +1577,105 @@ footer.is-mobile {
 }
 #post-content {
   margin-bottom: 1rem;
+}
+#post-content h1,
+#post-content h2,
+#post-content h3,
+#post-content h4,
+#post-content h5,
+#post-content h6 {
+  width: 100%;
+}
+#post-content >div {
+  width: 100%;
+}
+.lang-horizontal-layout >p {
+  width: 100%;
+}
+.lang-horizontal-layout >ul,
+.lang-horizontal-layout >ol {
+  width: 100%;
+}
+.lang-vertical-layout {
+  display: -webkit-box;
+  display: -moz-box;
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: box;
+  display: flex;
+  -webkit-box-lines: multiple;
+  -moz-box-lines: multiple;
+  -o-box-lines: multiple;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+.lang-vertical-layout >p {
+  width: 49.5%;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+.lang-vertical-layout >ul,
+.lang-vertical-layout >ol {
+  width: 49.5%;
+  display: -webkit-box;
+  display: -moz-box;
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: box;
+  display: flex;
+  -webkit-box-lines: multiple;
+  -moz-box-lines: multiple;
+  -o-box-lines: multiple;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+.lang-chinese-layout {
+  display: -webkit-box;
+  display: -moz-box;
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: box;
+  display: flex;
+  -webkit-box-lines: multiple;
+  -moz-box-lines: multiple;
+  -o-box-lines: multiple;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+.lang-chinese-layout >p,
+.lang-chinese-layout >div {
+  width: 100%;
+}
+.lang-chinese-layout >p:nth-of-type(odd),
+.lang-chinese-layout >ul:nth-of-type(odd),
+.lang-chinese-layout >ol:nth-of-type(odd) {
+  display: none;
+}
+.lang-english-layout {
+  display: -webkit-box;
+  display: -moz-box;
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: box;
+  display: flex;
+  -webkit-box-lines: multiple;
+  -moz-box-lines: multiple;
+  -o-box-lines: multiple;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+.lang-english-layout >p,
+.lang-english-layout >div {
+  width: 100%;
+}
+.lang-english-layout >p:nth-of-type(even),
+.lang-english-layout >ul:nth-of-type(even),
+.lang-english-layout >ol:nth-of-type(even) {
+  display: none;
 }
 a {
   color: #858585;
@@ -1716,8 +1853,14 @@ a.fancybox:focus {
   body {
     font-size: 16.8px;
   }
+  #content-inner ol > li {
+    width: 100%;
+  }
   #content-inner ol > li:before {
     font-size: 16.8px;
+  }
+  #content-inner ul > li {
+    width: 100%;
   }
   #content-inner ul > li:before {
     top: 1rem;
@@ -1739,8 +1882,14 @@ a.fancybox:focus {
   body {
     font-size: 17.6px;
   }
+  #content-inner ol > li {
+    width: 100%;
+  }
   #content-inner ol > li:before {
     font-size: 17.6px;
+  }
+  #content-inner ul > li {
+    width: 100%;
   }
   #content-inner ul > li:before {
     top: 1rem;
@@ -1762,8 +1911,14 @@ a.fancybox:focus {
   body {
     font-size: 18.4px;
   }
+  #content-inner ol > li {
+    width: 100%;
+  }
   #content-inner ol > li:before {
     font-size: 18.4px;
+  }
+  #content-inner ul > li {
+    width: 100%;
   }
   #content-inner ul > li:before {
     top: 1rem;
@@ -1774,19 +1929,27 @@ a.fancybox:focus {
     line-height: 0.4rem;
   }
   .layout {
-    width: 900px;
+    min-width: 900px;
+    width: 65%;
   }
   .recent-post-item .content iframe {
-    width: 900px;
+    min-width: 900px;
+    width: 65%;
     height: 506.25px;
   }
 }
 @media screen and (min-width: 1800px) {
   body {
-    font-size: 20.8px;
+    font-size: 19.2px;
+  }
+  #content-inner ol > li {
+    width: 100%;
   }
   #content-inner ol > li:before {
-    font-size: 20.8px;
+    font-size: 19.2px;
+  }
+  #content-inner ul > li {
+    width: 100%;
   }
   #content-inner ul > li:before {
     top: 1rem;
@@ -1797,10 +1960,10 @@ a.fancybox:focus {
     line-height: 0.4rem;
   }
   .layout {
-    width: 1300px;
+    width: 1400px;
   }
   .recent-post-item .content iframe {
-    width: 1300px;
+    width: 1400px;
     height: 506.25px;
   }
 }
@@ -2056,7 +2219,7 @@ a.fancybox:focus {
     width: 450px;
   }
   #sidebar .sidebar-toc .toc-link {
-    font-size: 20.8px;
+    font-size: 19.2px;
   }
   #sidebar .author-info__name {
     font-size: 22.4px;

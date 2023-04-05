@@ -33,7 +33,7 @@ $(function () {
       $('#page-header').addClass('fixed')
       if ($('#go-up').css('opacity') === '0') {
         $('#go-up').velocity('stop').velocity({
-          translateX: -10,
+          translateX: 0,
           rotateZ: 360,
           opacity: 1
         }, {
@@ -59,7 +59,7 @@ $(function () {
     if (currentBottom > 56) {
       if ($('#go-down').css('opacity') === '0') {
         $('#go-down').velocity('stop').velocity({
-          translateX: -10,
+          translateX: 0,
           rotateZ: 0,
           opacity: 1
         }, {
@@ -70,7 +70,7 @@ $(function () {
     } else {
       $('#go-down').velocity('stop').velocity({
         translateX: 0,
-        rotateZ: 180,
+        rotateZ: 90,
         opacity: 0
       }, {
         easing: 'easeOutQuart',
@@ -78,6 +78,17 @@ $(function () {
       })
     }
 
+    // display change language button
+    if ($('#change-lang-layout').css('opacity') === '0') {
+      $('#change-lang-layout').velocity('stop').velocity({
+        translateX: 0,
+        rotateZ: 0,
+        opacity: 1
+      }, {
+        easing: 'easeOutQuart',
+        duration: 200
+      })
+    }
 
   }, 50, 100))
 
@@ -96,6 +107,23 @@ $(function () {
       easing: 'easeOutQuart',
       offset: $(document).height()
     })
+  })
+
+  // change language
+  var langLayoutIndex = 0
+  var langLayouts = [
+    "lang-horizontal-layout", // 水平双语布局
+    "lang-vertical-layout",   // 垂直双语布局
+    "lang-chinese-layout",    // 仅中文布局
+    "lang-english-layout"     // 仅英文布局
+  ];
+  $('#change-lang-layout').on('click', function () {
+    $('#post-content').removeClass(langLayouts[langLayoutIndex])
+    langLayoutIndex++
+    if (langLayoutIndex >= langLayouts.length) {
+      langLayoutIndex = 0
+    }
+    $('#post-content').addClass(langLayouts[langLayoutIndex])
   })
 
   // head scroll
