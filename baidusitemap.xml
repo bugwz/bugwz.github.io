@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2022/12/31/redis-az-sync/</loc>
+    <lastmod>2023-04-20</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2023/01/10/gfs/</loc>
     <lastmod>2023-04-17</lastmod>
   </url>
@@ -62,10 +66,6 @@
   </url>
   <url>
     <loc>https://bugwz.com/2020/06/13/mi8-miui12-eu-rom/</loc>
-    <lastmod>2023-03-31</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2022/12/31/redis-az-sync/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -345,11 +345,11 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
+    <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/09/19/command-sar/</loc>
+    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -397,11 +397,11 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2022/01/01/redismodule-redisbloom/</loc>
+    <loc>https://bugwz.com/2018/08/10/shuffle/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/08/10/shuffle/</loc>
+    <loc>https://bugwz.com/2022/01/01/redismodule-redisbloom/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -437,11 +437,11 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/09/06/redis-cluster-slots-num/</loc>
+    <loc>https://bugwz.com/2019/09/01/redis-multithreading/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/09/01/redis-multithreading/</loc>
+    <loc>https://bugwz.com/2019/09/06/redis-cluster-slots-num/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
