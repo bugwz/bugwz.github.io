@@ -29,30 +29,19 @@ gtag('config', 'G-V3GGHPSRE6');</script><meta http-equiv="Cache-Control" content
 <li><code>抓包分析</code>：开始抓包分析即可；</li>
 </ul>
 <h2 id="二、MacOS-端软件配置"><a href="#二、MacOS-端软件配置" class="headerlink" title="二、MacOS 端软件配置"></a>二、MacOS 端软件配置</h2><ol>
-<li><strong>安装 Charles HTTPS 证书</strong> ：依次点击 <code>Help</code> ，<code>SSL Proxying</code> ，<code>Install Charles Root Certificate</code> ；</li>
+<li><p><strong>安装 Charles HTTPS 证书</strong> ：依次点击 <code>Help</code> ，<code>SSL Proxying</code> ，<code>Install Charles Root Certificate</code> ；<br><img src="/assets/images/charles-macos-1.png" alt="安装 Charles HTTPS 证书" loading="lazy"></p>
+</li>
+<li><p><strong>启用并信任证书</strong> ： 点击 <code>Install Charles Root Ceriticate</code> 后，会直接跳到 <code>钥匙串访问</code> ，确保在左侧的 <code>登陆</code> 和 <code>系统</code> 标签页中存在 Charles 的证书，并将其设置为 <code>始终信任</code>，如果对应标签页中没有 Charles 的证书，可切换到对应的标签页，然后重复第 1 步安装证书；<br><img src="/assets/images/charles-macos-2.png" alt="启用并信任证书-登录" loading="lazy"><br><img src="/assets/images/charles-macos-3.png" alt="启用并信任证书-系统" loading="lazy"></p>
+</li>
+<li><p><strong>配置 HTTPs 抓包</strong> ： 依次点击 <code>Proxy</code> ， <code>SSL Proxying Settings...</code> ，之后在开启 <code>Enable SSL Proxying</code> 并新增一个 <code>Include</code> 配置 <code>*:443</code> ；<br><img src="/assets/images/charles-macos-4.png" alt="配置 HTTPs 抓包" loading="lazy"></p>
+</li>
+<li><p><strong>配置端口并开启透明代理</strong> ： 依次点击 <code>Proxy</code> ，<code>Proxy Settings..</code> ，配置 <code>Port</code> 并启用 <code>Enable transparent HTTP proxying</code> ；<br><img src="/assets/images/charles-macos-5.png" alt="配置端口并开启透明代理" loading="lazy"></p>
+</li>
+<li><p><strong>开启代理</strong> ： 点击 <code>Proxy</code> ，并开启 <code>macOS Proxy</code> ；<br><img src="/assets/images/charles-macos-6.png" alt="开启代理" loading="lazy"></p>
+</li>
+<li><p><strong>查看本地 IP 信息</strong>（ifconfig）：<br><img src="/assets/images/charles-macos-7.png" alt="查看本地 IP 信息" loading="lazy"></p>
+</li>
 </ol>
-<p><img src="/assets/images/charles-macos-1.png" alt="安装 Charles HTTPS 证书" loading="lazy"></p>
-<ol start="2">
-<li><strong>启用并信任证书</strong> ： 点击 <code>Install Charles Root Ceriticate</code> 后，会直接跳到 <code>钥匙串访问</code> ，确保在左侧的 <code>登陆</code> 和 <code>系统</code> 标签页中存在 Charles 的证书，并将其设置为 <code>始终信任</code>，如果对应标签页中没有 Charles 的证书，可切换到对应的标签页，然后重复第 1 步安装证书；</li>
-</ol>
-<p><img src="/assets/images/charles-macos-2.png" alt="启用并信任证书-登录" loading="lazy"></p>
-<p><img src="/assets/images/charles-macos-3.png" alt="启用并信任证书-系统" loading="lazy"></p>
-<ol start="3">
-<li><strong>配置 HTTPs 抓包</strong> ： 依次点击 <code>Proxy</code> ， <code>SSL Proxying Settings...</code> ，之后在开启 <code>Enable SSL Proxying</code> 并新增一个 <code>Include</code> 配置 <code>*:443</code> ；</li>
-</ol>
-<p><img src="/assets/images/charles-macos-4.png" alt="配置 HTTPs 抓包" loading="lazy"></p>
-<ol start="4">
-<li><strong>配置端口并开启透明代理</strong> ： 依次点击 <code>Proxy</code> ，<code>Proxy Settings..</code> ，配置 <code>Port</code> 并启用 <code>Enable transparent HTTP proxying</code> ；</li>
-</ol>
-<p><img src="/assets/images/charles-macos-5.png" alt="配置端口并开启透明代理" loading="lazy"></p>
-<ol start="5">
-<li><strong>开启代理</strong> ： 点击 <code>Proxy</code> ，并开启 <code>macOS Proxy</code> ；</li>
-</ol>
-<p><img src="/assets/images/charles-macos-6.png" alt="开启代理" loading="lazy"></p>
-<ol start="6">
-<li><strong>查看本地 IP 信息</strong>（ifconfig）：</li>
-</ol>
-<p><img src="/assets/images/charles-macos-7.png" alt="查看本地 IP 信息" loading="lazy"></p>
 <h2 id="三、手机端配置"><a href="#三、手机端配置" class="headerlink" title="三、手机端配置"></a>三、手机端配置</h2><h3 id="3-1、网络配置"><a href="#3-1、网络配置" class="headerlink" title="3.1、网络配置"></a>3.1、网络配置</h3><h4 id="1-3-1、安卓端网络配置"><a href="#1-3-1、安卓端网络配置" class="headerlink" title="1.3.1、安卓端网络配置"></a>1.3.1、安卓端网络配置</h4><ul>
 <li>网络代理信息设置：</li>
 </ul>

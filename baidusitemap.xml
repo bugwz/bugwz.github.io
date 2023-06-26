@@ -2,7 +2,7 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://bugwz.com/2019/09/13/charles/</loc>
-    <lastmod>2023-06-06</lastmod>
+    <lastmod>2023-06-26</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2022/12/31/redis-az-sync/</loc>
@@ -97,15 +97,11 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/11/29/jsp-1/</loc>
+    <loc>https://bugwz.com/2016/12/02/jsp-5/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2016/11/30/jsp-homework-2/</loc>
-    <lastmod>2023-03-31</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2016/12/02/jsp-5/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -114,6 +110,10 @@
   </url>
   <url>
     <loc>https://bugwz.com/2019/12/11/makefile/</loc>
+    <lastmod>2023-03-31</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2016/11/29/jsp-1/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -133,11 +133,11 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2017/07/12/singnal-semaphore/</loc>
+    <loc>https://bugwz.com/2019/01/01/snoopy/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/01/snoopy/</loc>
+    <loc>https://bugwz.com/2017/07/12/singnal-semaphore/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -189,15 +189,15 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2022/07/01/redismodule-redistimeseries/</loc>
-    <lastmod>2023-03-31</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2021/09/01/redismodule-redlock/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
     <loc>https://bugwz.com/2021/04/15/redismodule-smartcache/</loc>
+    <lastmod>2023-03-31</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2022/07/01/redismodule-redistimeseries/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -261,11 +261,11 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/12/localtime/</loc>
+    <loc>https://bugwz.com/2016/10/02/memcached-memory-layout/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/10/02/memcached-memory-layout/</loc>
+    <loc>https://bugwz.com/2019/01/12/localtime/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -273,11 +273,11 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/07/10/perf/</loc>
+    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
+    <loc>https://bugwz.com/2019/07/10/perf/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -341,11 +341,7 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
-    <lastmod>2023-03-31</lastmod>
-  </url>
-  <url>
-    <loc>https://bugwz.com/2019/10/11/docker-multi-stage-builds/</loc>
+    <loc>https://bugwz.com/2019/10/20/command-rsync/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
@@ -353,7 +349,11 @@
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/20/command-rsync/</loc>
+    <loc>https://bugwz.com/2018/01/01/commands-linux/</loc>
+    <lastmod>2023-03-31</lastmod>
+  </url>
+  <url>
+    <loc>https://bugwz.com/2019/10/11/docker-multi-stage-builds/</loc>
     <lastmod>2023-03-31</lastmod>
   </url>
   <url>
