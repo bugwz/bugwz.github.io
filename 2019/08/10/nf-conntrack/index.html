@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>记一次nf_conntrack模块导致的丢包问题 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="灰度线上业务的时候，有一次遇到了业务反馈资源没有读写，当时正好将流量切到了线上的一台机器上，在将业务的资源迁移回滚之后，经过一番查找，发现 &#x2F;var&#x2F;log&#x2F;message 中打印了很多关于 kernel: nf_conntrack: table full, dropping packet 的错误信息，这个错误主要是由于启用了 nf_conntrack 模块。">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>记一次nf_conntrack模块导致的丢包问题 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="灰度线上业务的时候，有一次遇到了业务反馈资源没有读写，当时正好将流量切到了线上的一台机器上，在将业务的资源迁移回滚之后，经过一番查找，发现 &#x2F;var&#x2F;log&#x2F;message 中打印了很多关于 kernel: nf_conntrack: table full, dropping packet 的错误信息，这个错误主要是由于启用了 nf_conntrack 模块。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="记一次nf_conntrack模块导致的丢包问题">
 <meta property="og:url" content="https://bugwz.com/2019/08/10/nf-conntrack/index.html">
@@ -92,7 +92,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>RedisModule剖析 - RateLimit | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="RateLimit 是一款基于 Go的限速库 golang.org&#x2F;x&#x2F;time&#x2F;rate（基于令牌桶） 实现的针对于 key 的限速模块，该模块并非直接拦截 Redis 中关于特定 key 的操作指令，而是每次在需要执行操作指令之前，先发送一个判断命令（该模块提供的特殊命令），通过这种方式来实现限速的目的。">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>RedisModule剖析 - RateLimit | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="RateLimit 是一款基于 Go的限速库 golang.org&#x2F;x&#x2F;time&#x2F;rate（基于令牌桶） 实现的针对于 key 的限速模块，该模块并非直接拦截 Redis 中关于特定 key 的操作指令，而是每次在需要执行操作指令之前，先发送一个判断命令（该模块提供的特殊命令），通过这种方式来实现限速的目的。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="RedisModule剖析 - RateLimit">
 <meta property="og:url" content="https://bugwz.com/2020/05/02/redismodule-ratelimit/index.html">
@@ -92,7 +92,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

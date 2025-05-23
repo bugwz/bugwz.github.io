@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>RedisModule剖析 - SmartCache | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="SmartCache 是一款基于 RedisModule 实现的数据缓存模块，目前仅支持与 MySQL 进行数据缓存交互。在客户端访问数据的时候，如果该数据不存在于 Redis 中，则 Redis 会向配置的 MySQL 发起数据请求，将数据缓存到本地，并设置一定的过期时间，之后将缓存的数据发送给客户端，从而实现了 Read-Through Cache 这种缓存模式。缓存的数据经过格式化处理，因此">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>RedisModule剖析 - SmartCache | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="SmartCache 是一款基于 RedisModule 实现的数据缓存模块，目前仅支持与 MySQL 进行数据缓存交互。在客户端访问数据的时候，如果该数据不存在于 Redis 中，则 Redis 会向配置的 MySQL 发起数据请求，将数据缓存到本地，并设置一定的过期时间，之后将缓存的数据发送给客户端，从而实现了 Read-Through Cache 这种缓存模式。缓存的数据经过格式化处理，因此">
 <meta property="og:type" content="article">
 <meta property="og:title" content="RedisModule剖析 - SmartCache">
 <meta property="og:url" content="https://bugwz.com/2021/04/15/redismodule-smartcache/index.html">
@@ -92,7 +92,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

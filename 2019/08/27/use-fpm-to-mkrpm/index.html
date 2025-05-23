@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>使用FPM优雅的进行rpm打包 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="一、介绍对于有过构建rpm安装包相关操作的应该知道可以使用spec文件以及rpmbuild指令进行打包操作，不过spec文件的编写也是一个十分令人头懂的事情，我之前曾经有过一篇使用spec文件打包的文章，参考RPM打包记录，这里介绍一个更高效，更人性化的打包工具：FPM。 FPM是一个快速高效的打包工具，该工具本身为Ruby的一个模块，因此使用该工具之前需要安装Ruby； 二、安装与使用2.1、安">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>使用FPM优雅的进行rpm打包 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="一、介绍对于有过构建rpm安装包相关操作的应该知道可以使用spec文件以及rpmbuild指令进行打包操作，不过spec文件的编写也是一个十分令人头懂的事情，我之前曾经有过一篇使用spec文件打包的文章，参考RPM打包记录，这里介绍一个更高效，更人性化的打包工具：FPM。 FPM是一个快速高效的打包工具，该工具本身为Ruby的一个模块，因此使用该工具之前需要安装Ruby； 二、安装与使用2.1、安">
 <meta property="og:type" content="article">
 <meta property="og:title" content="使用FPM优雅的进行rpm打包">
 <meta property="og:url" content="https://bugwz.com/2019/08/27/use-fpm-to-mkrpm/index.html">
@@ -90,7 +90,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Redis扩缩容演进史与奇思妙想 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="Redis 的扩缩容方案在 RedisCluster 中发生了很多的改造与优化，其中主要包括对于 Slot 和 Keys 映射关系的优化，从最初的跳表，到基数树，再到最新的柔性数组的相关优化。同时 Redis 的非社区Cluster 模式下的扩缩容在业界在诞生了很多有意思的设计思路，比如 Codis 提供的同步&#x2F;异步迁移方案，选择性复制以及旁路扩缩容的迁移方案等。这篇文章将简略的描述一下当前业界实">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Redis扩缩容演进史与奇思妙想 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="Redis 的扩缩容方案在 RedisCluster 中发生了很多的改造与优化，其中主要包括对于 Slot 和 Keys 映射关系的优化，从最初的跳表，到基数树，再到最新的柔性数组的相关优化。同时 Redis 的非社区Cluster 模式下的扩缩容在业界在诞生了很多有意思的设计思路，比如 Codis 提供的同步&#x2F;异步迁移方案，选择性复制以及旁路扩缩容的迁移方案等。这篇文章将简略的描述一下当前业界实">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Redis扩缩容演进史与奇思妙想">
 <meta property="og:url" content="https://bugwz.com/2022/12/13/redis-resharding/index.html">
@@ -90,7 +90,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

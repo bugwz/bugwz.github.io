@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>TCP状态转换详解 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="一、TCP的状态转换图示 1.1、TCP标志位 CWR(Congestion Window Reduce)：拥塞窗口减少标志，由发送端设置，用来表明发送端接收到了设置ECE标志的TCP包，发送端通过降低发送窗口的大小来降低发送速率； ECE(ECN Echo)：ECN响应标志，在TCP的3次握手时表明一个TCP端是具备ECN(Explicit Congestion Notification)功能的">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>TCP状态转换详解 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="一、TCP的状态转换图示 1.1、TCP标志位 CWR(Congestion Window Reduce)：拥塞窗口减少标志，由发送端设置，用来表明发送端接收到了设置ECE标志的TCP包，发送端通过降低发送窗口的大小来降低发送速率； ECE(ECN Echo)：ECN响应标志，在TCP的3次握手时表明一个TCP端是具备ECN(Explicit Congestion Notification)功能的">
 <meta property="og:type" content="article">
 <meta property="og:title" content="TCP状态转换详解">
 <meta property="og:url" content="https://bugwz.com/2018/05/20/tcp-state-transition/index.html">
@@ -91,7 +91,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

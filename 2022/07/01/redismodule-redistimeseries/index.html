@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>RedisModule剖析 - RedisTimeSeries | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="RedisTimeSeries 是一款基于 RedisModule 实现的时序数据库模块，提供了基础的时序操作功能，包括不限于聚合查询，范围查询，保留周期，降采样（数据压缩），插值变更，二级索引等。由于数据存储于内存中，因此提供了高性能读写访问能力，但同时也受限于内存存储，可能并不适合用在极大数据量的时序场景中。考虑到身靠着Redis生态这棵大树，也许能够和Redis生态的众多组件碰撞出有趣的火花">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>RedisModule剖析 - RedisTimeSeries | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="RedisTimeSeries 是一款基于 RedisModule 实现的时序数据库模块，提供了基础的时序操作功能，包括不限于聚合查询，范围查询，保留周期，降采样（数据压缩），插值变更，二级索引等。由于数据存储于内存中，因此提供了高性能读写访问能力，但同时也受限于内存存储，可能并不适合用在极大数据量的时序场景中。考虑到身靠着Redis生态这棵大树，也许能够和Redis生态的众多组件碰撞出有趣的火花">
 <meta property="og:type" content="article">
 <meta property="og:title" content="RedisModule剖析 - RedisTimeSeries">
 <meta property="og:url" content="https://bugwz.com/2022/07/01/redismodule-redistimeseries/index.html">
@@ -92,7 +92,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

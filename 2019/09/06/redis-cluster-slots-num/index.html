@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>为什么RedisCluster采用16384个槽位? | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="RedisCluster 目前使用的计算 slot 槽位的算法为 CRC16，该算法本身会产生的 hash 值的大小为 16bit，因此该算法可以产生 65536 个不同的值，取值范围为 0～65535 之间，从下面的代码中我们看到，目前限制的 slot 槽位的个数为 16384。">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>为什么RedisCluster采用16384个槽位? | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="RedisCluster 目前使用的计算 slot 槽位的算法为 CRC16，该算法本身会产生的 hash 值的大小为 16bit，因此该算法可以产生 65536 个不同的值，取值范围为 0～65535 之间，从下面的代码中我们看到，目前限制的 slot 槽位的个数为 16384。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="为什么RedisCluster采用16384个槽位?">
 <meta property="og:url" content="https://bugwz.com/2019/09/06/redis-cluster-slots-num/index.html">
@@ -91,7 +91,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

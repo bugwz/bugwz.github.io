@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>BloomFilter 和 CuckooFilter 对比解析 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="BloomFilter 和 CuckooFilter 都是一种用于数据存在性判断的数据结构。布隆过滤器早在 1970 年就被提出，它由一个二进制向量数组和一系列随机映射函数组成。它可以用于检索一个元素是否一定不在集合中或者可能存在集合中。布谷鸟过滤器的提出相对较晚，它创新性的提出了可以删除的实现方式，解决了布隆过滤器无法删除数据的痛点。这两者各有优劣，需要结合具体的使用姿势来进行选择。">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>BloomFilter 和 CuckooFilter 对比解析 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="BloomFilter 和 CuckooFilter 都是一种用于数据存在性判断的数据结构。布隆过滤器早在 1970 年就被提出，它由一个二进制向量数组和一系列随机映射函数组成。它可以用于检索一个元素是否一定不在集合中或者可能存在集合中。布谷鸟过滤器的提出相对较晚，它创新性的提出了可以删除的实现方式，解决了布隆过滤器无法删除数据的痛点。这两者各有优劣，需要结合具体的使用姿势来进行选择。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="BloomFilter 和 CuckooFilter 对比解析">
 <meta property="og:url" content="https://bugwz.com/2019/08/12/bloom-and-cuckoo-filter/index.html">
@@ -90,7 +90,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

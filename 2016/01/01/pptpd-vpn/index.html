@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>pptpd搭建VPN服务器 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="一、正题 安装pptpd  安装之前，先更新一下源，sudo apt-get update  然后安装：sudo apt-get install pptpd  配置内网ip策略  sudo vim &#x2F;etc&#x2F;pptpd.conf  在文件中加入下面2行代码（其实文件末尾有这段代码，不过前面有注释，你也可以直接去掉注释）：  localip 192.168.0.1   remoteip 192.16">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>pptpd搭建VPN服务器 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="一、正题 安装pptpd  安装之前，先更新一下源，sudo apt-get update  然后安装：sudo apt-get install pptpd  配置内网ip策略  sudo vim &#x2F;etc&#x2F;pptpd.conf  在文件中加入下面2行代码（其实文件末尾有这段代码，不过前面有注释，你也可以直接去掉注释）：  localip 192.168.0.1   remoteip 192.16">
 <meta property="og:type" content="article">
 <meta property="og:title" content="pptpd搭建VPN服务器">
 <meta property="og:url" content="https://bugwz.com/2016/01/01/pptpd-vpn/index.html">
@@ -91,7 +91,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

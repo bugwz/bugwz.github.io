@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Redis主从复制演进史与奇思妙想 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="Redis 的主从复制模型从 Redis2.8 版本到 Redis7.0 经历了很多大的优化与改造，从最初版本的全量数据同步，到后续的 PSYNC 的增量数据同步，无盘数据传输方案，PSYNC2 的同源数据同步方案，无盘数据加载方案到当前的最新版本中的共享复制缓冲区的方案。同时社区中也诞生了一些奇妙的解决方案，例如基于AOF文件的增量同步等。">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Redis主从复制演进史与奇思妙想 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="Redis 的主从复制模型从 Redis2.8 版本到 Redis7.0 经历了很多大的优化与改造，从最初版本的全量数据同步，到后续的 PSYNC 的增量数据同步，无盘数据传输方案，PSYNC2 的同源数据同步方案，无盘数据加载方案到当前的最新版本中的共享复制缓冲区的方案。同时社区中也诞生了一些奇妙的解决方案，例如基于AOF文件的增量同步等。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Redis主从复制演进史与奇思妙想">
 <meta property="og:url" content="https://bugwz.com/2022/10/01/redis-replication/index.html">
@@ -90,7 +90,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

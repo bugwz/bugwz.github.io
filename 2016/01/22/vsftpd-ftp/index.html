@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>vsftpd搭建FTP服务器 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="一、要求现在我们需要在Ubuntu14.04上利用vsftpd创建ftp服务器环境，然后在禁止匿名访问的前提下，创建以下四个虚拟用户并配权：  一个用户为：tea1，密码为：tea1pass，进入tea1目录（对该目录及其子目录拥有所有权限，不可进入上级目录）。 一个用户为：tea2，密码为：tea2pass，进入tea2目录（对该目录及其子目录拥有所有权限，不可进入上级目录）。 一个用户为：st">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>vsftpd搭建FTP服务器 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="一、要求现在我们需要在Ubuntu14.04上利用vsftpd创建ftp服务器环境，然后在禁止匿名访问的前提下，创建以下四个虚拟用户并配权：  一个用户为：tea1，密码为：tea1pass，进入tea1目录（对该目录及其子目录拥有所有权限，不可进入上级目录）。 一个用户为：tea2，密码为：tea2pass，进入tea2目录（对该目录及其子目录拥有所有权限，不可进入上级目录）。 一个用户为：st">
 <meta property="og:type" content="article">
 <meta property="og:title" content="vsftpd搭建FTP服务器">
 <meta property="og:url" content="https://bugwz.com/2016/01/22/vsftpd-ftp/index.html">
@@ -91,7 +91,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

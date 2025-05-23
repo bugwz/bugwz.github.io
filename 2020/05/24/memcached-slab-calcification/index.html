@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Memcached的钙化及相关解决方案 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="由于 Memcached 存储数据的时候是按照 Slabs 分类进行存储的，当内存达到 Memcached 限制的时候，服务进程会执行一系列的内存回收方案，但是，不管是什么内存回收方案，回收的大前提就只有一种：只回收与即将写入数据写入数据块一致的 Slabs 。因此，这就导致了在业务访问模型变更之后，Memcached 对于之前访问模型存储的数据就不会做任何变更，也就是说那部分数据永不会被剔除，因">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Memcached的钙化及相关解决方案 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="由于 Memcached 存储数据的时候是按照 Slabs 分类进行存储的，当内存达到 Memcached 限制的时候，服务进程会执行一系列的内存回收方案，但是，不管是什么内存回收方案，回收的大前提就只有一种：只回收与即将写入数据写入数据块一致的 Slabs 。因此，这就导致了在业务访问模型变更之后，Memcached 对于之前访问模型存储的数据就不会做任何变更，也就是说那部分数据永不会被剔除，因">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Memcached的钙化及相关解决方案">
 <meta property="og:url" content="https://bugwz.com/2020/05/24/memcached-slab-calcification/index.html">
@@ -91,7 +91,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

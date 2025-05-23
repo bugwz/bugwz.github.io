@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>ceph-ansible 集群部署运维指南 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="本文详细介绍了使用 ceph-ansible 部署和运维 Ceph 集群的过程，包括各版本及其依赖的 Ansible 版本的对应关系、自定义模块与任务的结构、集群部署、运维操作及相关示例。特别强调了环境配置、节点连通性验证、MDS 和 OSD 组件的管理，以及安全和性能优化注意事项。">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>ceph-ansible 集群部署运维指南 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="本文详细介绍了使用 ceph-ansible 部署和运维 Ceph 集群的过程，包括各版本及其依赖的 Ansible 版本的对应关系、自定义模块与任务的结构、集群部署、运维操作及相关示例。特别强调了环境配置、节点连通性验证、MDS 和 OSD 组件的管理，以及安全和性能优化注意事项。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="ceph-ansible 集群部署运维指南">
 <meta property="og:url" content="https://bugwz.com/2023/04/12/ceph-ansible/index.html">
@@ -90,7 +90,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

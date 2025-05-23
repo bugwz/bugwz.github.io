@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Memcached的内存分配机制 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="一、基本概念 Slab Class：由相同大小的Chunk组成，不同的Slab Class中的Chunk大小不同；  Page：分配给单个Slab的内存大小，默认为1MB，分配给Slab之后依据Slab的大小拆分为Chunk；  Chunk：将每一个Slab按照不同大小进行拆分，得到了不同大小的Chunk（每个Slab中的Chunk大小一致），Chunk的初始大小可以指定，并且可以根据不同的业务场">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Memcached的内存分配机制 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="一、基本概念 Slab Class：由相同大小的Chunk组成，不同的Slab Class中的Chunk大小不同；  Page：分配给单个Slab的内存大小，默认为1MB，分配给Slab之后依据Slab的大小拆分为Chunk；  Chunk：将每一个Slab按照不同大小进行拆分，得到了不同大小的Chunk（每个Slab中的Chunk大小一致），Chunk的初始大小可以指定，并且可以根据不同的业务场">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Memcached的内存分配机制">
 <meta property="og:url" content="https://bugwz.com/2016/10/02/memcached-memory-layout/index.html">
@@ -91,7 +91,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

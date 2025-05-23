@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Codis的Slots-Rebalance算法 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="Codis 实现了另一种的 Redis 集群方案。在该方案中为了能够实现类似于 RedisCluster 的横向扩缩容的能力，Codis 内部实现了一种 Slot-Rebalance 的算法，该算法中所有的 key 都被哈希到 1024 个 slots 上，在每个 slots 分配均匀的前提下，如果一个分片中的 slots 过多，该分片中存储的 key 的数量也就越多，该分片对应的负载也就越大，在">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Codis的Slots-Rebalance算法 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="Codis 实现了另一种的 Redis 集群方案。在该方案中为了能够实现类似于 RedisCluster 的横向扩缩容的能力，Codis 内部实现了一种 Slot-Rebalance 的算法，该算法中所有的 key 都被哈希到 1024 个 slots 上，在每个 slots 分配均匀的前提下，如果一个分片中的 slots 过多，该分片中存储的 key 的数量也就越多，该分片对应的负载也就越大，在">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Codis的Slots-Rebalance算法">
 <meta property="og:url" content="https://bugwz.com/2020/05/21/codis-slots-rebalance/index.html">
@@ -91,7 +91,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

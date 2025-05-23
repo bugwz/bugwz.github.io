@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>RedisModule剖析 - RedisTimer | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="RedisTimer 是一款基于 Redis 的时间事件来实现的计时器的模块，通过时间事件机制来实现延迟&#x2F;循环执行对应的脚本（函数），由于该模块执行脚本（函数）的命令为 FCALL，因此要求 Redis 版本最低为 7.0.0 ，该模块也支持数据的持久化，用于保证计时器的信息不丢失。">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>RedisModule剖析 - RedisTimer | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="RedisTimer 是一款基于 Redis 的时间事件来实现的计时器的模块，通过时间事件机制来实现延迟&#x2F;循环执行对应的脚本（函数），由于该模块执行脚本（函数）的命令为 FCALL，因此要求 Redis 版本最低为 7.0.0 ，该模块也支持数据的持久化，用于保证计时器的信息不丢失。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="RedisModule剖析 - RedisTimer">
 <meta property="og:url" content="https://bugwz.com/2022/09/29/redismodule-redistimer/index.html">
@@ -92,7 +92,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 

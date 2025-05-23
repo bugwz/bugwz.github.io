@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Docker多阶段构建的理解与使用 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="在构建镜像的过程中可能会区分为编译镜像以及运行镜像，我们在编译环境中进行二进制运行文件的构建编译工作，然后将运行文件放置在运行环境中构建体积较小的运行镜像，在这个过程中，我们可能会使用到多阶段构建。">
+<!DOCTYPE html><html lang="zh-Hans" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Docker多阶段构建的理解与使用 | 咕咕</title><meta name="author" content="bugwz"><meta name="copyright" content="bugwz"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="在构建镜像的过程中可能会区分为编译镜像以及运行镜像，我们在编译环境中进行二进制运行文件的构建编译工作，然后将运行文件放置在运行环境中构建体积较小的运行镜像，在这个过程中，我们可能会使用到多阶段构建。">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Docker多阶段构建的理解与使用">
 <meta property="og:url" content="https://bugwz.com/2019/10/11/docker-multi-stage-builds/index.html">
@@ -91,7 +91,7 @@
       const activateLightMode = () => {
         document.documentElement.setAttribute('data-theme', 'light')
         if (document.querySelector('meta[name="theme-color"]') !== null) {
-          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
         }
       }
 
