@@ -1,3 +1,6 @@
+https://bugwz.com/tags/index.html
+https://bugwz.com/link/index.html
+https://bugwz.com/categories/index.html
 https://bugwz.com/2023/04/12/ceph-ansible/
 https://bugwz.com/2022/12/31/redis-az-sync/
 https://bugwz.com/2022/10/04/redismodule-redis-rope/
@@ -119,8 +122,6 @@ https://bugwz.com/2021/09/01/redismodule-redlock/
 https://bugwz.com/2024/10/25/ceph-qos/
 https://bugwz.com/2025/01/12/ceph-crimson-deploy/
 https://bugwz.com/404.html
-https://bugwz.com/tags/index.html
-https://bugwz.com/categories/index.html
 https://bugwz.com/
 https://bugwz.com/tags/Base%E7%BC%96%E7%A0%81/
 https://bugwz.com/tags/%E6%AF%94%E7%89%B9%E5%B8%81/

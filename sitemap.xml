@@ -2,6 +2,33 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   
   <url>
+    <loc>https://bugwz.com/tags/index.html</loc>
+    
+    <lastmod>2025-05-23</lastmod>
+    
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/link/index.html</loc>
+    
+    <lastmod>2025-05-23</lastmod>
+    
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  
+  <url>
+    <loc>https://bugwz.com/categories/index.html</loc>
+    
+    <lastmod>2025-05-23</lastmod>
+    
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  
+  <url>
     <loc>https://bugwz.com/2023/04/12/ceph-ansible/</loc>
     
     <lastmod>2025-05-23</lastmod>
@@ -1085,24 +1112,6 @@
     <loc>https://bugwz.com/404.html</loc>
     
     <lastmod>2022-10-15</lastmod>
-    
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/tags/index.html</loc>
-    
-    <lastmod>2022-09-08</lastmod>
-    
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  
-  <url>
-    <loc>https://bugwz.com/categories/index.html</loc>
-    
-    <lastmod>2022-09-08</lastmod>
     
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
