@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2023/04/12/ceph-ansible/</loc>
+    <lastmod>2025-05-23</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2022/12/31/redis-az-sync/</loc>
     <lastmod>2025-05-22</lastmod>
   </url>

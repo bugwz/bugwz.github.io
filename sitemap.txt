@@ -1,3 +1,4 @@
+https://bugwz.com/2023/04/12/ceph-ansible/
 https://bugwz.com/2022/12/31/redis-az-sync/
 https://bugwz.com/2022/10/04/redismodule-redis-rope/
 https://bugwz.com/2016/12/02/jsp-4/
