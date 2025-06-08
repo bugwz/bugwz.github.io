@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   let headerContentWidth, $nav
   let mobileSidebarOpen = false
+  let paperLayoutID = 0
 
   const adjustMenu = init => {
     const getAllWidth = ele => Array.from(ele).reduce((width, i) => width + i.offsetWidth, 0)
@@ -636,6 +637,16 @@ document.addEventListener('DOMContentLoaded', () => {
       btf.saveToLocal.set('aside-status', saveStatus, 2)
       $htmlDom.toggle('hide-aside')
     },
+    'paperlayout-btn': () => {
+      let langLayouts = ["pl-horizontal", "pl-vertical", "pl-chinese", "pl-english"];
+      const art = document.getElementById("article-container")
+      art.classList.remove(langLayouts[paperLayoutID])
+      paperLayoutID++
+      if (paperLayoutID >= langLayouts.length) {
+        paperLayoutID = 0
+      }
+      art.classList.add(langLayouts[paperLayoutID])
+    },
     'mobile-toc-button': (p, item) => { // Show mobile toc
       const tocEle = document.getElementById('card-toc')
       tocEle.style.transition = 'transform 0.3s ease-in-out'
@@ -693,7 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   /**
- * 複製時加上版權信息
+ * 复制市加上版权信息
  */
   const addCopyright = () => {
     const { limitCount, languages } = GLOBAL_CONFIG.copyright

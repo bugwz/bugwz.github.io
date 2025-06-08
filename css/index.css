@@ -4193,6 +4193,128 @@ figure.highlight pre .javascript .function {
 #post .ads-wrap {
   margin: 40px 0;
 }
+.pl-horizontal >div,
+.pl-horizontal >h1,
+.pl-horizontal >h2,
+.pl-horizontal >h3,
+.pl-horizontal >h4,
+.pl-horizontal h5,
+.pl-horizontal >h6,
+.pl-horizontal >h7 {
+  width: 100%;
+}
+.pl-horizontal >p {
+  width: 100%;
+}
+.pl-horizontal >ul,
+.pl-horizontal >ol {
+  width: 100%;
+}
+.pl-vertical {
+  display: -webkit-box;
+  display: -moz-box;
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: box;
+  display: flex;
+  -webkit-box-lines: multiple;
+  -moz-box-lines: multiple;
+  -o-box-lines: multiple;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+.pl-vertical >div,
+.pl-vertical >h1,
+.pl-vertical >h2,
+.pl-vertical >h3,
+.pl-vertical >h4,
+.pl-vertical h5,
+.pl-vertical >h6,
+.pl-vertical >h7 {
+  width: 100%;
+}
+.pl-vertical >p {
+  width: 49.5%;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+.pl-vertical >ul,
+.pl-vertical >ol {
+  width: 49.5%;
+  display: -webkit-box;
+  display: -moz-box;
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: box;
+  display: flex;
+  -webkit-box-lines: multiple;
+  -moz-box-lines: multiple;
+  -o-box-lines: multiple;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+.pl-chinese {
+  display: -webkit-box;
+  display: -moz-box;
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: box;
+  display: flex;
+  -webkit-box-lines: multiple;
+  -moz-box-lines: multiple;
+  -o-box-lines: multiple;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+.pl-chinese >p,
+.pl-chinese >div,
+.pl-chinese >h1,
+.pl-chinese >h2,
+.pl-chinese >h3,
+.pl-chinese >h4,
+.pl-chinese h5,
+.pl-chinese >h6,
+.pl-chinese >h7 {
+  width: 100%;
+}
+.pl-chinese >p:nth-of-type(odd),
+.pl-chinese >ul:nth-of-type(odd),
+.pl-chinese >ol:nth-of-type(odd) {
+  display: none;
+}
+.pl-english {
+  display: -webkit-box;
+  display: -moz-box;
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: box;
+  display: flex;
+  -webkit-box-lines: multiple;
+  -moz-box-lines: multiple;
+  -o-box-lines: multiple;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+.pl-english >p,
+.pl-english >div,
+.pl-english >h1,
+.pl-english >h2,
+.pl-english >h3,
+.pl-english >h4,
+.pl-english h5,
+.pl-english >h6,
+.pl-english >h7 {
+  width: 100%;
+}
+.pl-english >p:nth-of-type(even),
+.pl-english >ul:nth-of-type(even),
+.pl-english >ol:nth-of-type(even) {
+  display: none;
+}
 .relatedPosts {
   margin-top: 40px;
 }
