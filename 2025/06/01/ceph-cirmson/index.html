@@ -7,7 +7,7 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:image" content="https://bugwz.com/assets/images/bg/ceph.png">
 <meta property="article:published_time" content="2025-05-31T16:00:00.000Z">
-<meta property="article:modified_time" content="2025-06-11T15:09:12.421Z">
+<meta property="article:modified_time" content="2025-06-11T15:12:43.172Z">
 <meta property="article:author" content="bugwz">
 <meta property="article:tag" content="Ceph">
 <meta name="twitter:card" content="summary">
@@ -18,7 +18,7 @@
   "url": "https://bugwz.com/2025/06/01/ceph-cirmson/",
   "image": "https://bugwz.com/assets/images/bg/ceph.png",
   "datePublished": "2025-05-31T16:00:00.000Z",
-  "dateModified": "2025-06-11T15:09:12.421Z",
+  "dateModified": "2025-06-11T15:12:43.172Z",
   "author": [
     {
       "@type": "Person",
@@ -159,7 +159,7 @@
   isHighlightShrink: false,
   isToc: true,
   pageType: 'post'
-}</script><meta name="generator" content="Hexo 6.3.0"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/images/bg/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">125</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">132</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">17</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives"><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/tags"><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories"><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/link"><span> 友链</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/assets/images/bg/ceph.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">咕咕</span></a><a class="nav-page-title" href="/"><span class="site-name">Ceph Crimson 设计实现深入解析</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives"><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/tags"><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories"><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/link"><span> 友链</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Ceph Crimson 设计实现深入解析</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2025-05-31T16:00:00.000Z" title="发表于 2025-06-01 00:00:00">2025-06-01</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2025-06-11T15:09:12.421Z" title="更新于 2025-06-11 23:09:12">2025-06-11</time></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">5.3k</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><p>Crimson 是 Crimson OSD 的代码名称，它是下一代用于多核心可扩展性的 OSD 。它通过快速网络和存储设备提高性能，采用包括 DPDK 和 SPDK 的顶级技术。BlueStore 继续支持 HDD 和 SSD。Crimson 旨在与早期版本的 OSD 守护进程与类 Ceph OSD 兼容。</p>
+}</script><meta name="generator" content="Hexo 6.3.0"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/assets/images/bg/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">125</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">132</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">17</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives"><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/tags"><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories"><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/link"><span> 友链</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/assets/images/bg/ceph.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">咕咕</span></a><a class="nav-page-title" href="/"><span class="site-name">Ceph Crimson 设计实现深入解析</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives"><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/tags"><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories"><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/link"><span> 友链</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Ceph Crimson 设计实现深入解析</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2025-05-31T16:00:00.000Z" title="发表于 2025-06-01 00:00:00">2025-06-01</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2025-06-11T15:12:43.172Z" title="更新于 2025-06-11 23:12:43">2025-06-11</time></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">5.3k</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><p>Crimson 是 Crimson OSD 的代码名称，它是下一代用于多核心可扩展性的 OSD 。它通过快速网络和存储设备提高性能，采用包括 DPDK 和 SPDK 的顶级技术。BlueStore 继续支持 HDD 和 SSD。Crimson 旨在与早期版本的 OSD 守护进程与类 Ceph OSD 兼容。</p>
 <p>Crimson 基于 SeaStar C++ 框架构建，是核心 Ceph 对象存储守护进程 OSD 组件的新实现，并替换了 Ceph OSD 。Crimson OSD 最小化延迟并增加 CPU 处理器用量。它使用高性能异步 IO 和新的线程架构，旨在最小化上下文切换和用于跨通信的操作间的线程通信。</p>
 <p><strong>以下分析基于 v19.2.1 进行分析。</strong></p>
 <h1 id="一、架构对比"><a href="#一、架构对比" class="headerlink" title="一、架构对比"></a>一、架构对比</h1><p>Ceph OSD 是 Ceph 集群的一部分，负责通过网络提供对象访问、维护冗余和高可用性，并将对象持久化到本地存储设备。作为 Classic OSD 的重写版本，Crimson OSD 从客户端和其他 OSD 的角度兼容现有的 RADOS 协议，提供相同的接口和功能。Ceph OSD 的模块（例如 Messenger、OSD 服务和 ObjectStore）在其职责上保持不变，但跨组件交互的形式和内部资源管理经过了大幅重构，以应用无共享设计和自下而上的用户空间任务调度。</p>
@@ -194,12 +194,12 @@
 </ul>
 <h2 id="3-3、crimson-osd-mkfs-逻辑"><a href="#3-3、crimson-osd-mkfs-逻辑" class="headerlink" title="3.3、crimson osd mkfs 逻辑"></a>3.3、crimson osd mkfs 逻辑</h2><p>由于在启动 <code>osd</code> 组件之前，我们需要初始化 <code>osd</code> 的文件系统环境，为此需要执行 <code>OSD::mkfs</code> 函数（相关操作顺序可以参考 <code>vstart.sh</code> 脚本中在启动 <code>osd</code> 组件的步骤，其中在启动 <code>osd</code> 之前需要先对其存储路径的环境执行 <code>mkfs</code> 操作。）</p>
 <p><strong>OSD::mkfs 函数中关键逻辑为:</strong></p>
-<figure class="highlight c"><table><tr><td class="code"><pre><span class="line">store.start()</span><br><span class="line">store.mkfs(osd_uuid) <span class="comment">// 重点</span></span><br><span class="line">store.mount()</span><br><span class="line">open_or_create_meta_coll(store)</span><br><span class="line">_write_superblock(...)</span><br><span class="line">store.write_meta(...)</span><br><span class="line">store.umount()</span><br><span class="line">store.stop()</span><br></pre></td></tr></table></figure>
+<figure class="highlight c"><table><tr><td class="code"><pre><span class="line"><span class="number">1.</span> store.start()</span><br><span class="line">store.mkfs(osd_uuid) <span class="comment">// 重点</span></span><br><span class="line"><span class="number">2.</span> store.mount()</span><br><span class="line"><span class="number">3.</span> open_or_create_meta_coll(store)</span><br><span class="line"><span class="number">4.</span> _write_superblock(...)</span><br><span class="line"><span class="number">5.</span> store.write_meta(...)</span><br><span class="line"><span class="number">6.</span> store.umount()</span><br><span class="line"><span class="number">7.</span> store.stop()</span><br></pre></td></tr></table></figure>
 
 
 
 <blockquote>
-<p><strong>store.start()</strong></p>
+<p><strong>1. store.start()</strong></p>
 </blockquote>
 <p>由于 <code>store</code> 的类型存在三种： <code>alienstore/cyanstore/seastore</code> ， 所以对应的 start 逻辑也有三种。由于 <code>alienstore</code> 只是 <code>bluestore</code> 的代理，且实现比较简单，为此不做介绍；而 <code>cyanstore</code> 是作为一个内存存储模块而存在，仅作为开发测试使用，为此这里也不做介绍；所以以下仅介绍 <code>seastore</code> 的实现逻辑，对应的函数为 <code>SeaStore::start</code> 。</p>
 <p><strong>SeaStore::start 函数中关联逻辑为:</strong></p>
@@ -240,7 +240,7 @@
 <p><strong>2. device-&gt;start() 逻辑解析:</strong><br>当执行 <code>device-&gt;start()</code> 的时候，调用的就是 <code>BlockSegmentManager::start</code> 方法，继而调用的是 <code>shard_devices.start(device_path, superblock.config.spec.dtype)</code> ，由于 <code>shard_devices</code> 的类型为 <code>seastar::sharded&lt;NVMeBlockDevice&gt;</code> , 所以这里相当于调用了 <code>seastar::sharded::start</code> 函数来初始化了 <code>BlockSegmentManager</code> 对象。</p>
 <p><strong>3. shard_stores.start(root, device.get(), is_test) 逻辑解析:</strong><br>之后的 <code>shard_stores.start(root, device.get(), is_test)</code> 函数执行中，由于 <code>shard_stores</code> 也是一个 <code>seastar::sharded</code> 封装的对象，所以其内部相当于调用了 <code>seastar::sharded::start</code> 函数来初始化了 <code>SeaStore::Shard</code> 对象。</p>
 <blockquote>
-<p><strong>store.mount()</strong></p>
+<p><strong>2. store.mount()</strong></p>
 </blockquote>
 <p><code>store.mount()</code> 函数对应的是 <code>SeaStore::mount</code> 函数。</p>
 <p><strong>SeaStore::mount 函数中关键逻辑为:</strong></p>
@@ -248,7 +248,7 @@
 
 <p><code>device-&gt;mount()</code> 函数对应的是 BlockSegmentManager::mount 函数，这个之前解释过，其内部通过调用 <code>shard_devices.invoke_on_all</code> 来触发在每个 <code>shard</code> 中执行 <code>local_device.shard_mount()</code> 函数，因此每个 shard 中调用的函数其实是 <code>BlockSegmentManager::shard_mount()</code> ，该函数内部的执行逻辑主要包括打开 <code>device</code> ，读取 <code>superblock</code> 信息，校验 <code>superblock</code> 信息，更新 <code>tracker</code> 信息等。</p>
 <blockquote>
-<p><strong>open_or_create_meta_coll(store)</strong></p>
+<p><strong>3. open_or_create_meta_coll(store)</strong></p>
 </blockquote>
 <p><code>open_or_create_meta_coll(store)</code> 对应的函数是 <code>OSD::open_or_create_meta_coll</code> 。</p>
 <p><strong>OSD::open_or_create_meta_coll 函数中关键逻辑为:</strong></p>
@@ -257,7 +257,7 @@
 
 
 <blockquote>
-<p><strong>_write_superblock(…)</strong></p>
+<p><strong>4. _write_superblock(…)</strong></p>
 </blockquote>
 <p><code>_write_superblock(...)</code> 的完整调用为 <code>_write_superblock(store, std::move(meta_coll), std::move(superblock))</code> ，其对应的函数是 <code>OSD::_write_superblock</code> 。其内部主要的逻辑为将 <code>superblock</code> 信息写入存储中。</p>
 <p><strong>OSD::_write_superblock 函数中关键逻辑为:</strong></p>
@@ -266,15 +266,15 @@
 
 
 <blockquote>
-<p><strong>store.write_meta(…)</strong></p>
+<p><strong>5. store.write_meta(…)</strong></p>
 </blockquote>
 <p>store.write_meta(…) 对应很多写元信息的操作，操作的元信息包括 <code>ceph_fsid</code> ，<code>magic</code> ，<code>whoami</code> ，<code>osd_key</code> ， <code>osdspec_affinity</code> ， <code>ready</code> 等字段。这些信息位于 <code>osd</code> 运行目录的各个配置对应的文件中。</p>
 <blockquote>
-<p><strong>store.umount()</strong></p>
+<p><strong>6. store.umount()</strong></p>
 </blockquote>
 <p><code>store.umount()</code> 对应的函数为 <code>SeaStore::umount</code> ， 其内部会同通过调用 <code>shard_stores.invoke_on_all</code> 函数，让每个 <code>shard</code> 执行 <code>local_store.umount()</code> 函数。</p>
 <blockquote>
-<p><strong>store.stop()</strong></p>
+<p><strong>7. store.stop()</strong></p>
 </blockquote>
 <p><code>store.stop()</code> 对应的函数为 <code>SeaStore::stop</code> 。</p>
 <p><strong>SeaStore::stop 函数中关键逻辑为:</strong></p>
