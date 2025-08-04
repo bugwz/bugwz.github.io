@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://bugwz.com/2023/05/01/ceph-cmd/</loc>
+    <lastmod>2025-08-04</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2024/08/01/gpfs/</loc>
     <lastmod>2025-07-14</lastmod>
   </url>
@@ -145,11 +149,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2017/03/01/hash/</loc>
+    <loc>https://bugwz.com/2020/01/01/haproxy/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2020/01/01/haproxy/</loc>
+    <loc>https://bugwz.com/2017/03/01/hash/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -173,11 +177,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/01/make-rpm/</loc>
+    <loc>https://bugwz.com/2018/12/12/linux-tools-notes/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/12/12/linux-tools-notes/</loc>
+    <loc>https://bugwz.com/2019/01/01/make-rpm/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -189,11 +193,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/08/10/shuffle/</loc>
+    <loc>https://bugwz.com/2016/01/23/shadowsocks-script/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/23/shadowsocks-script/</loc>
+    <loc>https://bugwz.com/2018/08/10/shuffle/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -225,11 +229,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/01/ld-preload/</loc>
+    <loc>https://bugwz.com/2020/06/16/keepalived/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2020/06/16/keepalived/</loc>
+    <loc>https://bugwz.com/2019/01/01/ld-preload/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -241,11 +245,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/07/10/perf/</loc>
+    <loc>https://bugwz.com/2019/01/02/python-prettytable/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/02/python-prettytable/</loc>
+    <loc>https://bugwz.com/2019/07/10/perf/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -257,15 +261,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2020/01/01/rocksdb-writestall/</loc>
-    <lastmod>2025-05-23</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2021/09/01/redismodule-redlock/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/10/09/ssh-proxycommand/</loc>
+    <loc>https://bugwz.com/2020/01/01/rocksdb-writestall/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -273,15 +273,19 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
+    <loc>https://bugwz.com/2019/10/09/ssh-proxycommand/</loc>
+    <lastmod>2025-05-23</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2019/09/22/typora-picgo/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2015/11/08/ubuntu-openvpn/</loc>
+    <loc>https://bugwz.com/2017/05/01/tree/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2017/05/01/tree/</loc>
+    <loc>https://bugwz.com/2015/11/08/ubuntu-openvpn/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -305,15 +309,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/11/29/jsp-2/</loc>
-    <lastmod>2025-05-23</lastmod>
-  </url>
-  <url>
     <loc>https://bugwz.com/2016/11/29/jsp-homework-1/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/24/memory-redis/</loc>
+    <loc>https://bugwz.com/2016/11/29/jsp-2/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -321,15 +321,19 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
+    <loc>https://bugwz.com/2019/01/24/memory-redis/</loc>
+    <lastmod>2025-05-23</lastmod>
+  </url>
+  <url>
     <loc>https://bugwz.com/2016/01/01/pptpd-vpn/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/11/25/raidX/</loc>
+    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2016/01/26/php-regular/</loc>
+    <loc>https://bugwz.com/2019/11/25/raidX/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -393,11 +397,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2020/06/20/keepalived-vrrp/</loc>
+    <loc>https://bugwz.com/2019/12/12/linux-ext4-crtime/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/12/12/linux-ext4-crtime/</loc>
+    <loc>https://bugwz.com/2020/06/20/keepalived-vrrp/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -421,11 +425,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/01/13/tcl-first/</loc>
+    <loc>https://bugwz.com/2019/08/27/use-fpm-to-mkrpm/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2019/08/27/use-fpm-to-mkrpm/</loc>
+    <loc>https://bugwz.com/2019/01/13/tcl-first/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -441,11 +445,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/11/25/tmux/</loc>
+    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2018/05/20/tcp-state-transition/</loc>
+    <loc>https://bugwz.com/2018/11/25/tmux/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
@@ -473,11 +477,11 @@
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2022/12/04/redis-persistence/</loc>
+    <loc>https://bugwz.com/2020/05/02/redismodule-ratelimit/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
-    <loc>https://bugwz.com/2020/05/02/redismodule-ratelimit/</loc>
+    <loc>https://bugwz.com/2022/12/04/redis-persistence/</loc>
     <lastmod>2025-05-23</lastmod>
   </url>
   <url>
