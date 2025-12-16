@@ -754,9 +754,9 @@
       
         <tags>
             
-            <tag> 论文 </tag>
-            
             <tag> 算法 </tag>
+            
+            <tag> 论文 </tag>
             
             <tag> BloomFilter </tag>
             
@@ -1114,11 +1114,11 @@
       
         <tags>
             
+            <tag> 算法 </tag>
+            
             <tag> 论文 </tag>
             
             <tag> 布隆过滤器 </tag>
-            
-            <tag> 算法 </tag>
             
         </tags>
       
@@ -1250,9 +1250,9 @@
       
         <tags>
             
-            <tag> 常用命令 </tag>
-            
             <tag> lsof </tag>
+            
+            <tag> 常用命令 </tag>
             
         </tags>
       
@@ -1462,9 +1462,9 @@
       
         <tags>
             
-            <tag> 论文 </tag>
-            
             <tag> 算法 </tag>
+            
+            <tag> 论文 </tag>
             
             <tag> rsync </tag>
             
@@ -1598,9 +1598,9 @@
       
         <tags>
             
-            <tag> nc </tag>
-            
             <tag> 常用命令 </tag>
+            
+            <tag> nc </tag>
             
         </tags>
       
@@ -1975,9 +1975,9 @@
       
         <tags>
             
-            <tag> iptables </tag>
-            
             <tag> hashlimit </tag>
+            
+            <tag> iptables </tag>
             
             <tag> 网络 </tag>
             
@@ -2276,25 +2276,6 @@
     
     
     <entry>
-      <title>Linux下的常用指令</title>
-      <link href="/2018/01/01/commands-linux/"/>
-      <url>/2018/01/01/commands-linux/</url>
-      
-        <content type="html"><![CDATA[<p>记录了一些 Linux 下的常用的指令组合方式，比如查看 CPU 数量，查看指定进程的线程情况，释放页面缓存，关闭透明大页，Docker 相关命令等。</p><h3 id="CPU相关"><a href="#CPU相关" class="headerlink" title="CPU相关"></a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># 查看CPU物理核心</span><br><span class="hljs-built_in">cat</span> /proc/cpuinfo | grep <span class="hljs-string">&#x27;physical id&#x27;</span> | <span class="hljs-built_in">sort</span> -u | <span class="hljs-built_in">wc</span> -l<br><span class="hljs-comment"># 查看CPU核心总数</span><br><span class="hljs-built_in">cat</span> /proc/cpuinfo | grep <span class="hljs-string">&#x27;cpu cores&#x27;</span> | <span class="hljs-built_in">wc</span> -l<br><span class="hljs-comment"># 查看逻辑CPU</span><br><span class="hljs-built_in">cat</span> /proc/cpuinfo | grep <span class="hljs-string">&#x27;processor&#x27;</span> | <span class="hljs-built_in">wc</span> -l<br><span class="hljs-comment"># 查看指定进程的线程情况</span><br>ps -mp 8463 -o THREAD,tid,<span class="hljs-keyword">time</span><br><span class="hljs-comment"># 查看进程的线程CPU占用</span><br>top -H -p 32286<br></code></pre></td></tr></table></figure><h3 id="内存相关"><a href="#内存相关" class="headerlink" title="内存相关"></a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># 释放页面缓存</span><br><span class="hljs-built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches<br><span class="hljs-comment"># 释放目录缓存、文件缓存</span><br><span class="hljs-built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches<br><span class="hljs-comment"># 释放页面缓存、目录缓存、文件缓存</span><br><span class="hljs-built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches<br><br><span class="hljs-comment"># 查看是否开启内存大页</span><br><span class="hljs-built_in">cat</span> /proc/meminfo | grep <span class="hljs-string">&#x27;Huge&#x27;</span><br><br><span class="hljs-comment"># 关闭透明大页</span><br><span class="hljs-built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled<br><span class="hljs-built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag<br><span class="hljs-built_in">echo</span> <span class="hljs-string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag&#x27;</span> &gt;&gt; /etc/rc.d/rc.local<br><span class="hljs-built_in">echo</span> <span class="hljs-string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled&#x27;</span> &gt;&gt; /etc/rc.d/rc.local<br></code></pre></td></tr></table></figure><h3 id="Docker相关"><a href="#Docker相关" class="headerlink" title="Docker相关"></a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># 清理无用的容器</span><br>docker system prune<br></code></pre></td></tr></table></figure><h3 id=""><a href="#" class="headerlink" title=""></a></h3>]]></content>
-      
-      
-      
-        <tags>
-            
-            <tag> 常用命令 </tag>
-            
-        </tags>
-      
-    </entry>
-    
-    
-    
-    <entry>
       <title>MacOS下的常用指令</title>
       <link href="/2018/01/01/commands-mac/"/>
       <url>/2018/01/01/commands-mac/</url>
@@ -2308,6 +2289,25 @@
             <tag> 常用命令 </tag>
             
             <tag> Mac </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
+      <title>Linux下的常用指令</title>
+      <link href="/2018/01/01/commands-linux/"/>
+      <url>/2018/01/01/commands-linux/</url>
+      
+        <content type="html"><![CDATA[<p>记录了一些 Linux 下的常用的指令组合方式，比如查看 CPU 数量，查看指定进程的线程情况，释放页面缓存，关闭透明大页，Docker 相关命令等。</p><h3 id="CPU相关"><a href="#CPU相关" class="headerlink" title="CPU相关"></a>CPU相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># 查看CPU物理核心</span><br><span class="hljs-built_in">cat</span> /proc/cpuinfo | grep <span class="hljs-string">&#x27;physical id&#x27;</span> | <span class="hljs-built_in">sort</span> -u | <span class="hljs-built_in">wc</span> -l<br><span class="hljs-comment"># 查看CPU核心总数</span><br><span class="hljs-built_in">cat</span> /proc/cpuinfo | grep <span class="hljs-string">&#x27;cpu cores&#x27;</span> | <span class="hljs-built_in">wc</span> -l<br><span class="hljs-comment"># 查看逻辑CPU</span><br><span class="hljs-built_in">cat</span> /proc/cpuinfo | grep <span class="hljs-string">&#x27;processor&#x27;</span> | <span class="hljs-built_in">wc</span> -l<br><span class="hljs-comment"># 查看指定进程的线程情况</span><br>ps -mp 8463 -o THREAD,tid,<span class="hljs-keyword">time</span><br><span class="hljs-comment"># 查看进程的线程CPU占用</span><br>top -H -p 32286<br></code></pre></td></tr></table></figure><h3 id="内存相关"><a href="#内存相关" class="headerlink" title="内存相关"></a>内存相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># 释放页面缓存</span><br><span class="hljs-built_in">echo</span> 1 &gt; /proc/sys/vm/drop_caches<br><span class="hljs-comment"># 释放目录缓存、文件缓存</span><br><span class="hljs-built_in">echo</span> 2 &gt; /proc/sys/vm/drop_caches<br><span class="hljs-comment"># 释放页面缓存、目录缓存、文件缓存</span><br><span class="hljs-built_in">echo</span> 3 &gt; /proc/sys/vm/drop_caches<br><br><span class="hljs-comment"># 查看是否开启内存大页</span><br><span class="hljs-built_in">cat</span> /proc/meminfo | grep <span class="hljs-string">&#x27;Huge&#x27;</span><br><br><span class="hljs-comment"># 关闭透明大页</span><br><span class="hljs-built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/enabled<br><span class="hljs-built_in">echo</span> never &gt; /sys/kernel/mm/transparent_hugepage/defrag<br><span class="hljs-built_in">echo</span> <span class="hljs-string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/defrag&#x27;</span> &gt;&gt; /etc/rc.d/rc.local<br><span class="hljs-built_in">echo</span> <span class="hljs-string">&#x27;echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled&#x27;</span> &gt;&gt; /etc/rc.d/rc.local<br></code></pre></td></tr></table></figure><h3 id="Docker相关"><a href="#Docker相关" class="headerlink" title="Docker相关"></a>Docker相关</h3><figure class="highlight bash"><table><tr><td class="code"><pre><code class="hljs bash"><span class="hljs-comment"># 清理无用的容器</span><br>docker system prune<br></code></pre></td></tr></table></figure><h3 id=""><a href="#" class="headerlink" title=""></a></h3>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> 常用命令 </tag>
             
         </tags>
       
