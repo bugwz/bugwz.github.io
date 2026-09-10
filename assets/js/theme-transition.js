@@ -1,0 +1,1 @@
+(()=>{let e;document.addEventListener("click",t=>{if(!t.target.closest("#darkmode"))return;if(window.matchMedia("(prefers-reduced-motion: reduce)").matches)return;const c=document.documentElement;clearTimeout(e),c.classList.add("theme-switching"),c.offsetWidth,e=setTimeout(()=>c.classList.remove("theme-switching"),450)},!0)})();
