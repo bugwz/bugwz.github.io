@@ -1,0 +1,1362 @@
+# Ceph Pool 使用 EC 的条件与限制
+
+Ceph 的 Pool 可以采用 replicated (副本) 或 erasure-coded (纠删码, 简称 EC) 两种数据保护方式. 与多副本相比, EC 通常能以更少的冗余空间保护数据, 但能否用于某个 Pool, 还取决于该 Pool 中的对象需要执行哪些 RADOS 操作.
+
+以 Ceph `v20.2.0` 为例, EC Pool 不支持 RADOS OMAP, 因此依赖 OMAP 的 CephFS Metadata Pool, RBD Image 主 Pool 和 RGW Bucket Index Pool 必须使用副本类型. 用于保存数据的 Pool 则可以在满足相应条件后使用 EC.
+
+本文基于 Ceph `v20.2.0` 的源码, 先介绍 EC 的基本原理与 Ceph 中的配置方式, 再分析 EC Pool 不支持 OMAP 的原因及支持 OMAP 所需的改造, 最后分别梳理 CephFS, RBD 和 RGW 的 Pool 布局与 EC 使用限制.
+
+# 1. EC 基本概念
+
+## 1.1 编码原理
+
+纠删码用数据片段 (data chunk) 和计算得到的校验片段 (coding chunk) 共同保护数据. 与多副本相比, 它通常可以用更少的冗余空间恢复故障中丢失的数据. 常见的 EC 编码方案可以表示为:
+
+```text
+k + m
+```
+
+其中:
+
+- `k` 表示每次编码输入的 data chunks 数量;
+- `m` 表示根据 data chunks 计算出的 coding chunks 数量;
+- `k+m` 表示编码后需要保存的 chunk 数量.
+
+以常见的 `4+2` Reed-Solomon 编码为例:
+
+```text
+         input data
+              |
+              v
+
+data chunks (k = 4)
++------+------+------+------+
+|  D0  |  D1  |  D2  |  D3  |
++------+------+------+------+
+   |      |      |      |
+   +------+------+------+
+              |
+              v
+     +-----------------+
+     |  Reed-Solomon   |
+     |    encoding     |
+     +--------+--------+
+              |
+              v
+       +------+------+
+       |  P   |  Q   |
+       +------+------+
+       coding chunks
+          (m = 2)
+
+编码后保存:
+
+stored chunks (k + m = 6)
++------+------+------+------+------+------+
+|  D0  |  D1  |  D2  |  D3  |  P   |  Q   |
++------+------+------+------+------+------+
+|<---------- k=4 ---------->|<--- m=2 --->|
+```
+
+`D0` 至 `D3` 原样保存输入数据, 编码器另外计算 `P` 和 `Q`.
+
+Coding chunk 与普通 checksum 的用途不同:
+
+- CRC 等 checksum 主要用于检测数据是否损坏;
+- EC coding chunks 可以参与重建丢失的数据;
+- 底层存储还会使用 checksum 检测静默数据损坏.
+
+## 1.2 条带与 Shard
+
+EC 可以将一段连续的原始数据划分为多个条带 (stripe), 再对每个条带执行相同的 `k+m` 编码.
+
+几个术语的关系如下:
+
+|术语|含义|
+|:---:|:---:|
+|stripe|单独执行一次 k+m 编码的原始数据范围, 编码前的数据总量称为 data stripe width|
+|data chunk|一个 stripe 的原始数据被均分成 k 份, 其中的每一份; 每份的大小称为 data chunk size|
+|coding chunk|根据 k 个 data chunks 计算出的校验片段, 共生成 m 份|
+|shard|相同编码位置的 chunks 组成的存储分片. 例如, shard 0 保存每个 stripe 的第一个 data chunk|
+
+由 data chunks 组成的 shard 称为 data shard, 由 coding chunks 组成的 shard 称为 coding shard.
+
+`data chunk size` 是存储布局参数, 不是 Reed-Solomon 算法规定的固定值. 实际系统会根据 I/O 粒度和工作负载选择不同大小, 常见取值从数 KiB 到数 MiB 不等. 下面以常见的小块 I/O 粒度 `4 KiB` 为例.
+
+假设 `k=4`, `m=2`, `data chunk size=4 KiB`. 每次取 16 KiB 原始数据作为一个 stripe, 将其均分成 4 个 4 KiB data chunks, 再计算出 2 个 4 KiB coding chunks. 因此, `data stripe width` 是 `4 * 4 KiB = 16 KiB`, 编码后共生成 6 个 chunks. 64 KiB 原始数据会形成 `64 KiB / 16 KiB = 4` 个 stripes.
+
+下图使用一种常见存放方式, 从原始数据开始逐层放大, 并在最后展示 shard 的组成:
+
+```text
+原始数据: 64 KiB input data
+
++-------------------------------------------------------------------------------+
+| input bytes 0-64 KiB                                                          |
++-------------------------------------------------------------------------------+
+                                        |
+                                        | split by data stripe width = 16 KiB
+                                        v
++-------------------+-------------------+-------------------+-------------------+
+| stripe 0          | stripe 1          | stripe 2          | stripe 3          |
+| bytes 0-16 KiB    | bytes 16-32 KiB   | bytes 32-48 KiB   | bytes 48-64 KiB   |
++-------------------+-------------------+-------------------+-------------------+
+          |
+          | zoom in stripe 0
+          v
+
+stripe 0: 编码前的 data stripe width = 16 KiB
+
++-------------------+-------------------+-------------------+-------------------+
+| data chunk D0     | data chunk D1     | data chunk D2     | data chunk D3     |
+| size = 4 KiB      | size = 4 KiB      | size = 4 KiB      | size = 4 KiB      |
+| bytes 0-4 KiB     | bytes 4-8 KiB     | bytes 8-12 KiB    | bytes 12-16 KiB   |
++-------------------+-------------------+-------------------+-------------------+
+                                        |
+                                        | input: D0 + D1 + D2 + D3
+                                        | Reed-Solomon encoding
+                                        v
+                    +-------------------+-------------------+
+                    |                                       |
+                    v                                       v
++---------------------------------------+---------------------------------------+
+| coding chunk P0                       | coding chunk Q0                       |
+| 4 KiB                                 | 4 KiB                                 |
++---------------------------------------+---------------------------------------+
+
+stripe 0 编码结果: D0_0, D1_0, D2_0, D3_0, P0, Q0
+
+将每个 stripe 中相同位置的 chunk 纵向组合, 形成 6 个 shards:
+
++-------------+----------+----------+----------+----------+----------+----------+
+| role        | data     | data     | data     | data     | coding   | coding   |
+| shard id    | 0        | 1        | 2        | 3        | 4        | 5        |
+| location    | device A | device B | device C | device D | device E | device F |
++-------------+----------+----------+----------+----------+----------+----------+
+| stripe 0    | D0_0     | D1_0     | D2_0     | D3_0     | P0       | Q0       |
+| stripe 1    | D0_1     | D1_1     | D2_1     | D3_1     | P1       | Q1       |
+| stripe 2    | D0_2     | D1_2     | D2_2     | D3_2     | P2       | Q2       |
+| stripe 3    | D0_3     | D1_3     | D2_3     | D3_3     | P3       | Q3       |
++-------------+----------+----------+----------+----------+----------+----------+
+
+每个 shard 保存对应的一列 chunks, 并放在不同的存储设备上.
+```
+
+对于 Reed-Solomon 编码, 只要各 shard 位于相互独立的故障域, 不可用的 shards 不超过 `m` 个, 并且至少还有 `k` 个 shards 可用, 就可以恢复原始数据. 不可用的 shards 可以是 data shards, coding shards, 或者两者的组合. 其他编码的容错能力需要根据各自的算法和参数计算.
+
+EC 编码算法只处理单个 stripe: 以 `k` 个 data chunks 作为输入, 计算出 `m` 个 coding chunks. 如何把连续的原始数据划分成 stripes, 以及每个 data chunk 多大, 都由存储系统配置.
+
+## 1.3 读取
+
+读取一段原始数据时, 可以使用以下信息描述目标范围:
+
+```text
+offset + length
+```
+
+EC 读取路径根据 offset 和 length 计算请求命中的 stripe, 以及需要从各 shard 读取的数据范围:
+
+```text
+read(offset=X, length=Y)
+  -> 计算命中的 stripe
+  -> 对每个命中的 stripe
+       ├── 目标 data shards 均可用 -> 直接读取
+       └── 任一目标 data shard 不可用
+             -> 先读取足够的其他 shards
+             -> 再执行 EC decode, 重建缺失数据
+  -> 按 offset 返回原始字节
+```
+
+读取每个命中的 stripe 时, 有两种情况:
+
+- 目标 data shards 均可用时, 直接读取对应的原始 data chunks, 不需要读取全部 `k+m` 个 shards;
+- 任一目标 data shard 不可用时, `4+2` Reed-Solomon 先读取任意 4 个可用 shards, 再通过解码重建目标数据.
+
+读取少量数据时, 系统只访问请求命中的 stripes. 如果实现支持子块读取, 还可以只读取每个 shard 中与请求相关的部分.
+
+EC 层只负责读取, 重组和解码字节. 文件, 数据库页或图片等内容格式由上层应用解析.
+
+## 1.4 写入
+
+完整且对齐的 stripe 写入可以直接使用新 data chunks 计算 coding chunks:
+
+```text
+新 data chunks
+  -> 计算新的 coding chunks
+  -> 写入相关存储节点的 shards
+```
+
+只修改 stripe 中的部分字节时, 需要保留未修改的数据, 并使 coding chunks 与修改后的数据保持一致. 这个过程称为 read-modify-write (RMW):
+
+```text
+局部覆盖写
+  -> 定位受影响 stripe
+  -> 必要时读取旧 chunks
+  -> 合并未修改部分和新数据
+  -> 重新计算 coding chunks
+  -> 由写入协调方提交各 shard 的更新
+```
+
+不同存储系统处理局部覆盖写的方式不同. 有些实现会先读出原有数据, 合并新内容后重新计算 coding chunks; 有些实现可以根据数据变化量更新 coding chunks. 如果业务以随机写为主, 应先确认所用存储系统是否支持 EC 局部覆盖写, 并评估局部更新带来的写放大.
+
+## 1.5 空间与成本
+
+EC 的理论原始空间放大为:
+
+```text
+(k + m) / k
+```
+
+本章使用的 `4+2` 示例为 1.5 倍, 三副本为 3 倍:
+
+```text
+EC 4+2:   (4 + 2) / 4 = 1.5
+3 copies: 3 / 1 = 3
+```
+
+EC 可以减少大量数据所需的冗余空间, 但会增加以下成本:
+
+- 编码和解码消耗 CPU;
+- 一次逻辑写入涉及多个存储节点;
+- 小块写入和随机覆盖可能触发 RMW;
+- 目标 data shard 不可用时, 需要读取其他 shards 并解码重建, 读取开销更高;
+- 故障恢复和数据再均衡需要重建 shard;
+- 小块数据可能受到数据填充 (padding), 消息和事务开销影响;
+- 还需要评估空闲空间碎片化和故障恢复窗口.
+
+因此, EC 更适合以大容量连续读写为主, 并且可以接受编码和恢复开销的业务. 如果业务需要频繁读写小块数据, 要求较低的写延迟, 或者依赖 EC 尚未支持的操作, 多副本存储通常更合适.
+
+# 2. Ceph EC 介绍
+
+Ceph 将编码实现封装成可加载的纠删码插件 (erasure-code plugin), 源码中提供了 `isa`, `jerasure`, `lrc`, `shec` 和 `clay` 这几种实现. 编译安装后, 每个插件以动态链接库的形式提供, 例如 `libec_isa.so`. 集群能否使用这些插件, 还取决于 Ceph 的构建选项, 软件包内容, 以及 MON 和 OSD 节点上是否安装了匹配的动态链接库.
+
+Ceph 使用 erasure-code profile (纠删码配置) 来指定采用的插件, `k/m`, 编码算法和 CRUSH 放置参数. 创建 EC pool 时需要选择一个 profile.
+
+## 2.1 插件与算法
+
+|Plugin|算法, 参数默认值|简要说明|资料|
+|:---:|:---:|:---:|:---:|
+|isa|technique=reed_sol_van; 还支持 cauchy; 未指定 k/m 时使用 7/3|基于 Intel ISA-L 实现 Reed-Solomon, 并利用现代 CPU 指令加速; 集群内置的 default profile 使用该插件|[Ceph ISA 文档](https://docs.ceph.com/en/tentacle/rados/operations/erasure-code-isa/), [ISA-L 项目](https://github.com/intel/isa-l)|
+|jerasure|默认 reed_sol_van; 还支持 reed_sol_r6_op, cauchy_orig, cauchy_good, liberation, blaum_roth, liber8tion|通用且可配置的 Reed-Solomon, Cauchy 和 RAID6 类实现; Jerasure 库已不再活跃维护, 新增部署通常优先评估 isa|[Ceph Jerasure 文档](https://docs.ceph.com/en/tentacle/rados/operations/erasure-code-jerasure/), [Jerasure 项目](https://github.com/ceph/jerasure)|
+|lrc|profile 需要设置 k, m, l; 内部编码层默认使用 isa/reed_sol_van|局部可修复码 (Locally Repairable Code): 增加局部校验组, 修复单个 shard 时只需读取组内部分 shards, 从而减少读取量和跨节点传输量|[Ceph LRC 文档](https://docs.ceph.com/en/tentacle/rados/operations/erasure-code-lrc/)|
+|shec|technique=multiple, 也支持 single; 缺省 k=4 m=3 c=2|Shingled Erasure Code: 通过调整 coding chunks 的覆盖关系减少修复时的读取量; c 用于估算容错能力, 具体能容忍多少个 shard 故障需要结合布局计算|[Ceph SHEC 文档](https://docs.ceph.com/en/tentacle/rados/operations/erasure-code-shec/)|
+|clay|缺省 k=4 m=2, d=k+m-1, scalar_mds=jerasure, technique=reed_sol_van|Coupled-Layer Code: 修复一个 shard 时, 从 d 个辅助 shards 各读取一部分子块, 以减少磁盘 I/O 和网络传输量|[Ceph CLAY 文档](https://docs.ceph.com/en/tentacle/rados/operations/erasure-code-clay/)|
+
+`src/erasure-code/CMakeLists.txt` 会构建 `jerasure`, `lrc`, `shec` 和 `clay`. 是否构建 `isa` 取决于构建平台和 `WITH_EC_ISA_PLUGIN`.
+
+`osd_erasure_code_plugins` 默认预加载 `jerasure lrc`; 构建时启用 ISA 插件后, 列表中还会加入 `isa`. 该配置只指定 MON 和 OSD 启动时预加载的插件. `shec`, `clay` 等插件可以在创建或读取 profile 时按需加载, 因此不能根据该配置判断节点支持的全部插件.
+
+可以用以下命令检查实际集群:
+
+```bash
+# 查看 MON 配置的 EC 插件目录
+ceph config get mon erasure_code_dir
+
+# 查看 MON 和 OSD 启动时预加载的 EC 插件
+ceph config get mon osd_erasure_code_plugins
+
+# 列出集群中已经定义的 EC profiles
+ceph osd erasure-code-profile ls
+
+# 查看内置 default profile 的详细参数
+ceph osd erasure-code-profile get default
+
+# 查看插件目录中实际安装的 EC 动态链接库
+ls <erasure_code_dir>/libec_*.so*
+```
+
+`erasure-code-profile ls` 用于查看集群中已经定义的 profiles. 确认插件是否已经安装时, 还需要到 MON 和 OSD 的运行环境中, 检查 `erasure_code_dir` 指向的目录是否包含对应的 `libec_*.so` 文件. 采用容器化部署时, 应进入相应的 MON 或 OSD 容器检查.
+
+## 2.2 Ceph EC 配置
+
+在 Ceph EC 配置中, `data chunk size` 对应 `stripe_unit`, `data stripe width` 对应 `stripe_width`:
+
+```text
+stripe_width = k * stripe_unit
+```
+
+集群内置 `default` profile 来自 `osd_pool_default_erasure_code_profile`, 其通用默认值如下:
+
+```text
+plugin                 = isa
+technique              = reed_sol_van
+k                      = 2
+m                      = 2
+crush-root             = default
+crush-failure-domain   = host
+stripe_unit            = 4 KiB
+stripe_width           = k * stripe_unit = 8 KiB
+PG size                = k + m = 4
+PG min_size            = k + min(1, m - 1) = 3
+理论空间放大倍数       = (k + m) / k = 2x
+allow_ec_optimizations = false
+```
+
+在 profile 中显式设置 `stripe_unit` 后, 该配置会替代 monitor 提供的 4 KiB 默认值.
+
+内置 `default` profile 明确设置了 `k=2 m=2`. 其他 profile 使用 `isa` 插件但没有显式设置 `k/m` 时, 插件采用自身的默认值 `k=7 m=3`. 完整的 profile 参数说明见 [Ceph Erasure Code Profile 文档](https://docs.ceph.com/en/tentacle/rados/operations/erasure-code-profile/).
+
+`2+2` 是 Ceph 内置 `default` profile 的默认参数. 源码配置只定义了这个通用默认值, 并没有表示它是所有负载下的最优参数; 生产环境仍应根据业务需求选择 profile. `2+2` 的理论空间放大倍数为 `(2+2)/2 = 2x`, 与两副本的 `2x` 相同, 但两者的处理成本和容错能力不同:
+
+|方案|逻辑数据对应的存储|理论容错|计算与 I/O 特征|
+|:---:|:---:|:---:|:---:|
+|EC 2+2|2 个 data chunks + 2 个 coding chunks, 分布到 4 个 shards|最多 2 个独立 shard 故障|需要编码/解码; 写入通常涉及 4 个 shards, 局部覆盖可能触发 RMW|
+|2 副本|2 份完整数据副本|最多 1 个副本故障|不需要 EC 编码/解码; 写入 2 份副本, 协议路径更简单|
+
+因此, `2+2` 并不会在空间上优于两副本, 只是在相同理论空间开销下提供了更高的 shard 故障容忍度, 同时增加 CPU, 网络和恢复开销. 生产环境应根据故障域, 对象大小, 读写模式, 性能目标和恢复窗口选择合适的 `k/m`, 而不是直接套用 `default` profile.
+
+以下配置或属性经常与 EC pool 一同出现, 但它们的作用范围不同:
+
+|配置或属性|作用|是否改变 OMAP 能力|
+|:---:|:---:|:---:|
+|allow_ec_overwrites|允许局部覆盖 data payload|否|
+|allow_ec_optimizations|优化 EC 小 I/O 和空间布局|否|
+|application tag|标识 pool 属于 CephFS, RBD 或 RGW 等上层服务|否|
+
+## 2.3 Ceph EC 存储能力
+
+一个 RADOS object 可以包含 data payload, xattrs, OMAP header 和 OMAP key/value. 当前 EC pool 对这些内容的支持范围如下:
+
+|对象内容|典型操作或访问模型|当前 EC pool 是否支持|说明|
+|:---:|:---:|:---:|:---:|
+|data payload|read, write, write_full, append, truncate; 按 offset + length 访问字节流|支持|局部覆盖写需要开启 allow_ec_overwrites; 小 I/O 还需要评估读写放大和性能|
+|xattrs|getxattr, setxattr, rmxattr; 按属性名访问|支持|可作为 EC object 的扩展属性保存|
+|OMAP header|omap_get_header, omap_set_header|不支持|EC pool 不支持 RADOS OMAP header 操作|
+|OMAP key/value|get, set, remove, compare, start_after, 分页遍历|不支持|EC pool 没有 OMAP 的写入, 恢复和 scrub 处理流程|
+
+创建通用 RADOS pool 时, Monitor 会检查 pool 类型, EC profile, CRUSH rule, PG 数量和 stripe width 等参数. EC pool 可以合法承载 data payload 和 xattrs, 因此不会因为缺少 OMAP 能力而被拒绝创建. Monitor 也无法仅凭创建参数判断未来的对象会使用哪些 RADOS 操作.
+
+根据上述支持范围, 选择 pool 类型时, 应先检查 pool 内对象需要的 RADOS 能力, 再评估数据规模和访问方式:
+
+|对象需求|Pool 选择|
+|:---:|:---:|
+|依赖 OMAP header 或 OMAP key/value|使用 replicated pool|
+|只使用 data payload 和 xattrs, 其他操作也受 ECBackend 支持|可以评估 EC pool|
+|以大块数据和容量效率为主|更适合评估 EC pool|
+|大量小对象, 频繁小块写入或要求低延迟|通常更适合 replicated pool|
+
+# 3. EC Pool 为什么不支持 OMAP
+
+前文已经列出当前 EC pool 支持的对象内容. 本章先说明 EC pool 如何存储 data payload, 以及 OMAP 在 replicated pool 中如何存储和使用, 再分析当前 EC pool 不支持 OMAP 的原因和所需改造.
+
+## 3.1 EC Pool 的数据存储
+
+当前 EC pool 可以保存 RADOS object 的 data payload 和 xattrs.data payload 经过 EC 编码后写入各 shard object 的 block extents.xattrs 以完整属性值写入选定 shard objects 的对象元数据. 两类内容属于同一个逻辑对象, 分别使用字节范围接口和属性名接口访问.
+
+### 3.1.1 Data Payload
+
+ECBackend 将 object data payload 视为连续字节流, 支持 `read`, `write`, `write_full`, `append` 和 `truncate` 等操作. 局部覆盖已有数据时, 需要为 pool 开启 `allow_ec_overwrites`.
+
+为便于说明, 下面沿用内置 `default` profile 的 `2+2` 参数, 以一个 `stripe_unit=4 KiB`, 大小为 16 KiB 的 RADOS object 为例:
+
+```text
+逻辑 RADOS object: demo-object, data payload = 16 KiB
+
+按 stripe_width = k * stripe_unit = 2 * 4 KiB = 8 KiB 划分:
+
++------------------------------------+------------------------------------+
+| stripe 0                           | stripe 1                           |
+| object bytes 0-8 KiB               | object bytes 8-16 KiB              |
++------------------------------------+------------------------------------+
+
+每个 stripe 编码为 2 个 data chunks 和 2 个 coding chunks:
+
++---------+----------------+----------------+--------------+--------------+
+| stripe  | data chunk 0   | data chunk 1   | coding P     | coding Q     |
++---------+----------------+----------------+--------------+--------------+
+| 0       | D0_0 (4 KiB)   | D1_0 (4 KiB)   | P0 (4 KiB)   | Q0 (4 KiB)   |
++---------+----------------+----------------+--------------+--------------+
+| 1       | D0_1 (4 KiB)   | D1_1 (4 KiB)   | P1 (4 KiB)   | Q1 (4 KiB)   |
++---------+----------------+----------------+--------------+--------------+
+
+相同 shard id 的 chunks 汇集到对应的 shard object:
+
++-----------------------+------------------------+------------------------+
+| shard / OSD           | chunk 0                | chunk 1                |
++-----------------------+------------------------+------------------------+
+| shard 0 / osd.1       | D0_0                   | D0_1                   |
++-----------------------+------------------------+------------------------+
+| shard 1 / osd.4       | D1_0                   | D1_1                   |
++-----------------------+------------------------+------------------------+
+| shard 2 / osd.7       | P0                     | P1                     |
++-----------------------+------------------------+------------------------+
+| shard 3 / osd.8       | Q0                     | Q1                     |
++-----------------------+------------------------+------------------------+
+```
+
+上述 object 经过 EC 处理时, 可以分为以下步骤:
+
+1. 根据 object name 计算 hash, 将 `demo-object` 映射到目标 PG.
+2. 由 CRUSH 为该 PG 选择 4 个 acting OSD, 分别承载 shard 0 到 shard 3.
+3. 按 EC profile 的 `stripe_width` 将 16 KiB payload 划分为两个 8 KiB stripes.
+4. 将每个 stripe 均分为 `k=2` 个 data chunks, 并计算 `m=2` 个 coding chunks.
+5. 将每个 stripe 中相同 shard id 的 chunks 追加到对应 shard object, 并把 4 个 shard objects 写入各自 OSD.
+6. 读取时, 根据 `object`, `offset` 和 `length` 计算命中的 stripes, 再从可用 data shards 读取; data shard 不可用时, 读取足够的其他 shards 并解码重建.
+7. 完整 stripe 写入可以直接编码; 局部覆盖需要读取或保留未修改的数据, 再更新受影响的 data chunks 和 coding chunks.
+
+### 3.1.2 Xattrs
+
+Xattrs 是附属于 RADOS object 的命名属性, 每项由属性名和二进制 value 组成. 应用通过 `getxattr`, `setxattr`, `rmxattr` 和 `cmpxattr` 等操作按属性名访问, 不使用 data payload 的 `offset + length` 模型.
+
+写入 xattr 时, PrimaryLogPG 先把属性变更加入对象事务, ECBackend 再根据 pool 是否启用 `allow_ec_optimizations` 选择属性写入范围. BlueStore 将每个 xattr 作为完整的对象属性保存到选定 shard objects 的对象元数据中. EC 编码仅切分和计算 data payload 对应的 data/coding chunks.
+
+Xattrs 采用完整副本方式保存: 每个被选中的 shard object 都保存完整属性值. 两种 EC 路径的属性副本范围如下:
+
+|EC 路径|allow_ec_optimizations|完整对象属性保存位置|其他 data shard 的处理|可作为 acting primary 的 shard|
+|:---:|:---:|:---:|:---:|:---:|
+|Legacy EC|false|全部 k+m 个 shard|保存完整 xattrs|所有 shard|
+|Optimized EC|true|shard 0 和 m 个 coding shard, 共 m+1 个|non-primary data shard 参与 payload 写入时只更新 OI_ATTR|shard 0 和 coding shard|
+
+#### 3.1.2.1 Legacy EC xattrs 策略
+
+未启用 `allow_ec_optimizations` 时, 使用 legacy EC transaction. 一次 `setxattr` 会在所有 shard 的对象事务中执行 `setattrs`, 因此同一个用户 xattr 在 `k+m` 个 shard object 上各有一份完整副本. 这样会增加属性写入和 recovery 的元数据 I/O, 但任意一个同步 shard 都可以提供对象属性并成为 primary.
+
+下面以 `2+2` profile 为例:
+
+```text
++---------------------------------------------------------------------------+
+|            setxattr -> PrimaryLogPG -> ECBackend -> all shards            |
++---------------------------------------------------------------------------+
+                                     |
+                                     v
++------------------+------------------+------------------+------------------+
+| shard 0 / osd.1  | shard 1 / osd.4  | shard 2 / osd.7  | shard 3 / osd.8  |
+|   primary data   |    data shard    |  coding parity   |  coding parity   |
+|   full xattrs    |    full xattrs   |   full xattrs    |   full xattrs    |
++------------------+------------------+------------------+------------------+
+```
+
+#### 3.1.2.2 Optimized EC xattrs 策略
+
+启用 `allow_ec_optimizations` 后, EC pool 允许局部写入只更新本次涉及的 data shards 和 coding shards. Monitor 将 data `shard 1` 到 `shard k-1` 标记为 non-primary shard, 并将 primary 限制在 shard 0 和 coding shards, 使完整对象属性始终位于固定的 primary-eligible shards.
+
+在优化路径中, 完整用户 xattrs 及最新对象属性固定保存在 shard 0 和 coding shards. 某个 non-primary data shard 的 data payload 参与本次写入时, 该 shard 只更新 `OI_ATTR` 等内部对象信息; 本次写入不涉及该 shard 时, 该 shard 不产生属性更新.
+
+如果在已有 pool 上开启优化, non-primary data shards 可能暂时保留启用前的旧属性. 后续操作以 shard 0 和 coding shards 上的完整属性为权威副本.
+
+> `OI_ATTR` 是 Ceph OSD 的内部对象属性, 内容是序列化的 `object_info_t`, 记录对象版本, 大小, 状态标志和各 shard 版本等信息, 用于 PG 日志, recovery 和 scrub 等流程. `OI_ATTR` 供 OSD 内部流程使用, 用户 xattrs 保存应用定义的对象属性, OMAP 提供有序 key/value 空间. non-primary data shard 参与局部写入时更新 `OI_ATTR`, 用于记录该 shard 已应用的对象版本和 shard 状态, 供 Ceph 判断该 shard 是否过期, 是否需要 recovery 或 backfill.
+
+
+```text
++---------------------------------------------------------------------------+
+|         setxattr -> PrimaryLogPG -> ECBackend -> selected shards          |
++---------------------------------------------------------------------------+
+                                     |
+                                     v
++------------------+------------------+------------------+------------------+
+| shard 0 / osd.1  | shard 1 / osd.4  | shard 2 / osd.7  | shard 3 / osd.8  |
+|   primary data   |  nonprimary data |  coding parity   |  coding parity   |
+|   full xattrs    |   OI_ATTR only   |   full xattrs    |   full xattrs    |
++------------------+------------------+------------------+------------------+
+```
+
+读取 xattr 时, ECBackend 从能够提供有效对象属性的 shard 读取, 不需要读取或解码 data payload. Legacy EC 可以从任意 shard 读取; Optimized EC 则从 shard 0 或 coding shard 等 primary-eligible shard 读取. 如果首选 shard 不可用, 读取流程会继续尝试其他可提供属性的 shard.
+
+```text
++--------------------------+
+|  getxattr(object, key)   |
++--------------------------+
+              |
+              v
++--------------------------+
+|    Legacy: any shard     |
+| Optimized: shard0/parity |
++--------------------------+
+              |
+              v
++--------------------------+
+|    return xattr value    |
++--------------------------+
+
++--------------------------+
+|       data payload       |
+|  no read/decode needed   |
++--------------------------+
+```
+
+Recovery 也按相同的 shard 角色恢复属性: Legacy EC 将完整属性写回每个恢复目标; Optimized EC 对 shard 0 和 coding shard 写回完整 xattrs, 对 non-primary data shard 只写回 `OI_ATTR` 等必要的对象信息. 由此既保持 primary 可读取完整属性, 也避免为每个局部写入同步所有 data shard 的元数据.
+
+```text
++----------------------+----------------------+
+|   recovery target    | attributes restored  |
++----------------------+----------------------+
+|  Legacy: any shard   |     full xattrs      |
+| Optimized: primary/  |     full xattrs      |
+|     coding shard     |                      |
+|   Optimized: data    |     OI_ATTR only     |
+|  non-primary shard   |                      |
++----------------------+----------------------+
+```
+
+将完整 xattrs 固定保存在 shard 0 和 coding shards, 是为了适配 `allow_ec_optimizations` 的局部写入模型. 局部覆盖 data payload 时, 一次写入通常涉及一个 data shard 和全部 `m` 个 coding shards, 其他 `k-1` 个 data shards 不参与. 各 shard 使用相同的 xattr 格式, 差异仅在于是否维护完整属性副本.
+
+这样设计主要有以下作用:
+
+1. coding shards 会随局部写入更新, 有利于保持属性副本最新.
+2. shard 0 加上 `m` 个 coding shards 提供 `m+1` 份副本, 最多容忍 `m` 个 shard 故障.
+3. 固定的副本位置让 primary, recovery 和 backfill 能直接确定属性来源, 避免跨 shard 查询和比较版本.
+4. 相比局部 data 写入本身, 维护这些副本最多只额外更新 shard 0 上的对象属性.
+
+这套属性布局用于配合局部写入并维持 primary 可用性; EC 编码仍只处理 data payload.
+
+## 3.2 OMAP 的存储与使用
+
+OMAP 是附属于单个 RADOS object 的有序 key/value 空间, 逻辑上由两部分组成:
+
+|组成|内容形式|典型内容|
+|:---:|:---:|:---:|
+|OMAP header|一段独立的二进制数据|对象级版本, 统计或控制信息|
+|OMAP keys|多组按 key 排序的二进制 key/value|CephFS dentry 和 inode, RBD image 配置和 snapshot, RGW bucket index 记录|
+
+上层服务先把各自的数据结构编码成二进制内容, 再通过 RADOS OMAP API 执行以下操作:
+
+```text
+get("file_head")
+set("file_head", value)
+remove("file_head")
+list(start_after="file_head")
+compare("file_head", expected)
+```
+
+OMAP 操作按 key 定位记录, 并提供 key 排序, 范围查询, 分页遍历, 条件比较和多 key 更新等能力. BlueStore 底层的 RocksDB 提供本地有序 KV 存储. 在 replicated pool 中, 一次 OMAP 请求的处理路径如下:
+
+```text
+CephFS / RBD / RGW
+  -> RADOS OMAP operation
+  -> replicated PG primary
+  -> replica OSDs
+  -> 每个 OSD 的 BlueStore
+  -> 每个 OSD 本地 RocksDB / BlueFS
+```
+
+每个对象副本所在的 OSD 都保存该对象的完整 OMAP.BlueStore 使用本地 RocksDB 提供有序 KV 存储, BlueFS 管理 RocksDB 文件. RADOS/PG 负责多个副本之间的对象版本, 原子事务, 恢复和一致性.
+
+## 3.3 EC Pool 不支持 OMAP 的原因
+
+EC Data 与 OMAP 使用不同的数据模型. 当前 ECBackend 已经实现固定字节范围的编码, 更新和恢复, 但没有实现 OMAP 所需的分布式有序 KV 处理流程:
+
+|对比项|EC Data|OMAP|ECBackend 缺少的能力|
+|:---:|:---:|:---:|:---:|
+|寻址|根据 offset + length 计算 stripes 和 chunks|根据 key 点查, 范围查询或分页遍历|key 到 page 和 EC stripe 的有序索引|
+|布局|固定 stripe width 和 chunk 位置|变长且按 key 排序的记录|page 布局, 分裂, 合并和空间回收|
+|更新|对已知字节范围执行完整写入或 RMW|插入, 删除, 比较和修改多个 keys|控制小更新读写放大的 KV 更新流程|
+|原子性|协调同一对象版本下的 data shards|同时协调 OMAP header, keys, data payload 和 xattrs|跨 pages 和 shards 的联合事务|
+|恢复与校验|解码并重建缺失 shard|分页恢复有序 keys, 并校验 header, value 和 digest|OMAP recovery, backfill 和 deep-scrub 流程|
+
+RocksDB 可以完成单个 OSD 上的本地有序 KV 落盘, 但这不能替 EC pool 补齐跨 shard 的 OMAP 索引, 事务, 恢复和一致性处理. 由于这些能力尚未在 ECBackend 和 RADOS/PG 中实现, `pg_pool_t::supports_omap()` 目前不逐项评估 OMAP 操作, 而是直接依据 pool 类型报告结果:
+
+```cpp
+bool supports_omap() const {
+  return !(get_type() == TYPE_ERASURE);
+}
+```
+
+EC pool 本身可以正常存储 data payload 和 xattrs, 所以通用 pool 创建不会因为 `supports_omap() == false` 而失败. OMAP 限制会在后续两个阶段生效:
+
+- 上层服务关联 pool 时提前检查. 例如, `ceph fs new` 会拒绝把 EC pool 指定为 CephFS metadata pool;
+- OMAP 请求到达 OSD 时最终检查. PrimaryLogPG 会拒绝以下 OMAP 写操作并返回 `-EOPNOTSUPP`:
+
+```text
+OMAPSETVALS
+OMAPSETHEADER
+OMAPCLEAR
+OMAPRMKEYS
+OMAPRMKEYRANGE
+```
+
+## 3.4 EC 支持 OMAP 所需改造
+
+ECBackend 当前处理的是 data payload 字节范围, OMAP 接口提供的则是有序 key/value 操作. 要让 EC pool 支持现有 OMAP API, 需要完成以下五类改造:
+
+|改造工作|需要实现的能力|
+|:---:|:---:|
+|Key 索引与 EC 布局|根据 key 定位 page 和 EC stripe, 维护跨 shards 的有序索引|
+|OMAP 更新与空间管理|处理变长记录, page 分裂与合并, 空闲空间回收, 控制小更新的读写放大|
+|Data 与 OMAP 原子事务|将 OMAP header, keys, data payload, xattrs 和对象版本原子提交|
+|OMAP 恢复与一致性校验|在 recovery, backfill, scrub 和 primary 切换中恢复并校验 OMAP|
+|API 兼容与数据迁移|保持现有 OMAP API 语义, 定义新格式的升级, 迁移和回退流程|
+
+### 3.4.1 Key 索引与 EC 布局
+
+OMAP key 只标识一条记录, 不包含该记录在序列化结果中的 byte offset. 系统需要先通过有序索引定位记录所在的 page, 再把对应的字节范围映射到 EC stripes:
+
+```text
+key
+  -> 查询有序索引
+  -> 定位 leaf/data page
+  -> 得到 byte offset + length
+  -> 计算命中的 EC stripes
+```
+
+Key 和 value 的长度都可能变化, 一个 value 也可能跨越多个 stripes. 实现时需要采用固定大小 page, overflow page 或其他布局, 并实现一个横跨多个 shards 的分布式有序索引.
+
+### 3.4.2 OMAP 更新与空间管理
+
+一种简单方案是把全部 OMAP KV 序列化为连续字节流:
+
+```text
+[key length][value length][key][value]
+[key length][value length][key][value]
+...
+  -> EC stripes
+```
+
+插入, 删除或扩大一个 value 时, 后续记录的 offset 可能整体移动. 没有页式索引和空闲空间管理时, 一次小更新可能需要读取并解码大量 stripes, 重新序列化后续内容, 再完成 EC 编码和写入.
+
+页式布局还需要维护 page 的顺序, 分裂, 合并, overflow page 和空闲空间, 使单个 key 的更新只影响有限数量的 pages 和 EC stripes.
+
+### 3.4.3 Data 与 OMAP 原子事务
+
+一次组合式 RADOS operation 可能同时比较 OMAP key, 更新 OMAP header, 修改多个 keys, 覆盖 data payload 和更新 xattr. 这些操作必须绑定到同一个对象版本, 并在 primary 切换和故障恢复后保持一致.
+
+EC OMAP 需要在同一个事务中协调 index page, leaf page, 预写日志 (WAL), root 和 object version, 避免 EC data 与 OMAP index 出现版本不一致.
+
+### 3.4.4 OMAP 恢复与一致性校验
+
+当前 EC data recovery 通过读取足够的 shards, 解码缺失 chunk 并重建目标 shard 完成恢复. 引入 OMAP 后, 还需要实现:
+
+- OMAP header, index pages 和 data pages 的分布与权威版本判断;
+- OMAP recovery cursor 和分页恢复;
+- backfill, PG split/merge 和 remap 时的有序 KV 迁移;
+- deep scrub 对 key 顺序, header, value 和 digest 的校验;
+- primary 切换后最新且完整的 OMAP 版本选择.
+
+当前 `ReplicatedBackend` 已有 OMAP header/key 的分页 recovery 和 OMAP digest; EC recovery 将 `omap_complete` 视为完成, EC deep-scrub 也不生成真实 OMAP digest. 实现 EC OMAP 需要补齐上述 RADOS/PG 处理流程.
+
+### 3.4.5 API 兼容与数据迁移
+
+新的 EC OMAP 实现需要保持 librados 的 header, get/set/remove, compare, range query 和分页遍历语义, 使 CephFS, RBD, RGW 和自定义客户端不必改变调用方式. 还需要定义 feature negotiation 和混合版本集群中的处理规则, 避免不支持新格式的 OSD 接管相关 PG.
+
+对于已经保存在 replicated pool 中的 OMAP, 需要提供数据格式版本, 在线迁移, 迁移进度记录, 结果校验和失败回退机制. 升级过程中还要保证旧格式与新格式之间的对象版本一致, 避免 data payload 已迁移而 OMAP 仍停留在旧版本.
+
+本节列出 EC 支持 OMAP 所需的基础能力, 具体方案可从分离 control/data pool, 复制式 OMAP 和 EC OMAP 等方向进一步评估.
+
+# 4. Ceph 文件存储
+
+CephFS 至少需要一个 metadata pool 和一个 data pool:
+
+|Pool 角色|主要写入者|主要内容|EC 支持|
+|:---:|:---:|:---:|:---:|
+|metadata pool|MDS|目录项 (dentry), 索引节点 (inode), MDS journal, SessionMap, OpenFileTable 等|不支持|
+|file data pool|Kernel Client, ceph-fuse, libcephfs|普通文件的 data objects 和部分 xattrs|支持; 局部覆盖需要开启 allow_ec_overwrites|
+
+CephFS 同时使用这两类 pool.metadata pool 保存文件系统命名空间和关键持久化状态, data pool 保存普通文件内容. 路径解析和文件打开依赖 metadata pool 中的目录项, inode 与 layout, 读取文件内容还需要访问 data pool 中对应的 data objects.
+
+## 4.1 Metadata Pool 与 EC
+
+在 CephFS 中, 一个目录对应一个或多个目录分片 (dirfrag). 目录较小时通常只有一个分片; 目录变大后, Ceph 会根据目录项名称的 hash 将其拆分到多个分片中. 每个 dirfrag 的目录项以有序 key/value 形式持久化, MDS 通过这些记录完成文件名查找, 目录项创建, 删除和重命名, 目录内容分页读取, 以及 snapshot 历史版本访问.
+
+MDS 内存中使用 `CInode`, `CDir` 和 `CDentry` 表示 inode, 目录分片和目录项. 持久化时, 一个 dirfrag 对应 metadata pool 中的 RADOS object, 逻辑结构类似:
+
+```text
+dirfrag object: <directory inode>.<frag id>
+
+OMAP header:
+  fnode, version, fragstat, rstat, snapshot accounting ...
+
+OMAP keys:
+  "project_head"   -> dentry + inode 编码
+  "file_head"      -> dentry + inode 编码
+  "file_2a"        -> snapshot 0x2a 对应的历史 dentry
+```
+
+路径 `/project/file` 的 lookup 可以简化为:
+
+```text
+根 inode
+  -> hash("project") 选择根目录的 dirfrag
+  -> 按 OMAP key "project_head" 精确查询
+  -> 得到 project inode
+  -> hash("file") 选择 project 的 dirfrag
+  -> 按 OMAP key "file_head" 精确查询
+  -> 得到 file inode
+```
+
+MDS 根据名称 hash 选择 dirfrag, 再通过 `omap_get_vals_by_keys()` 按 key 读取目标 dentry; `readdir` 则按 key 范围分页获取多个目录项.
+
+MDS 使用 OMAP header/KV 持久化 SessionMap, OpenFileTable 等结构, 并使用顺序写入的字节流保存 MDS journal 记录. 目录项, SessionMap 等关键元数据依赖 OMAP 的有序 key/value 能力, 因此 metadata pool 必须使用 replicated pool. `ceph fs new` 会在创建阶段检查这一要求并拒绝 EC pool, `--force` 也不能绕过. 由于检查发生在创建阶段, MDS 运行时不会向 EC metadata pool 提交 OMAP 请求.
+
+## 4.2 Data Pool 与 EC
+
+普通文件内容作为 RADOS object data payload 保存在 data pool. MDS 负责管理文件元数据并协调客户端能力. Kernel Client 获得 inode, layout 和能力后, 根据 file offset 计算 object, PG 和 OSD, 直接读写 data pool.
+
+普通文件的数据请求包含:
+
+```text
+object + offset + length
+```
+
+下面以 `/project/demo.bin` 为例, 按 "文件 layout -> RADOS objects -> PG/OSD -> EC stripes" 的顺序说明文件内容如何落到 EC data pool. 示例中的 object, PG 和 OSD 编号仅用于解释, 实际值会随文件 layout, object name hash, pool 配置和 CRUSH 状态变化.
+
+这个映射过程可以分为三个步骤:
+
+1. 文件切分: CephFS file layout 将文件切分为 RADOS data objects;
+2. PG/OSD 映射: RADOS 根据 object name 将每个 object 映射到 PG, 再由 CRUSH 选择 acting OSD;
+3. EC 编码与 shard 存储: EC 在每个 object 内划分 stripes, 编码为 data/coding chunks, 并组成 shard objects.
+
+### 4.2.1 文件切分
+
+CephFS 默认布局由 `file_layout_t::get_default()` 返回 `file_layout_t(1<<22, 1, 1<<22)`, `MDCache::gen_default_file_layout()` 再把文件系统的第一个 data pool 填入 layout. 本示例保留默认 striping 参数, 并把 `/project` 的目录 layout 指向新增的 EC data pool; 此后在该目录中创建的文件会继承这个 pool. EC pool 使用 2.2 节介绍的内置 `default` profile:
+
+```text
+CephFS 文件: /project/demo.bin
+文件 inode: 0x100000001
+文件大小:   10 MiB
+写入假设:   0-10 MiB 连续写入, 没有 sparse hole
+
+CephFS file layout (源码默认):
+  stripe_unit  = 4 MiB (1 << 22)
+  stripe_count = 1
+  object_size  = 4 MiB (1 << 22)
+  data pool    = cephfs_data_ec (由目录 layout 指定)
+```
+
+默认布局中 `stripe_unit` 等于 `object_size` 且 `stripe_count=1`, 因此文件每增加 4 MiB 就切换到下一个 RADOS data object.10 MiB 文件映射为 3 个 objects:
+
+```text
+CephFS file: /project/demo.bin, 10 MiB
+
+file offset
+0 MiB                     4 MiB                       8 MiB                 10 MiB
+|                           |                           |                         |
+v                           v                           v                         v
++-------------------------+ +-------------------------+ +-------------------------+
+| file bytes 0-4 MiB      | | file bytes 4-8 MiB      | | file bytes 8-10 MiB     |
++-------------------------+ +-------------------------+ +-------------------------+
+             |                           |                           |
+             v                           v                           v
++-------------------------+ +-------------------------+ +-------------------------+
+| 100000001.00000000      | | 100000001.00000001      | | 100000001.00000002      |
+| RADOS object 0: 4 MiB   | | RADOS object 1: 4 MiB   | | RADOS object 2: 2 MiB   |
++-------------------------+ +-------------------------+ +-------------------------+
+```
+
+CephFS data object 名称通常采用 `<inode-hex>.<object-no-hex>` 格式. data pool 中的每个 data object 保存一段文件内容. MDS 将文件名, 目录关系, inode 和 layout 等元数据持久化到 metadata pool:
+
+```text
+CephFS metadata pool (replicated)
+  /project/demo.bin
+    -> inode 0x100000001
+    -> size 10 MiB
+    -> file layout
+    -> data pool id
+
+CephFS data pool (EC)
+  100000001.00000000 -> file bytes 0-4 MiB
+  100000001.00000001 -> file bytes 4-8 MiB
+  100000001.00000002 -> file bytes 8-10 MiB
+```
+
+### 4.2.2 PG/OSD 映射
+
+RADOS 分别计算每个 object name 的 hash, 将 object 映射到一个 PG, 再由 CRUSH 为该 PG 选择 `k+m=4` 个 OSD. 下面的 PG 和 OSD 编号仅作示意, 并假设同一 acting set 中的 4 个 OSD 分属不同主机:
+
+```text
++-------------------------+ +-------------------------+ +-------------------------+
+| 100000001.00000000      | | 100000001.00000001      | | 100000001.00000002      |
+| hash -> PG 12.a         | | hash -> PG 12.17        | | hash -> PG 12.2b        |
++-------------------------+ +-------------------------+ +-------------------------+
+             |                           |                           |
+             v                           v                           v
++-------------------------+ +-------------------------+ +-------------------------+
+| shard 0 -> osd.1        | | shard 0 -> osd.0        | | shard 0 -> osd.2        |
+| shard 1 -> osd.4        | | shard 1 -> osd.3        | | shard 1 -> osd.4        |
+| shard 2 -> osd.7        | | shard 2 -> osd.5        | | shard 2 -> osd.6        |
+| shard 3 -> osd.8        | | shard 3 -> osd.6        | | shard 3 -> osd.8        |
++-------------------------+ +-------------------------+ +-------------------------+
+```
+
+### 4.2.3 EC 编码与 shard 存储
+
+一个使用默认 `2+2` profile 的 RADOS object 对客户端表现为一个逻辑对象, 在 OSD 端对应 4 个 shard objects:
+
+```text
+                  logical RADOS object 0
+                      4 MiB payload
+                            |
+                            v
+                    +------+------+------+------+
+EC shard id         |  0   |  1   |  2   |  3   |
+                    +------+------+------+------+
+chunk role          | data | data | code | code |
+                    +------+------+------+------+
+target OSD          |osd.1 |osd.4 |osd.7 |osd.8 |
+                    +------+------+------+------+
+```
+
+在 object 内部, EC 按 stripe width 划分数据. object 0 为 4 MiB, 默认 EC stripe width 为 8 KiB, 因此包含 512 个 EC stripes:
+
+```text
+logical RADOS object 0: 100000001.00000000
+
+object offset
++------------------+------------------+----------------------+--------------------+
+| EC stripe 0      | EC stripe 1      | EC stripes 2-510     | EC stripe 511      |
+| 0-8 KiB          | 8-16 KiB         | ...                  | 4088-4096 KiB      |
++------------------+------------------+----------------------+--------------------+
+```
+
+每个 EC stripe 分成 2 个 4 KiB data chunks, 并计算 2 个 coding chunks:
+
+```text
+EC stripe 0: object bytes 0-8 KiB
+
++---------------+---------------+----------+----------+
+| D0_0          | D1_0          | P0       | Q0       |
+| bytes 0-4 KiB | bytes 4-8 KiB | coding   | coding   |
++---------------+---------------+----------+----------+
+       |               |             |          |
+       v               v             v          v
+     osd.1           osd.4         osd.7      osd.8
+
+EC stripe 1: object bytes 8-16 KiB
+
++----------------+-----------------+----------+----------+
+| D0_1           | D1_1            | P1       | Q1       |
+| bytes 8-12 KiB | bytes 12-16 KiB | coding   | coding   |
++----------------+-----------------+----------+----------+
+        |                 |             |          |
+        v                 v             v          v
+      osd.1             osd.4         osd.7      osd.8
+
+EC stripes 2-511 按相同方式继续编码.
+```
+
+同一 shard id 对应的 chunks 聚合到同一个 OSD 上的 shard object 中:
+
+```text
+osd.1                 osd.4
+shard object 0        shard object 1
++-------------+       +-------------+
+| D0_0        |       | D1_0        |
++-------------+       +-------------+
+| D0_1        |       | D1_1        |
++-------------+       +-------------+
+| ...         |       | ...         |
++-------------+       +-------------+
+| D0_511      |       | D1_511      |
++-------------+       +-------------+
+
+osd.7                 osd.8
+shard object 2        shard object 3
++-------------+       +-------------+
+| P0          |       | Q0          |
++-------------+       +-------------+
+| P1          |       | Q1          |
++-------------+       +-------------+
+| ...         |       | ...         |
++-------------+       +-------------+
+| P511        |       | Q511        |
++-------------+       +-------------+
+```
+
+从 BlueStore 视角看, 每个 OSD 保存一个本地 shard object:
+
+```text
+osd.1 / BlueStore
+
+RocksDB / BlueFS
+  -> shard object 的 onode
+  -> size, extent map, 内部属性和 xattrs
+
+BlueStore block extents
+  -> D0_0 | D0_1 | ... | D0_511
+```
+
+上述 `D0_0 | D0_1...` 表示各段数据在逻辑上的排列关系. BlueStore 在磁盘上的具体布局还会受到 extent 分配, 校验, 压缩, 对齐和碎片化的影响.
+
+# 5. Ceph 块存储
+
+RBD 支持单 pool 和双 pool 两种布局. 最普通的创建方式是:
+
+```bash
+rbd create rbd/image01 --size 100G
+```
+
+这里的 `rbd` 是 image 主 pool. 没有指定 `--data-pool` 时, RBD 管理对象和块数据对象都位于同一个 replicated pool:
+
+```text
+rbd(replicated)
+  ├── rbd_directory
+  ├── rbd_id.image01
+  ├── rbd_header.<image-id>
+  ├── rbd_object_map.<image-id>
+  ├── rbd_data.<image-id>.0000000000000000
+  └── rbd_data.<image-id>.0000000000000001
+```
+
+单 pool 布局包含一个启用 `application rbd` 的 replicated pool. RBD 管理对象保存在 image 主 pool. 指定 `--data-pool` 后, 块数据对象由独立 data pool 保存.
+
+## 5.1 主 Pool 与 EC
+
+RBD format 2 的多个管理对象依赖 OMAP:
+
+|对象|主要存储方式|作用|
+|:---:|:---:|:---:|
+|rbd_directory|RADOS OMAP|image name 与 image id 双向索引|
+|rbd_id.\<name\>|object data|保存 image id|
+|rbd_header.\<id\>|大量使用 RADOS OMAP|size, order, features, snapshot, metadata, data pool id 等|
+|rbd_object_map.\<id\>|object payload|以独立 object payload 保存可选的 object-map|
+|rbd_data.*|object data payload|image 实际块数据|
+
+创建 image 时, `rbd_directory` 和 `rbd_header.<id>` 已经需要 OMAP.header 中的典型 keys 包括:
+
+```text
+size
+order
+features
+object_prefix
+snap_seq
+snapshot_<id>
+metadata_<name>
+data_pool_id
+```
+
+因此 RBD 主 pool 不能是 EC. 即使还没有写入任何 `rbd_data.*`, 创建 image 的管理操作就会因 OMAP 不受支持而失败.
+
+## 5.2 Data Pool 与 EC
+
+如果希望块数据使用 EC, 需要将主 pool 和 data pool 分开:
+
+```bash
+rbd create rbd-meta/image01 \
+  --size 10M \
+  --data-pool rbd-data-ec
+```
+
+该双 pool 布局的内容分工如下:
+
+```text
+rbd-meta (必须 replicated)
+  -> rbd_directory, rbd_header, snapshot, 控制状态
+
+rbd-data-ec (可以 EC)
+  -> rbd_data.* 块数据 payload
+```
+
+librbd 将独立 data pool 的 id 写入主 pool 中的 image header. 打开 image 时, librbd 先从 replicated 主 pool 读取 header, 再根据 `data_pool_id` 建立 data pool I/O context.
+
+下面以 `rbd-meta/image01` 为例, 按 "image offset -> RADOS objects -> PG/OSD -> EC stripes" 的顺序说明块数据如何落到 EC data pool.
+
+示例中的 object, PG 和 OSD 编号仅用于解释, 实际值会随 image layout, object name hash, pool 配置和 CRUSH 状态变化.
+
+本示例采用 `rbd_default_order=22` (4 MiB object); `rbd_default_stripe_unit=0` 和 `rbd_default_stripe_count=0` 表示兼容布局, `CreateRequest` 会将其转换为 `stripe_unit=object_size`, `stripe_count=1`.
+
+这个映射过程可以分为三个步骤:
+
+1. Image 切分: RBD image offset 按 image layout 切分为 `rbd_data.*` objects;
+2. PG/OSD 映射: RADOS 根据 object name 将每个 object 映射到 PG, 再由 CRUSH 选择 acting OSD;
+3. EC 编码与 shard 存储: EC 在每个 object 内划分 stripes, 编码为 data/coding chunks, 并组成 shard objects.
+
+### 5.2.1 Image 切分
+
+EC pool 沿用 2.2 节的内置 `default` profile. 对象名, PG 和 OSD 编号均为示意:
+
+```text
+RBD image:   rbd-meta/image01
+image id:    a1b2c3
+image size:  10 MiB
+写入假设:   0-10 MiB 均已写入
+RBD layout (源码配置默认):
+  object size = 4 MiB (1 << order, order = 22)
+  stripe unit = 4 MiB
+  stripe count = 1
+```
+
+RBD image 的逻辑 offset 先按 object size 切分为 `rbd_data.*` objects:
+
+```text
+RBD image01, 10 MiB
+
+image offset
+0 MiB                     4 MiB                       8 MiB                 10 MiB
+|                           |                           |                         |
+v                           v                           v                         v
++-------------------------+ +-------------------------+ +-------------------------+
+| image bytes 0-4 MiB     | | image bytes 4-8 MiB     | | image bytes 8-10 MiB    |
++-------------------------+ +-------------------------+ +-------------------------+
+             |                           |                           |
+             v                           v                           v
++-------------------------+ +-------------------------+ +-------------------------+
+| rbd_data.a1b2c3.        | | rbd_data.a1b2c3.        | | rbd_data.a1b2c3.        |
+| 0000000000000000        | | 0000000000000001        | | 0000000000000002        |
+|                         | |                         | |                         |
+| object 0: 4 MiB         | | object 1: 4 MiB         | | object 2: 2 MiB         |
++-------------------------+ +-------------------------+ +-------------------------+
+```
+
+RBD image 采用 thin provisioning. 刚创建的 10 MiB image 只有逻辑地址空间. 上图假设 0-10 MiB 均已写入, 因此对应的 3 个 data objects 已经创建. 尚未写入的区域, 以及执行 discard 后已经回收的区域, 可能没有实际分配的 object 或 extent.
+
+下面分别列出主 pool 中的管理状态和 EC data pool 中的块数据对象:
+
+```text
+rbd-meta (replicated)
+  -> rbd_directory
+  -> rbd_id.image01
+  -> rbd_header.a1b2c3
+       -> size, features, snapshot, data_pool_id 等 OMAP
+
+rbd-data-ec (EC)
+  -> rbd_data.a1b2c3.0000000000000000
+  -> rbd_data.a1b2c3.0000000000000001
+  -> rbd_data.a1b2c3.0000000000000002
+```
+
+### 5.2.2 PG/OSD 映射
+
+每个 `rbd_data.*` object 再分别映射到 PG 和 OSD. 编号仅作示意, 同一 acting set 中的 4 个 OSD 分属不同主机:
+
+```text
++-------------------------+ +-------------------------+ +-------------------------+
+| rbd_data.a1b2c3.        | | rbd_data.a1b2c3.        | | rbd_data.a1b2c3.        |
+| 0000000000000000        | | 0000000000000001        | | 0000000000000002        |
+|                         | |                         | |                         |
+| hash -> PG 21.4         | | hash -> PG 21.19        | | hash -> PG 21.2d        |
++-------------------------+ +-------------------------+ +-------------------------+
+             |                           |                           |
+             v                           v                           v
++-------------------------+ +-------------------------+ +-------------------------+
+| shard 0 -> osd.1        | | shard 0 -> osd.0        | | shard 0 -> osd.2        |
+| shard 1 -> osd.4        | | shard 1 -> osd.3        | | shard 1 -> osd.4        |
+| shard 2 -> osd.7        | | shard 2 -> osd.5        | | shard 2 -> osd.6        |
+| shard 3 -> osd.8        | | shard 3 -> osd.6        | | shard 3 -> osd.8        |
++-------------------------+ +-------------------------+ +-------------------------+
+```
+
+### 5.2.3 EC 编码与 shard 存储
+
+EC 在每个 object 内部划分 stripes.object 0 为 4 MiB, 包含 512 个 8 KiB EC stripes. 第一个 stripe 的分布如下:
+
+```text
+rbd_data.a1b2c3.0000000000000000
+EC stripe 0: image bytes 0-8 KiB
+
++---------------+---------------+----------+----------+
+| D0_0          | D1_0          | P0       | Q0       |
+| image 0-4 KiB | image 4-8 KiB | coding   | coding   |
++---------------+---------------+----------+----------+
+       |               |             |          |
+       v               v             v          v
+     osd.1           osd.4         osd.7      osd.8
+
+EC stripes 1-511 按相同方式写入这 4 个 shard objects.
+```
+
+同一 shard id 对应的 chunks 聚合到同一个 OSD 上的 shard object 中:
+
+```text
+osd.1                 osd.4
+shard object 0        shard object 1
++-------------+       +-------------+
+| D0_0        |       | D1_0        |
++-------------+       +-------------+
+| D0_1        |       | D1_1        |
++-------------+       +-------------+
+| ...         |       | ...         |
++-------------+       +-------------+
+| D0_511      |       | D1_511      |
++-------------+       +-------------+
+
+osd.7                 osd.8
+shard object 2        shard object 3
++-------------+       +-------------+
+| P0          |       | Q0          |
++-------------+       +-------------+
+| P1          |       | Q1          |
++-------------+       +-------------+
+| ...         |       | ...         |
++-------------+       +-------------+
+| P511        |       | Q511        |
++-------------+       +-------------+
+```
+
+RBD data object 的 payload 是虚拟块设备对应范围的原始字节. 分区表, 文件系统 superblock 或数据库页由虚拟机内的操作系统和应用解释, RADOS 和 ECBackend 只处理 object, offset 和 length.
+
+随机覆盖会先映射到目标 object, object 内偏移和 EC stripe. 例如在 image offset `5.5 MiB` 写入 4 KiB:
+
+```text
+image write: offset 5.5 MiB, length 4 KiB
+  -> rbd_data.a1b2c3.0000000000000001
+  -> object offset 1.5 MiB
+  -> stripe index = 1.5 MiB / 8 KiB = 192
+  -> 命中 EC stripe 192 的 D0_192
+  -> 读取所需旧 chunks
+  -> 合并新字节并更新 data/coding shards
+```
+
+RBD 会随机覆盖 `rbd_data.*` 的任意 offset, 因此 EC data pool 必须使用 BlueStore 并开启 `allow_ec_overwrites`:
+
+```bash
+ceph osd erasure-code-profile get default
+ceph osd pool create rbd-data-ec erasure default
+ceph osd pool set rbd-data-ec allow_ec_overwrites true
+ceph osd pool application enable rbd-data-ec rbd
+
+ceph osd pool create rbd-meta
+ceph osd pool application enable rbd-meta rbd
+rbd pool init rbd-meta
+
+rbd create rbd-meta/image01 \
+  --size 10M \
+  --data-pool rbd-data-ec
+```
+
+`allow_ec_overwrites` 只满足 data pool 的随机覆盖要求, 不能让 `rbd-meta` 使用 EC.
+
+## 5.3 双 Replicated Pool
+
+独立 data pool 可以使用 replicated 或 EC. 以下 replicated 双 pool 布局同样受支持:
+
+```text
+rbd-meta(replicated)
+rbd-data(replicated)
+```
+
+需要为主 pool 和 data pool 分别选择存储介质, CRUSH rule, 副本数, quota 或 PG 规划时, 可以采用这种布局. 两个 pool 使用不同的 OSD 或 CRUSH rule 时可以实现物理隔离; 使用相同参数时, 拆分主要用于独立管理, 同时也会增加需要维护的 pool 数量.
+
+## 5.4 Journal Pool
+
+RBD journaling 可以将 journal data objects 写入独立 journal pool. Journal header 保存在 image 主 pool, 并使用 `cls_journal` 管理 OMAP 状态.
+
+配置 `rbd_journal_pool` 后, 以下管理对象保存在 image 主 pool:
+
+```text
+rbd_directory
+rbd_header.<id>
+journal.<id> header
+```
+
+这些管理对象和 journal header 依赖 OMAP, 因此 RBD 主 pool 必须使用 replicated.
+
+# 6. Ceph 对象存储
+
+一个 RGW zone 的 placement 通常会使用多类 pool:
+
+|典型角色|常见 pool|主要内容|EC 支持|
+|:---:|:---:|:---:|:---:|
+|RGW metadata|default.rgw.meta|user, bucket, bucket.instance, role, topic 等状态|应使用 replicated|
+|bucket index|default.rgw.buckets.index|对象名索引, 统计, 版本, bilog|不支持 EC|
+|data-extra|default.rgw.buckets.non-ec|incomplete multipart 等依赖 OMAP 的状态|不支持 EC|
+|log/control/gc|对应 RGW 服务 pool|队列, 日志和控制对象, 多处依赖 OMAP/cls|应使用 replicated|
+|bucket data|default.rgw.buckets.data|S3/Swift 对象的 HEAD/tail payload 和 HEAD xattrs|可以 replicated 或 EC|
+
+pool 的具体名称取决于 realm, zone 和 placement. 选择 pool 类型时, 需要明确每个 pool 保存的对象类型, 以及相应对象需要执行的 RADOS 操作.
+
+## 6.1 Bucket Index 与 EC
+
+一个 bucket 可以有一个或多个 index shard objects, 例如:
+
+```text
+.dir.<bucket-marker>
+.dir.<bucket-marker>.<shard-id>
+```
+
+Bucket index shard object 的逻辑内容包括:
+
+```text
+OMAP header
+  -> object count, total size, accounting 等状态
+
+OMAP keys
+  -> object name 对应的索引记录
+  -> versioned object 记录
+  -> bucket index log 等其他 key namespace
+```
+
+RGW 的以下操作需要查询或更新这些有序 OMAP 记录:
+
+- S3/Swift 对象列表;
+- 对象 create/delete;
+- bucket stats, quota;
+- versioning;
+- bucket reshard;
+- multisite bilog.
+
+因此 bucket index pool 必须使用 replicated. RGW 配置 `data_extra_pool` 时也会检查 OMAP 能力; 如果 pool 不支持 OMAP, 配置会直接报错.
+
+## 6.2 Buckets Data 与 EC
+
+RGW object 通常映射为 HEAD object 和可选 tail objects:
+
+```text
+HEAD object
+  ├── manifest, ACL, Content-Type, ETag, 用户 metadata 等 xattrs
+  └── 一部分内联 payload
+
+tail objects
+  └── 大对象剩余 payload
+```
+
+独立的 replicated bucket index pool 使用 OMAP 保存对象名有序索引. `buckets.data` pool 使用 data payload 保存 S3/Swift 对象内容, HEAD objects 使用 xattrs 保存对象属性. EC pool 支持 data payload 和 xattrs, 因此 `buckets.data` 可以使用 EC.
+
+下面以一个 10 MiB 的 S3 object 为例, 按 "S3 object -> HEAD/tail RADOS objects -> PG/OSD -> EC stripes" 的顺序说明对象数据如何落到 `buckets.data`.
+
+示例中的 object, PG 和 OSD 编号仅用于解释, 实际值会随 placement, storage class, object name hash, pool 配置和 CRUSH 状态变化. `rgw_max_chunk_size` 和 `rgw_obj_stripe_size` 在本示例中均取 4 MiB, 因此对象会被划分为一个 4 MiB HEAD 和两个 tail objects.
+
+这个映射过程可以分为三个步骤:
+
+1. S3 object 切分: RGW 将一个 S3 object 拆分为 HEAD/tail RADOS objects, 并在 bucket index 中保存对象索引;
+2. PG/OSD 映射: RADOS 将每个 RADOS object 映射到 PG, 再由 CRUSH 选择 acting OSD;
+3. EC 编码与 xattrs: EC 在每个 object 内编码 payload, xattrs 作为对象属性单独保存.
+
+### 6.2.1 S3 object 切分
+
+EC pool 使用 2.2 节介绍的内置 `default` profile.placement, storage class, inline data, 版本控制和 multipart 配置都会影响最终布局. 为方便阅读, 示例简化了对象名称:
+
+```text
+S3 bucket:   media
+S3 key:      video.bin
+object size: 10 MiB
+
+RGW data layout (源码配置默认):
+  HEAD inline payload = 4 MiB
+  tail stripe size    = 4 MiB
+```
+
+RGW 将对象名索引写入 replicated bucket index pool, 将 HEAD/tail RADOS objects 写入 EC buckets.data pool:
+
+```text
+                         S3 object
+                    media / video.bin
+                            |
+              +-------------+-------------+
+              |                           |
+              v                           v
+default.rgw.buckets.index          default.rgw.buckets.data
+      (replicated)                         (EC)
+              |                           |
+              v                           v
+  .dir.<bucket-marker>           HEAD object + tail objects
+    OMAP key: video.bin            payload + xattrs
+    value: index record
+```
+
+bucket index 中的 OMAP 记录用于对象列表, 统计和版本等操作. HEAD object 保存一部分 payload, 并通过 xattrs 保存 manifest, ACL, Content-Type, ETag 和用户 metadata.manifest 记录一个完整 S3 object 由哪些 RADOS objects 组成:
+
+```text
+S3 object: media/video.bin, 10 MiB
+
+logical object offset
+0 MiB                     4 MiB                       8 MiB                 10 MiB
+|                           |                           |                         |
+v                           v                           v                         v
++-------------------------+ +-------------------------+ +-------------------------+
+| object bytes 0-4 MiB    | | object bytes 4-8 MiB    | | object bytes 8-10 MiB   |
++-------------------------+ +-------------------------+ +-------------------------+
+             |                           |                           |
+             v                           v                           v
++-------------------------+ +-------------------------+ +-------------------------+
+| HEAD(video.bin)         | | tail(video.bin, 1)      | | tail(video.bin, 2)      |
+| payload: 0-4 MiB        | | payload: 4-8 MiB        | | payload: 8-10 MiB       |
+| xattrs: manifest, ACL,  | | logical size: 4 MiB     | | logical size: 2 MiB     |
+| ETag, Content-Type ...  | |                         | |                         |
++-------------------------+ +-------------------------+ +-------------------------+
+```
+
+`HEAD(video.bin)`, `tail(video.bin, 1)` 和 `tail(video.bin, 2)` 是便于阅读的逻辑名称. 真正的 RADOS object id 和 namespace 取决于 bucket marker, object key, object instance, manifest, placement 和版本控制状态.
+
+### 6.2.2 PG/OSD 映射
+
+RADOS 分别计算这三个 object name 的 hash, 并把它们映射到各自的 PG. 每个 PG 可能对应不同的 acting set. 下面的编号仅作示意, 同一 acting set 中的 4 个 OSD 分属不同主机:
+
+```text
++-------------------------+ +-------------------------+ +-------------------------+
+| HEAD(video.bin)         | | tail(video.bin, 1)      | | tail(video.bin, 2)      |
+| hash -> PG 31.6         | | hash -> PG 31.1c        | | hash -> PG 31.2f        |
++-------------------------+ +-------------------------+ +-------------------------+
+             |                           |                           |
+             v                           v                           v
++-------------------------+ +-------------------------+ +-------------------------+
+| shard 0 -> osd.1        | | shard 0 -> osd.0        | | shard 0 -> osd.2        |
+| shard 1 -> osd.4        | | shard 1 -> osd.3        | | shard 1 -> osd.4        |
+| shard 2 -> osd.7        | | shard 2 -> osd.5        | | shard 2 -> osd.6        |
+| shard 3 -> osd.8        | | shard 3 -> osd.6        | | shard 3 -> osd.8        |
++-------------------------+ +-------------------------+ +-------------------------+
+```
+
+### 6.2.3 EC 编码与 xattrs
+
+HEAD 的 4 MiB payload 包含 512 个 8 KiB EC stripes. 第一个 stripe 的分布如下:
+
+```text
+HEAD(video.bin), EC stripe 0: S3 bytes 0-8 KiB
+
++------------+------------+----------+----------+
+| D0_0       | D1_0       | P0       | Q0       |
+| S3 0-4 KiB | S3 4-8 KiB | coding   | coding   |
++------------+------------+----------+----------+
+      |            |           |          |
+      v            v           v          v
+    osd.1        osd.4       osd.7      osd.8
+
+EC stripes 1-511 按相同方式写入这 4 个 shard objects.
+```
+
+tail 1 和 tail 2 的 payload 也会在各自的 PG 中按 EC 编码. EC PG 单独把 xattrs 作为对象属性维护:
+
+```text
+default.rgw.buckets.data / PG 31.6
+
+                  logical HEAD object
+                  payload + xattrs
+                            |
+                  +---------+---------+---------+
+                  |         |         |         |
+                  v         v         v         v
+                osd.1     osd.4     osd.7     osd.8
+                shard 0   shard 1   shard 2   shard 3
+                  D0        D1        P         Q
+
+每个 OSD / BlueStore:
+  RocksDB / BlueFS -> shard object 的 onode, extent map 和属性
+  block extents    -> 本 shard 对应的 data 或 coding chunk
+```
+
+在 Optimized EC 写路径中, 完整用户 xattrs 写入 shard 0 和 coding shards. 参与 payload 写入的 non-primary data shard 只更新 `OI_ATTR` 等内部对象属性. Legacy EC 写路径在所有 shards 上保存完整 xattrs. 两条路径向 RGW 提供相同的 RADOS xattr 接口, RGW 无需感知底层差异. 上述 `D0...Q` 只表示 payload 的 EC 编码结果.
+
+从完整链路看, replicated bucket index pool 保存 bucket index OMAP.EC buckets.data pool 保存 HEAD/tail objects 的 payload, 以及 HEAD object 的 xattrs:
+
+```text
+media/video.bin, 10 MiB
+  -> bucket index OMAP: key "video.bin" -> index record
+  -> RGW manifest: HEAD 4 MiB + tail 4 MiB + tail 2 MiB
+  -> each RADOS object hashes to a PG
+  -> CRUSH selects a 4-OSD acting set for that PG
+  -> EC 2+2 encodes the payload in 8 KiB stripes
+  -> each OSD stores one shard object in local BlueStore
+```
+
+RGW 的普通 PUT 一般顺序写入一个新对象, 通常无需开启 `allow_ec_overwrites`. 使用 multipart, 压缩, 加密或版本控制时, 还需要根据目标 Ceph 版本和所用插件核对配置要求.
+
+## 6.3 小对象与 EC
+
+功能上支持 EC 只是前提, 性能是否合适还要看对象大小和访问方式. 大量小对象会增加以下开销:
+
+- stripe 对齐和 padding 带来的空间开销;
+- EC 编码消耗的 CPU;
+- 跨多个 OSD 的网络和事务开销;
+- HEAD object 内联数据较少, 容量收益有限;
+- recovery 时大量小 object/shard 的调度成本.
+
+常见部署思路是:
+
+```text
+RGW metadata/index/control pools
+  -> 低延迟的 SSD/NVMe 副本池
+
+大对象 buckets.data
+  -> 容量型 EC pool
+```
+
+# 7. 参考资料
+
+1. [Erasure code](https://docs.ceph.com/en/tentacle/rados/operations/erasure-code/): EC profile, overwrite, 优化及 EC pool 不支持 OMAP 的说明.
+2. [Create a Ceph file system](https://docs.ceph.com/en/tentacle/cephfs/createfs/): CephFS metadata/data pool 要求及 EC metadata pool 限制.
+3. [MDS Journaling](https://docs.ceph.com/en/tentacle/cephfs/mds-journaling/): CephFS metadata pool 与 MDS journal.
+4. [MDS internal data structures](https://docs.ceph.com/en/tentacle/dev/mds_internals/data-structures/): `CInode`, `CDir`, `CDentry` 和 MDS tables.
+5. [RBD Configuration Reference](https://docs.ceph.com/en/tentacle/rbd/rbd-config-ref/): RBD data-pool feature 和 EC data pool 布局.
+6. [RBD manual](https://docs.ceph.com/en/tentacle/man/8/rbd/): RBD image, pool 和 `--data-pool` 命令接口.
+7. [RGW Data Layout](https://docs.ceph.com/en/tentacle/radosgw/layout/): RGW metadata, bucket index, HEAD/tail data 的布局.
+8. [RGW Placement and Storage Classes](https://docs.ceph.com/en/tentacle/radosgw/placement/): `index_pool`, `data_extra_pool` 和 storage class data pool.
+9. [BlueStore Configuration Reference](https://docs.ceph.com/en/tentacle/rados/configuration/bluestore-config-ref/): BlueStore, BlueFS, RocksDB, `block.db` 和 OMAP 本地存储.
+10. [CephFS File Layouts](https://docs.ceph.com/en/tentacle/cephfs/file-layouts/): CephFS `stripe_unit`, `stripe_count` 和 `object_size`.
+11. [Erasure Code Profile](https://docs.ceph.com/en/tentacle/rados/operations/erasure-code-profile/): EC profile 的 `k`, `m`, `plugin` 和 `stripe_unit`.

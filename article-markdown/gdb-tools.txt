@@ -1,0 +1,243 @@
+# GDB 使用笔记
+
+GDB 是一个由 GNU 开源组织发布的, UNIX/LINUX 操作系统下的, 基于命令行的, 功能强大的程序调试工具. 对于一名 Linux 下工作的 c++程序员, gdb 是必不可少的工具;
+
+# 1. gdb 基本指令介绍
+
+## 1.1 gdb 交互命令
+
+- `start`: 开始调试;
+- `n`: 一条一条的执行;
+- `backtrace/bt`: 查看函数调用栈帧;
+- `info/i locals`: 查看当前栈帧局部变量;
+- `frame/f`: 选择栈帧, 在查看局部变量;
+- `print/p`: 打印变量的值;
+- `finish`: 运行到当前函数返回;
+- `set var sum=0`: 修改变量的值;
+- `list/l 行号或函数名`: 列出源码;
+- `display/undisplay sum`: 每次停下显示变量的值/取消跟踪;
+- `x/7b input`: 打印存储器内容, b--每个字节一组, 7--7 组;
+- `disassemble`: 反汇编当前函数或指定函数;
+- `si`: 一条指令一条指令调试 而 s 是一行一行代码;
+- `info registers`: 显示所有寄存器的当前值;
+- `x/20 $esp`: 查看内存中开始的 20 个数;
+
+- `run(简写r)`: 其作用是运行程序, 当遇到断点后, 程序会在断点处停止运行, 等待用户输入下一步的命令;
+- `continue(简写c)`: 继续执行, 到下一个断点处 (或运行结束);
+- `next(简写n)`: 单步跟踪程序, 当遇到函数调用时, 也不进入此函数体; 此命令同 step 的主要区别是, step 遇到用户自定义的函数, 将步进到函数中去运行,
+  而 next 则直接调用函数, 不会进入到函数体内;
+- `step(简写s)`: 单步调试如果有函数调用, 则进入函数; 与命令 n 不同, n 是不进入调用的函数的;
+- `until`: 当你厌倦了在一个循环体内单步跟踪时, 这个命令可以运行程序直到退出循环体;
+- `until+行号`: 运行至某行, 不仅仅用来跳出循环;
+- `finish`: 运行程序, 直到当前函数完成返回, 并打印函数返回时的堆栈地址和返回值及参数值等信息;
+- `call函数(参数)`: 调用程序中可见的函数, 并传递 "参数", 如: call gdb_test(55);
+- `quit`: 简记为 q , 退出 gdb;
+
+## 1.2 设置断点
+
+- `break n(简写b n)`: 在第 n 行处设置断点 (可以带上代码路径和代码名称: `b OAGUPDATE.cpp:578`);
+  - continue/c: 连续运行;
+- `b fn1 if a>b`: 条件断点设置, 满足条件才激活断点;
+- `break func(break缩写为b)`: 在函数 func() 的入口处设置断点, 如:`break cb_button`;
+- b 匿名空间名::函数名 `:对匿名空间设置断点,当匿名空间存在名称时,使用例如,` b Foo::foo`;
+- `b (anonymous namespace)::函数名`: 对匿名空间设置断点, 当匿名空间无名称时, 使用例如,`b (anonymous namespace)::bar`;
+- `b *address`: 在程序地址上打断点, 当调试汇编程序时, 我们可以在程序地址上进行打断点, 例如,`b *0x400522`;
+- `b *address`: 在程序入口处打断点, 如果不知道程序的入口地址, 可以使用 `readelf -h a.out ` 指令获取程序的入口地址, 例如 `b *0x400440`;
+- `b *func`: 在函数的第一条汇编指令处打断点, 通常我们使用 `b func` 打断点, 但是这样并不会设置在汇编层次函数的开头, 如果要将断点设置在汇编指令层次的开头, 需要使用该指令;
+- `delete 断点号n`: 删除第 n 个断点;
+- `disable 断点号n`: 暂停第 n 个断点;
+- `enable 断点号n`: 开启第 n 个断点;
+- `clear 行号n`: 清除第 n 行的断点;
+- `info b(info/i breakpoints)`: 显示当前程序的断点设置情况;
+- `delete breakpoints`: 清除所有断点;
+
+## 1.3 查看源代码
+
+- `list`: 简记为 l , 其作用就是列出程序的源代码, 默认每次显示 10 行;
+- `list 行号`: 将显示当前文件以 "行号" 为中心的前后 10 行代码, 如: list 12;
+- `list 函数名`: 将显示 "函数名" 所在函数的源代码, 如: list main;
+- `list`: 不带参数, 将接着上一次 list 命令的, 输出下边的内容;
+
+## 1.4 打印表达式
+
+- `print表达式`: 简记为 p , 其中 "表达式" 可以是任何当前正在被测试程序的有效表达式, 比如当前正在调试 C 语言的程序, 那么 "表达式" 可以是任何 C 语言的有效表达式, 包括数字, 变量甚至是函数调用;
+
+  ```bash
+  print ++a:将把整数 a 中的值加1,并显示出来
+  print name:将显示 name 的值
+  print gdb_test(a):将以变量 a 作为参数调用 gdb_test() 函数
+  ```
+
+- `display 表达式`: 在单步运行时将非常有用, 使用 `display` 命令设置一个表达式后, 它将在每次单步进行指令后, 紧接着输出被设置的表达式及值. 如: `display a`;
+
+- `watch表达式`: 设置一个监视点, 一旦被监视的 "表达式" 的值改变,`gdb` 将强行终止正在被调试的程序. 如: `watch a`;
+
+- `whatis` : 查询变量或函数;
+
+- `info function`: 查询函数;
+
+- `info locals`: 显示当前堆栈页的所有变量;
+
+## 1.5 查询运行信息
+
+- `where/bt` : 当前运行的堆栈列表;
+- `bt backtrace`: 显示当前调用堆栈;
+- `up/down` : 改变堆栈显示的深度;
+- `set args 参数`: 指定运行时的参数;
+- `show args`: 查看设置好的参数;
+- `info program`: 来查看程序的是否在运行, 进程号, 被暂停的原因;
+
+## 1.6 分割窗口
+
+- `layout`: 用于分割窗口, 可以一边查看代码, 一边测试:
+- `layout src`: 显示源代码窗口
+- `layout asm`: 显示反汇编窗口
+- `layout regs`: 显示源代码/反汇编和 CPU 寄存器窗口
+- `layout split`: 显示源代码和反汇编窗口
+- `Ctrl + L`: 刷新窗口
+
+## 1.7 调试正在运行进程
+
+- `gdb -args ./a.out a b c`
+- `gdb attach PID`: 调试正在运行的进程;
+- `gdb -q a PID`: 调试正在运行的进程;
+- `info thread`: 查看当前进程的线程信息;
+
+## 1.8 更强大的工具
+
+cgdb 可以看作 gdb 的界面增强版, 用来替代 gdb 的 gdb -tui.
+cgdb 主要功能是在调试时进行代码的同步显示, 这无疑增加了调试的方便性,
+提高了调试效率. 界面类似 vi, 符合 unix/linux 下开发人员习惯; 如果熟悉 gdb 和 vi,
+几乎可以立即使用 cgdb.
+
+# 2. 其他使用方式
+
+## 2.1 直接执行函数
+
+- `call func()`: 直接调用函数执行
+- `print func()`: 直接调用函数执行
+
+## 2.2 设置 catchpoint
+
+- `catch exec`: 可以用 `catch exec` 命令为 `exec` 系列系统调用设置 `catchpoint` (目前只有 HP-UX 和 GNU/Linux 支持这个功能);
+
+- `catch fork`: 可以用 `catch fork` 命令为 `fork` 调用设置 `catchpoint` (目前只有 HP-UX 和 GNU/Linux 支持这个功能);
+- `catch vfork`: 可以用 `catch vfork` 命令为 `vfork` 调用设置 `catchpoint`;
+
+## 2.3 通过为 ptrace 调用设置 catchpoint 破解 anti-debugging 的程序
+
+```c
+#include <sys/ptrace.h>
+#include <stdio.h>
+ 
+int main()                                                                      
+{
+        if (ptrace(PTRACE_TRACEME, 0, 0, 0) < 0 ) {
+                printf("Gdb is debugging me, exit.\n");
+                return 1;
+        }
+        printf("No debugger, continuing\n");
+        return 0;
+}
+```
+
+有些程序不想被 gdb 调试, 它们就会在程序中调用 "`ptrace`" 函数, 一旦返回失败, 就证明程序正在被 gdb 等类似的程序追踪, 所以就直接退出. 以上面程序为例:
+
+```bash
+(gdb) start
+Temporary breakpoint 1 at 0x400508: file a.c, line 6.
+Starting program: /data2/home/nanxiao/a
+
+Temporary breakpoint 1, main () at a.c:6
+6                       if (ptrace(PTRACE_TRACEME, 0, 0, 0) < 0 ) {
+(gdb) n
+7                               printf("Gdb is debugging me, exit.\n");
+(gdb)
+Gdb is debugging me, exit.
+8                               return 1;
+```
+
+破解这类程序的办法就是为 `ptrace` 调用设置 `catchpoint`, 通过修改 `ptrace` 的返回值, 达到目的. 仍以上面程序为例:
+
+```bash
+(gdb) catch syscall ptrace
+Catchpoint 2 (syscall 'ptrace' [101])
+(gdb) r
+Starting program: /data2/home/nanxiao/a
+
+Catchpoint 2 (call to syscall ptrace), 0x00007ffff7b2be9c in ptrace () from /lib64/libc.so.6
+(gdb) c
+Continuing.
+
+Catchpoint 2 (returned from syscall ptrace), 0x00007ffff7b2be9c in ptrace () from /lib64/libc.so.6
+(gdb) set $rax = 0
+(gdb) c
+Continuing.
+No debugger, continuing
+[Inferior 1 (process 11491) exited normally]
+```
+
+可以看到, 通过修改 `rax` 寄存器的值, 达到修改返回值的目的, 从而让 gdb 可以继续调试程序 (打印 "`No debugger, continuing`").
+
+## 2.4 改变字符串的值
+
+- `set 函数::变量`: 可以用 `set 函数::变量` 命令改变字符串的值, 例如 `set main::arr="Tom"`;
+- `set {变量详情} 变量地址 = "Tom"`: 可以通过访问内存地址的方法改变字符串的值, 例如 `set {char [4]} 0x80477a4 = "Ace"`;
+
+## 2.5 配置 gdb init 文件
+
+当 gdb 启动时, 会读取 HOME 目录和当前目录下的的配置文件, 执行里面的命令. 这个文件通常为 ". gdbinit".
+
+这里给出了本文档中介绍过的, 可以放在 ". gdbinit" 中的一些配置:
+
+
+
+```bash
+# 打印STL容器中的内容
+python
+import sys
+sys.path.insert(0, "/home/xmj/project/gcc-trunk/libstdc++-v3/python")
+from libstdcxx.v6.printers import register_libstdcxx_printers
+register_libstdcxx_printers (None)
+end
+
+# 保存历史命令
+set history filename ~/.gdb_history
+set history save on
+
+# 退出时不显示提示信息
+set confirm off
+
+# 按照派生类型打印对象
+set print object on
+
+# 打印数组的索引下标
+set print array-indexes on
+
+# 每行打印一个结构体成员
+set print pretty on
+```
+
+## 2.6 设置源文件查找路径
+
+- `directory /data1/dir/`: 在调试中使用该指令指定源文件的查找目录, 避免找不到源文件的位置;
+- `gdb -q a.out -d /search/code/some `: 启动时也可以使用 `-d` 参数加载 `code` 的位置;
+
+## 2.7 自动反汇编后面要执行的代码
+
+- `set disassemble-next-line on`: 要在任意情况下反汇编后面要执行的代码, 之后使用 start;
+- `set disassemble-next-line auto`: 在后面的代码没有源码的情况下才反汇编后面要执行的代码, 之后使用 start;
+- `set disassemble-next-line off`: 关闭自动反汇编后面要执行的代码, 之后使用 start 指令;
+
+## 2.8 显示程序原始机器码
+
+- disassemble /r functionName: 用 16 进制形式显示函数的原始机器码;
+
+## 2.9 显示将要执行的汇编指令
+
+- display /i $pc: 显示当程序停止时, 将要执行的汇编指令, 可用于显示在断点之后的即将要执行的汇编指令;
+
+# 3. 参考链接
+
++ [为系统调用设置catchpoint](https://www.kancloud.cn/itfanr/i-100-gdb-tips/81864)
++ [100-gdb-tips](https://www.kancloud.cn/itfanr/i-100-gdb-tips/81851)

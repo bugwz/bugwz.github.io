@@ -1,0 +1,172 @@
+# 记一次 nf_conntrack 模块导致的丢包问题
+
+# 1. 背景
+
+我们灰度线上业务的时候, 有一次遇到了业务反馈资源没有读写, 当时正好将流量切到了线上的一台机器上, 在将业务的资源迁移回滚之后, 经过一番查找, 发现 `/var/log/message` 中打印了很多关于 `kernel: nf_conntrack: table full, dropping packet` 的错误信息, 网上查找了一下, 这个错误主要是由于启用了 `nf_conntrack模块`, 之前很多人都遇到了这个问题, 解决方案也很多, 这里以我的角度详细记录一下,`/var/log/message` 中错误信息如下:
+
+```v
+Jul 30 11:50:01 dbl14192 systemd: Starting Session 486429 of user root.
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:02 dbl14192 kernel: nf_conntrack: table full, dropping packet
+Jul 30 11:50:07 dbl14192 kernel: net_ratelimit: 3626 callbacks suppressed
+```
+
+## 1.1 原因/复现
+
+由于启用了 `nf_conntrack模块`, 业务短链接请求访问量大, 由于 conntrack 采用默认的配置参数, 短时间内导致 conntrack 的连接追踪表达到 `65536*4=262144` 默认的最大限制, 新的连接无法建立, 导致大量的丢包, 业务因此无法正常访问;
+
+- 短连接为什么也会导致爆表?
+
+  - 针对于各种协议的各种连接状态, 连接追踪表中会保留对应的记录一段时间, 具体时间可参考下文中的详细配置值, 因此短链接又可能也会爆表;
+
+  ![nf_conntrack爆表分析](/assets/images/posts/nf-conntrack/conntrack.webp)
+
+后续尝试使用 `redis-benchmark` 进行 `client为400000` 的 `短链接` 压测却未能复现, 原因是操作系统启用了端口复用 (对应参数:`/proc/sys/net/ipv4/tcp_tw_reuse`), 并且单机的 socket 连接数限制在 65535, 对于启用了 `conntrack模块` 的链接追踪表来说, 测试的时候, 记录的连接数不会超过 65536, 后续将 `/proc/sys/net/netfilter/nf_conntrack_max` 参数调小之后, 稳定复现.
+
+## 1.2 修复
+
+如何避免再次出现这种问题, 一下提供两种方式可供参考:
+
+- 禁用模块:
+
+```bash
+sudo iptables -t raw -A OUTPUT -j NOTRACK
+sudo iptables -t raw -A PREROUTING -j NOTRACK
+```
+
+- 调整 `nf_conntrack_max`:
+
+```bash
+sysctl -w net.netfilter.nf_conntrack_max = 65536000
+```
+
+# 2. conntrack 模块
+
+nf_conntrack 模块在 kernel 2.6.15(2006-01-03 发布) 被引入, 支持 IPv4 和 IPv6, 取代只支持 IPv4 的 ip_connktrack, 用于跟踪一个连接的状态. 连接状态跟踪可以供其他模块使用, 最常见的两个使用场景是 iptables 的 nat 的 state 模块.
+
+## 2.1 模块管理
+
+nf_conntrack 模块对应存在一个管理工具:[conntrack-tools](https://git.netfilter.org/conntrack-tools), 该工具可手动安装, 它是一款基于 GNU / Linux 的免费软件工具, 允许系统管理员从用户空间与内核中的[连接跟踪系统进行](http://people.netfilter.org/pablo/docs/login.pdf)交互, 该软件主要提供两个具体的工具:
+
+- `conntrack`: 通过使用命令行指令提供比直接使用 ` /proc/net/ip_conntrack` 更灵活的接口来管理连接跟踪系统. 通过使用 conntrack 指令, 您可以显示/删除/更新现有的状态条目, 同时也可以监听流事件;
+- `conntrackd`: 用户空间连接跟踪守护程序, 可用于部署容错 GNU/Linux 防火墙, 也可以使用它来收集防火墙中流的相关统计信息;
+
+## 2.2 模块配置信息
+
+官方详细介绍地址:https://www.kernel.org/doc/Documentation/networking/nf_conntrack-sysctl.txt
+
+```bash
+# 启用连接跟踪流记帐.每个流添加64位字节和数据包计数器.(BOOLEAN:默认为零)
+nf_conntrack_acct
+# 哈希表的大小,如果在模块加载期间未指定该参数,则通过将总内存除以16384来计算默认大小以确定存储区的数量,但是哈希表将永远不会少于32并且限制为16384个存储区. 对于内存超过4GB的系统,它将是65536个桶. 此sysctl只能在初始网络命名空间中写入.(INTEGER)
+nf_conntrack_buckets
+# 验证传入数据包的校验和.校验和错误的数据包处于INVALID状态.如果启用此选项,则不会考虑此类数据包进行连接跟踪.(BOOLEAN:默认为非零)
+nf_conntrack_checksum
+# 当前分配的流条目数(INTEGER)
+nf_conntrack_count
+# 如果启用此选项,连接跟踪代码将通过ctnetlink为用户空间提供连接跟踪事件.(BOOLEAN:默认为非零)
+nf_conntrack_events
+# 期望表的最大大小. 默认值为nf_conntrack_buckets/256,最小值为1.(INTEGER)
+nf_conntrack_expect_max
+# 用于重组IPv6片段的最大内存. 当为此目的分配nf_conntrack_frag6_high_thresh字节的内存时,片段处理程序将抛出数据包,直到达到nf_conntrack_frag6_low_thresh.(INTEGER:默认是262144)
+nf_conntrack_frag6_high_thresh
+# 参见nf_conntrack_frag6_low_thresh(INTEGER:默认是196608)
+nf_conntrack_frag6_low_thresh
+# 将IPv6片段保留在内存中的时间(INTEGER:单位秒)
+nf_conntrack_frag6_timeout
+# 通用超时的默认值. 这指的是第4层未知/不支持的协议.(INTEGER:默认为600,单位秒)
+nf_conntrack_generic_timeout
+# 启用自动conntrack帮助程序分配.如果禁用,则需要设置iptables规则以将帮助程序分配给连接. 有关详细信息,请参阅iptables-extensions(8)手册页中的CT目标描述.
+nf_conntrack_helper
+# ICMP超时时间(INTEGER:默认为30秒)
+nf_conntrack_icmp_timeout
+# ICMP6超时时间(INTEGER:默认为30秒)
+nf_conntrack_icmpv6_timeout
+# 记录value指定类型的无效数据包(INTEGER)
+nf_conntrack_log_invalid
+# 连接跟踪表的大小(INTEGER:默认为nf_conntrack_buckets * 4)
+nf_conntrack_max
+# 在你所做的事情上保守一点,在你接受别人的事情上保持自由.如果它不是零,我们只将窗口RST段标记为无效(BOOLEAN:默认为零)
+nf_conntrack_tcp_be_liberal
+# 如果设置为零,我们将禁用拾取已建立的连接(BOOLEAN:默认为非零)
+nf_conntrack_tcp_loose
+# 在未收到来自目标的(可接受)ACK的情况下可以重新传输的最大数据包数. 如果达到此数量,将启动更短的计时器(INTEGER:默认为3)
+nf_conntrack_tcp_max_retrans
+# TCP连接状态为close的记录超时时间(INTEGER:默认为10秒)
+nf_conntrack_tcp_timeout_close
+# TCP连接状态为close_wait的记录超时时间(INTEGER:默认为60秒)
+nf_conntrack_tcp_timeout_close_wait
+# TCP连接状态为established的记录超时时间(INTEGER:默认为432000秒)
+nf_conntrack_tcp_timeout_established
+# TCP连接状态为fin_wait的记录超时时间(INTEGER:默认为120秒)
+nf_conntrack_tcp_timeout_fin_wait
+# TCP连接状态为last_ack的记录超时时间(INTEGER:默认为30秒)
+nf_conntrack_tcp_timeout_last_ack
+# (INTEGER:默认为300秒)
+nf_conntrack_tcp_timeout_max_retrans
+# TCP连接状态为syn_recv的记录超时时间(INTEGER:默认为60秒)
+nf_conntrack_tcp_timeout_syn_recv
+# TCP连接状态为syn_sent的记录超时时间(INTEGER:默认为120秒)
+nf_conntrack_tcp_timeout_syn_sent
+# TCP连接状态为syn_sent的记录超时时间(INTEGER:默认为120秒)
+nf_conntrack_tcp_timeout_time_wait
+# (INTEGER:默认为300秒)
+nf_conntrack_tcp_timeout_unacknowledged
+# (BOOLEAN:默认为零)
+nf_conntrack_timestamp
+# (INTEGER:默认为30秒)
+nf_conntrack_udp_timeout
+# (INTEGER:默认为120秒)
+nf_conntrack_udp_timeout_stream
+# (INTEGER:默认为30秒)
+nf_conntrack_gre_timeout
+# 如果检测到GRE流,将使用此扩展超时(INTEGER:默认为180秒)
+nf_conntrack_gre_timeout_stream
+```
+
+# 3. 相关指令
+
+- conntrack 内核参数列表:`sudo sysctl -a | grep conntrack`;
+
+- conntrack 超时相关参数:`sudo sysctl -a | grep conntrack | grep timeout`;
+
+- conntrack 跟踪表的大小 (桶的数量):`sudo sysctl net.netfilter.nf_conntrack_buckets`;
+
+- conntrack 最大跟踪连接数:`sudo sysctl net.netfilter.nf_conntrack_max`;
+
+- netfilter 模块加载时的默认值:`sudo dmesg | grep conntrack`;
+
+- conntrack 跟踪表使用情况:`sudo sysctl net.netfilter.nf_conntrack_count`;
+
+- 四层协议类型和连接数:`sudo cat /proc/net/nf_conntrack | awk '{sum[$3]++} END {for(i in sum) print i, sum[i]}'`;
+
+- TCP 连接各状态对应的条数:`sudo cat /proc/net/nf_conntrack | awk '/^.*tcp.*$/ {sum[$6]++} END {for(i in sum) print i, sum[i]}'`;
+
+- 三层协议类型和连接数:`sudo cat /proc/net/nf_conntrack | awk '{sum[$1]++} END {for(i in sum) print i, sum[i]}'`;
+
+- 连接数最多的 10 个 IP 地址:`sudo cat /proc/net/nf_conntrack | awk '{print $7}' | cut -d "=" -f 2 | sort | uniq -c | sort -nr | head -n 10`;
+
+
+# 4. 相关链接
+
+- https://git.netfilter.org/conntrack-tools
+- http://conntrack-tools.netfilter.org/manual.html
+- https://www.slideserve.com/liseli/linux-kernel-2-4-conntrack
+
+- http://keithmo.me/post/2018/08/25/conntrack-tuning/
+- https://testerhome.com/topics/15824
+- https://clodfisher.github.io/2018/09/nf_conntrack/
+- https://blog.csdn.net/yaopeng_2005/article/details/7064869
+- https://xmoyking.github.io/2017/06/20/iptables/
+- https://my.oschina.net/u/232595/blog/1919450
+- https://blog.csdn.net/iteye_21199/article/details/82278402
+- https://blog.csdn.net/dhRainer/article/details/83411428
+- https://blog.csdn.net/jasonchen_gbd/article/details/44874321

@@ -1,0 +1,92 @@
+# JSP 标准动作-JSP 笔记-7
+
+# 1. 说明
+
+## 1.1 JavaBean 的含义:
+
++ JavaBean 是一种 java 语言写成的可复用组件.
+
++ 它是一种特殊的 java 类, 特殊性如下:
+   + 类必须是具体的和公共的;
+   + 具有无参数的构造方法;
+   + 这种方法的访问属性必须是 public 的, 并且方法的命名也必须遵守一定的命名规范.
+
+## 1.2 JavaBean 的优点:
+
++ 提高代码的可复用性;
+
++ 程序易于开发维护;
+
++ 可以跨平台;
+
+## 1.3 JavaBean 的使用:
+
++ 标准动作用于:
+   + 将 JavaBean 嵌入 JSP 页面;
+   + 设置和获取 JavaBean 的属性
+   + 将用户请求转发给其他页面
+   + 将其他用户的内容嵌入当前页面
++ 标准动作中的属性区分大小写.
++ JSP 中的标准动作使用<jsp>作为前缀.
++ JSP 可使用 JSP 标准动作调用 JavaBean 组件并访问属性.
+
+# 2. Java 标准动作包括:
+
+1. `<jsp:useBean>`
+2. `<jsp:setProperty>`
+3. `<jsp:getProperty>`
+4. `<jsp:forward>`
+5. `<jsp:include>`
+
+# 3. useBean 动作:
+
+1. <jsp:useBean>标签用于在指定的域范围内查找指定名称的 JavaBean 对象:
+ + 如果存在则直接返回该 JavaBean 对象的引用;
+ + 如果不存在则实例化一个新的 JavaBean 对象并将它以制定的名称存储到指定的与范围内.
+2. 常用语法:
+```java
+<jsp:useBean id="beanName" class="package.class" scope="page|request|session|application" />
+
+//id属性用于指定JavaBean实话对象的引用名称和气存储在域范围中的名称.
+//class属性用于指定JavaBean的完整类名(即必须带有包名).
+//scope属性用于指定JavaBean实例对象所存储的域范围,其值只能是page,request,session和application等四个值中的一个,其默认值是page.
+```
+关于 `scope` 属性中的域范围的描述如下:
+
+1. Page -- Bean 只能自啊使用页面时使用 (仅涵盖使用 JavaBean 的页面). 当加载新页面, 就会将其销毁 (pageBean.jsp/MyBean.java)
+2. Request -- 有效范围仅限于使用 JavaBean 的请求 (requestBean.jsp/MyBean.java)
+3. Session -- 有效范围在用户整个连接过程中 (整个会话过程均有效)(sessionBean.jsp/MyBean.java)
+4. Application -- 有效范围涵盖整个应用程序. 也就是对整个网站均有效. (applicationBean1.jsp applicationBean2.jsp/MyBean.java)
+
+##补充: Get() 和 Set() 方法:
+Get() 和 Set() 方法用于访问 JavaBean 的属性
+1. Get() 方法: 定义了共有方法, Get() 方法返回值;
+2. Set() 方法: 定义了共有方法, Set() 方法给属性赋值;
+
+# 4. setProperty 动作:
+
+1. <jsp:setProperty>标签用于设置 JavaBean 对象的属性.
+2. 语法结构如下:
+```java
+<jsp:setProperty name="beanName"
+{
+property="propertyName" value="{string | <%= expression %>}" | property="propertyName" [param="parameterName"] | property="*"
+}/>
+
+//name 属性用于指定JavaBean对象的名称.
+//property 属性用于指定JavaBean实例对象的属性名
+//value 属性用于指定JavaBean对象的某个属性的值,value的值可以是字符串,也可以是表达式.为字符串时,该值会自动转化为JavaBean属性相应的类型,如果value的值是一个表达式,那么该表达式的计算结果必须与所要设置的JavaBean属性的类型一致.
+//param属性用于将JavaBean实例对象的某个属性值设置为一个请求参数值,该属性值同样会自动转换成要设置的JavaBean属性的类型.
+```
+
+# 5. getProperty 动作:
+
+1. <jsp:getProperty>标签用于读取 JavaBean 对象的属性, 也就是调用 JavaBean 对象的 getter 方法, 然后将读取的属性值转换成字符串后插入进输出的响应正文中.
+2. 语法格式为:
+```java
+<jsp:getProperty name="beanInstanceName" property="PropertyName" />
+
+//name 属性用于指定JavaBean实例对象的名称,其值应该与<jsp:useBean>标签的id属性值相同.
+//property属性用于指定JavaBean实力对象的属性名.
+```
+3. 如果一个 JavaBean 实例对象的某个属性的值为 null, 那么, 使用 `<jsp:getProperty>` 标签输出该属性的结果将是一个内容为 "null" 的字符串.

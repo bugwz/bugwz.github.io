@@ -1,0 +1,818 @@
+# Redis 持久化演进史与奇思妙想
+
+目前 Redis 主要支持两种持久化的方式: RDB 和 AOF . 这两者在 Redis 的演进过程中也发生了很多有意思的变化. RDB 的数据格式也已经进行了十次版本迭代, AOF 从最初的 Rewrite 到 Redis 7.0.0 的 Multi-Part-AOF 也发生了很多的变化, 这里将对每个版本进行详细的剖析, 学习 Redis 的持久化演进历史. 这篇文章主要借鉴于 [Redis 持久化机制演进与百度智能云的实践](https://mp.weixin.qq.com/s/9pzNddluP93Wt62cYZK5uw) , 同时按照自己的理解绘制了一些示意图.
+
+# 1. 简介
+
+Redis 支持两种持久化的方式: RDB 和 AOF .
+
+# 2. Redis RDB 持久化演进史
+
+## 2.1 持久化的数据版本演进
+
+### 2.1.1 版本一
+
+- 版本范围: 2.0.0 ~ 2.2.15 (以下分析基于 2.2.15 版本)
+
+- RDB 版本号: 0001
+
+- 版本特点:
+  - 首次支持对五种数据类型数据的持久化;
+
+- 持久化数据内容:
+  - 标记头尾信息;
+  
+  - 多 DB 信息 ( REDIS_SELECTDB );
+  
+  - 过期时间属性 (单位秒, REDIS_EXPIRETIME );
+  
+  - 不同的数据类型及编码:
+    
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:-------------------:|:-----------------------:|:----------------:|
+|REDIS_STRING (0)|REDIS_ENCODING_RAW|REDIS_STRING (0)|
+|REDIS_STRING (0)|REDIS_ENCODING_INT|REDIS_STRING (0)|
+|REDIS_LIST (1)|REDIS_ENCODING_ZIPLIST|REDIS_LIST (1)|
+|REDIS_LIST (1)|REDIS_ENCODING_LINKEDLIST|REDIS_LIST (1)|
+|REDIS_SET (2)|REDIS_ENCODING_HT|REDIS_SET (2)|
+|REDIS_SET (2)|REDIS_ENCODING_INTSET|REDIS_SET (2)|
+|REDIS_ZSET (3)|REDIS_ENCODING_HT|REDIS_ZSET (3)|
+|REDIS_HASH (4)|REDIS_ENCODING_ZIPMAP|REDIS_HASH (4)|
+|REDIS_HASH (4)|REDIS_ENCODING_HT|REDIS_HASH (4)|
+|REDIS_VMPOINTER (8)|-|-|
+    
+  - 从硬盘上加载交换后的数据 (基于 server.vm_enabled 关联的特性);
+
+
+
+### 2.1.2 版本二
+
+- 版本范围: 2.4.0 ~ 2.4.18 (以下分析基于 2.4.18 版本)
+
+- RDB 版本号: 0002
+
+- 版本特点:
+  - 对不同数据类型的不同编码的持久化数据进行了区分;
+  - ZSET 数据类型的编码优化: 由 HASH 转换为 ZIPLIST 和 SKIPLIST ;
+  
+- 持久化数据内容:
+  - 标记头尾信息;
+  
+  - 多 DB 信息 ( REDIS_SELECTDB );
+  
+  - 过期时间属性 (单位秒, REDIS_EXPIRETIME );
+  
+  - 不同的数据类型及编码:
+  
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:-------------------:|:-----------------------------:|:-----------------------:|
+|REDIS_STRING (0)|REDIS_ENCODING_RAW (0)|REDIS_STRING (0)|
+|REDIS_STRING (0)|REDIS_ENCODING_INT (1)|REDIS_STRING (0)|
+|REDIS_LIST (1)|REDIS_ENCODING_ZIPLIST (5)|REDIS_LIST_ZIPLIST (10)|
+|REDIS_LIST (1)|REDIS_ENCODING_LINKEDLIST (4)|REDIS_LIST (1)|
+|REDIS_SET (2)|REDIS_ENCODING_HT (2)|REDIS_SET (2)|
+|REDIS_SET (2)|REDIS_ENCODING_INTSET (6)|REDIS_SET_INTSET (11)|
+|REDIS_ZSET (3)|REDIS_ENCODING_ZIPLIST (5)|REDIS_ZSET_ZIPLIST (12)|
+|REDIS_ZSET (3)|REDIS_ENCODING_SKIPLIST (7)|REDIS_ZSET (3)|
+|REDIS_HASH (4)|REDIS_ENCODING_ZIPMAP (3)|REDIS_HASH_ZIPMAP (9)|
+|REDIS_HASH (4)|REDIS_ENCODING_HT (2)|REDIS_HASH (4)|
+|REDIS_VMPOINTER (8)|-|-|
+  
+  - 从硬盘上加载交换后的数据 (基于 server.vm_enabled 关联的特性);
+
+
+
+### 2.1.3 版本三
+
+- 版本范围: 2.4.0 ~ 2.5.1(当前不存在 2.5.x 版本, 这其实是 2.6.0 的候选版本, 2.5.1 版本的最新 [Commit](https://github.com/redis/redis/commit/7551f2a0b19e5cf444bf6fed3b8ed5b2c936a228)  )
+
+- RDB 版本号: 0003
+
+- 版本特点:
+
+  - 数据过期时间由秒调整为毫秒;
+  - HASH 数据类型的编码优化: 由 ZIPMAP 和 HASH 转换为 ZIPLIST 和 HASH ;
+  - 移除了从硬盘上加载交换后的数据的逻辑 (基于 server.vm_enabled 关联的特性);
+
+- 持久化数据内容:
+  - 标记头尾信息;
+  
+  - 多 DB 信息 ( REDIS_RDB_OPCODE_SELECTDB );
+  
+  - 过期时间属性 (单位毫秒, REDIS_RDB_OPCODE_EXPIRETIME_MS );
+  
+  - 不同的数据类型及编码:
+  
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:----------------:|:-------------------------------------------:|:-------------------------:|
+|REDIS_STRING (0)|REDIS_ENCODING_RAW (0)|REDIS_RDB_TYPE_STRING (0)|
+|REDIS_STRING (0)|REDIS_ENCODING_INT (1)|REDIS_RDB_TYPE_STRING (0)|
+|REDIS_LIST (1)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_LIST_ZIPLIST (10)|
+|REDIS_LIST (1)|REDIS_ENCODING_LINKEDLIST (4)|REDIS_RDB_TYPE_LIST (1)|
+|REDIS_SET (2)|REDIS_ENCODING_INTSET (6)|REDIS_RDB_TYPE_SET_INTSET (11)|
+|REDIS_SET (2)|REDIS_ENCODING_HT (2)|REDIS_RDB_TYPE_SET (2)|
+|REDIS_ZSET (3)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_ZSET_ZIPLIST (12)|
+|REDIS_ZSET (3)|REDIS_ENCODING_SKIPLIST (7)|REDIS_RDB_TYPE_ZSET (3)|
+|REDIS_HASH (4)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_HASH_ZIPLIST (13)|
+|REDIS_HASH (4)|REDIS_ENCODING_HT (2)|REDIS_RDB_TYPE_HASH (4)|
+
+
+
+### 2.1.4 版本四
+
+- 版本范围: 2.5.2 ~ 2.5.5(当前不存在 2.5.x 版本, 这其实是 2.6.0 的候选版本, 2.5.5 版本的最新 [Commit](https://github.com/redis/redis/commit/1bcb45d1187bbe601b9e14eb5d4cdbd4b5ae3961)  )
+
+- RDB 版本号: 0004
+
+- 版本特点:
+
+  - 无变动;
+
+- 持久化数据内容:
+  - 标记头尾信息;
+  
+  - 多 DB 信息 ( REDIS_RDB_OPCODE_SELECTDB );
+  
+  - 过期时间属性 (单位毫秒, REDIS_RDB_OPCODE_EXPIRETIME_MS );
+  
+  - 不同的数据类型及编码:
+
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:----------------:|:-----------------------------:|:--------------------------------:|
+|REDIS_STRING (0)|REDIS_ENCODING_RAW (0)|REDIS_RDB_TYPE_STRING (0)|
+|REDIS_STRING(0)|REDIS_ENCODING_INT (1)|REDIS_RDB_TYPE_STRING (0)|
+|REDIS_LIST (1)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_LIST_ZIPLIST (10)|
+|REDIS_LIST (1)|REDIS_ENCODING_LINKEDLIST (4)|REDIS_RDB_TYPE_LIST (1)|
+|REDIS_SET (2)|REDIS_ENCODING_INTSET (6)|REDIS_RDB_TYPE_SET_INTSET (11)|
+|REDIS_SET (2)|REDIS_ENCODING_HT (2)|REDIS_RDB_TYPE_SET (2)|
+|REDIS_ZSET (3)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_ZSET_ZIPLIST (12)|
+|REDIS_ZSET (3)|REDIS_ENCODING_SKIPLIST (7)|REDIS_RDB_TYPE_ZSET (3)|
+|REDIS_HASH (4)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_HASH_ZIPLIST (13)|
+|REDIS_HASH (4)|REDIS_ENCODING_HT (2)|REDIS_RDB_TYPE_HASH (4)|
+
+
+
+### 2.1.5 版本五
+
+- 版本范围: 2.5.6(当前不存在 2.5.x 版本, 这其实是 2.6.0 的候选版本, 2.5.6 版本的最新 [Commit](https://github.com/redis/redis/commit/3f64694e7161075bbb48135379da205619c9b034)  )
+
+- RDB 版本号: 0005
+
+- 版本特点:
+
+  - 支持 CRC64 的数据校验码;
+
+- 持久化数据内容:
+  - 标记头尾信息;
+
+  - 多 DB 信息 ( REDIS_RDB_OPCODE_SELECTDB );
+
+  - 过期时间属性 (单位毫秒, REDIS_RDB_OPCODE_EXPIRETIME_MS );
+
+  - 不同的数据类型及编码:
+
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:----------------:|:-----------------------------:|:--------------------------------:|
+|REDIS_STRING (0)|REDIS_ENCODING_RAW (0)|REDIS_RDB_TYPE_STRING (0)|
+|REDIS_STRING (0)|REDIS_ENCODING_INT (1)|REDIS_RDB_TYPE_STRING (0)|
+|REDIS_LIST (1)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_LIST_ZIPLIST (10)|
+|REDIS_LIST (1)|REDIS_ENCODING_LINKEDLIST (4)|REDIS_RDB_TYPE_LIST (1)|
+|REDIS_SET (2)|REDIS_ENCODING_INTSET (6)|REDIS_RDB_TYPE_SET_INTSET (11)|
+|REDIS_SET (2)|REDIS_ENCODING_HT (2)|REDIS_RDB_TYPE_SET (2)|
+|REDIS_ZSET (3)|REDIS_ENCODING_ZIPLIST(5)|REDIS_RDB_TYPE_ZSET_ZIPLIST (12)|
+|REDIS_ZSET (3)|REDIS_ENCODING_SKIPLIST (7)|REDIS_RDB_TYPE_ZSET (3)|
+|REDIS_HASH (4)|REDIS_ENCODING_ZIPLIST(5)|REDIS_RDB_TYPE_HASH_ZIPLIST (13)|
+|REDIS_HASH (4)|REDIS_ENCODING_HT (2)|REDIS_RDB_TYPE_HASH (4)|
+
+  + CRC64 的 Checksum 校验码;
+
+
+
+### 2.1.6 版本六
+
+- 版本范围: 2.6.0(2.5.7 版本其实就是 2.6.0 RC1) ~ 3.0.7 (以下分析基于 3.0.7 版本)
+
+- RDB 版本号: 0006
+
+- 版本特点:
+  - ZIPLIST 编码细粒度优化, 增加 8 比特 和 24 比特编码长度选项;
+  
+- 持久化数据内容:
+  - 标记头尾信息;
+
+  - 多 DB 信息 ( REDIS_RDB_OPCODE_SELECTDB );
+
+  - 过期时间属性 (单位毫秒, REDIS_RDB_OPCODE_EXPIRETIME_MS );
+
+  - 不同的数据类型及编码:
+
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:----------------:|:-----------------------------:|:--------------------------------:|
+|REDIS_STRING (0)|REDIS_ENCODING_RAW (0)|REDIS_RDB_TYPE_STRING (0)|
+|REDIS_STRING (0)|REDIS_ENCODING_INT (1)|REDIS_RDB_TYPE_STRING (0)|
+|REDIS_LIST (1)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_LIST_ZIPLIST (10)|
+|REDIS_LIST (1)|REDIS_ENCODING_LINKEDLIST (4)|REDIS_RDB_TYPE_LIST (1)|
+|REDIS_SET (2)|REDIS_ENCODING_INTSET (6)|REDIS_RDB_TYPE_SET_INTSET (11)|
+|REDIS_SET (2)|REDIS_ENCODING_HT (2)|REDIS_RDB_TYPE_SET (2)|
+|REDIS_ZSET (3)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_ZSET_ZIPLIST (12)|
+|REDIS_ZSET (3)|REDIS_ENCODING_SKIPLIST (7)|REDIS_RDB_TYPE_ZSET (3)|
+|REDIS_HASH (4)|REDIS_ENCODING_ZIPLIST (5)|REDIS_RDB_TYPE_HASH_ZIPLIST (13)|
+|REDIS_HASH (4)|REDIS_ENCODING_HT (2)|REDIS_RDB_TYPE_HASH (4)|
+
+  - CRC64 的 Checksum 校验码;
+
+
+
+### 2.1.7 版本七
+
+- 版本范围: 3.2.0 ~ 3.2.13 (以下分析基于 3.2.13 版本)
+
+- RDB 版本号: 0007
+
+- 版本特点:
+  - 增加了 Aux 字段用于记录额外的信息;
+  - 记录了 DB 数据量信息;
+  - LIST 数据类型的编码优化: 由 ZIPLIST 和 LINKEDLIST 转换为 QUICKLIST ;
+  
+- 持久化数据内容:
+  - 标记头尾信息;
+  - Aux 字段信息:
+    - redis-ver : 当前 Redis 的版本;
+    - redis-bits : 当前机器位数, 32 位或 64 位;
+    - ctime : 当前 RDB 文件的创建时间, 单位秒;
+    - used-mem : 持久化时使用的内存大小;
+  - 多 DB 信息 ( RDB_OPCODE_SELECTDB );
+
+  - DB 的数据量信息 ( RDB_OPCODE_RESIZEDB ), 包括 Key 数量以及过期 Key 数量, 用于减少加载数据时 Dict 多次扩容的开销;
+
+  - 过期时间属性 (单位毫秒, RDB_OPCODE_EXPIRETIME_MS );
+
+  - 不同的数据类型及编码:
+
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:--------------:|:--------------------------:|:----------------------------:|
+|OBJ_STRING (0)|OBJ_ENCODING_RAW (0)|RDB_TYPE_STRING (0)|
+|OBJ_STRING (0)|OBJ_ENCODING_INT (1)|RDB_TYPE_STRING (0)|
+|OBJ_LIST (1)|OBJ_ENCODING_QUICKLIST (9)|RDB_TYPE_LIST_QUICKLIST (14)|
+|OBJ_SET (2)|OBJ_ENCODING_INTSET (6)|RDB_TYPE_SET_INTSET (11)|
+|OBJ_SET (2)|OBJ_ENCODING_HT (2)|RDB_TYPE_SET (2)|
+|OBJ_ZSET (3)|OBJ_ENCODING_ZIPLIST (5)|RDB_TYPE_ZSET_ZIPLIST (12)|
+|OBJ_ZSET (3)|OBJ_ENCODING_SKIPLIST (7)|RDB_TYPE_ZSET (3)|
+|OBJ_HASH (4)|OBJ_ENCODING_ZIPLIST (5)|RDB_TYPE_HASH_ZIPLIST (13)|
+|OBJ_HASH (4)|OBJ_ENCODING_HT (2)|RDB_TYPE_HASH (4)|
+    
+  - CRC64 的 Checksum 校验码;
+
+
+
+### 2.1.8 版本八
+
+- 版本范围: 4.0.0 ~ 4.0.14 (以下分析基于 4.0.14 版本)
+
+- RDB 版本号: 0008
+
+- 版本特点:
+  - Aux 字段中增加主从复制相关信息;
+  - 支持 Module 类型数据的持久化;
+  - 优化了 ZSET 的 SKIPLIST 编码类型, ZSET 支持存储二进制数据;
+  - 首次支持将 RDB 持久化到 AOF 中;
+  
+- 持久化数据内容:
+  - 标记头尾信息;
+  - Aux 字段信息 ( RDB_OPCODE_AUX ):
+    - redis-ver : 当前 Redis 的版本;
+    - redis-bits : 当前机器位数, 32 位或 64 位;
+    - ctime : 当前 RDB 文件的创建时间, 单位秒;
+    - used-mem : 持久化时使用的内存大小;
+    - aof-preamble : 持久化 RDB 的数据是否位于 AOF 文件中;
+    - repl-stream-db : 主从复制时的当前 DBID (按需持久化);
+    - repl-id : 主从复制的复制 ID (按需持久化);
+    - repl-offset : 主从复制的复制偏移量 (按需持久化);
+  - 多 DB 信息 ( RDB_OPCODE_SELECTDB );
+  - DB 的数据量信息 ( RDB_OPCODE_RESIZEDB ), 包括 Key 数量以及过期 Key 数量, 用于减少加载数据时 Dict 多次扩容的开销;
+  - 过期时间属性 (单位毫秒, RDB_OPCODE_EXPIRETIME_MS );
+  - 不同的数据类型及编码:
+
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:--------------:|:--------------------------:|:----------------------------:|
+|OBJ_STRING (0)|OBJ_ENCODING_RAW (0)|RDB_TYPE_STRING (0)|
+|OBJ_STRING (0)|OBJ_ENCODING_INT (1)|RDB_TYPE_STRING (0)|
+|OBJ_LIST (1)|OBJ_ENCODING_QUICKLIST (9)|RDB_TYPE_LIST_QUICKLIST (14)|
+|OBJ_SET (2)|OBJ_ENCODING_INTSET (6)|RDB_TYPE_SET_INTSET (11)|
+|OBJ_SET (2)|OBJ_ENCODING_HT (2)|RDB_TYPE_SET (2)|
+|OBJ_ZSET (3)|OBJ_ENCODING_ZIPLIST (5)|RDB_TYPE_ZSET_ZIPLIST (12)|
+|OBJ_ZSET (3)|OBJ_ENCODING_SKIPLIST (7)|RDB_TYPE_ZSET_2 (5)|
+|OBJ_HASH (4)|OBJ_ENCODING_ZIPLIST (5)|RDB_TYPE_HASH_ZIPLIST (13)|
+|OBJ_HASH (4)|OBJ_ENCODING_HT (2)|RDB_TYPE_HASH (4)|
+|OBJ_MODULE (5)|-|RDB_TYPE_MODULE_2 (7)|
+
+  - LUA 脚本;
+  - CRC64 的 Checksum 校验码;
+
+
+
+### 2.1.9 版本九
+
+- 版本范围: 5.0.0 ~ 6.2.7 (以下分析基于 6.2.7 版本)
+
+- RDB 版本号: 0009
+
+- 版本特点:
+  - Module 的前后置信息字段, 保存在 Aux 字段中;
+  - 保存 KV 对应的 LRU 和 LFU 信息;
+  - 支持 Stream 类型数据的持久化;
+  
+- 持久化数据内容:
+  - 标记头尾信息;
+  
+  - Aux 字段信息 ( RDB_OPCODE_MODULE_AUX ):
+    - redis-ver : 当前 Redis 的版本;
+    - redis-bits : 当前机器位数, 32 位或 64 位;
+    - ctime : 当前 RDB 文件的创建时间, 单位秒;
+    - used-mem : 持久化时使用的内存大小;
+    - aof-preamble :  持久化 RDB 的数据是否位于 AOF 文件中;
+    - repl-stream-db : 主从复制时的当前 DBID (按需持久化);
+    - repl-id : 主从复制的复制 ID (按需持久化);
+    - repl-offset : 主从复制的复制偏移量 (按需持久化);
+    
+  - Module 的前置信息, 常用于在加载 RDB 数据前进行 Module 模块信息的初始化;
+  
+  - 多 DB 信息 ( RDB_OPCODE_SELECTDB );
+  
+  - DB 的数据量信息, 包括 Key 数量以及过期 Key 数量, 用于减少加载数据时 Dict 多次扩容的开销;
+
+  - 过期时间属性 (单位毫秒, RDB_OPCODE_EXPIRETIME_MS );
+  
+  - KV 的访问空闲时间信息 ( RDB_OPCODE_IDLE ), 当且仅当内存剔除策略是 LRU 相关;
+  
+  - KV 的访问频率信息 ( RDB_OPCODE_FREQ ), 当且仅当内存剔除策略时 LFU 相关;
+  
+  - 不同的数据类型及编码:
+  
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:--------------:|:--------------------------:|:------------------------------:|
+|OBJ_STRING (0)|OBJ_ENCODING_RAW (0)|RDB_TYPE_STRING (0)|
+|OBJ_STRING (0)|OBJ_ENCODING_INT (1)|RDB_TYPE_STRING (0)|
+|OBJ_LIST (1)|OBJ_ENCODING_QUICKLIST (9)|RDB_TYPE_LIST_QUICKLIST (14)|
+|OBJ_SET (2)|OBJ_ENCODING_INTSET (6)|RDB_TYPE_SET_INTSET (11)|
+|OBJ_SET (2)|OBJ_ENCODING_HT (2)|RDB_TYPE_SET (2)|
+|OBJ_ZSET (3)|OBJ_ENCODING_ZIPLIST (5)|RDB_TYPE_ZSET_ZIPLIST (12)|
+|OBJ_ZSET (3)|OBJ_ENCODING_SKIPLIST (7)|RDB_TYPE_ZSET_2 (5)|
+|OBJ_HASH (4)|OBJ_ENCODING_ZIPLIST (5)|RDB_TYPE_HASH_ZIPLIST (13)|
+|OBJ_HASH (4)|OBJ_ENCODING_HT (2)|RDB_TYPE_HASH (4)|
+|OBJ_STREAM (6)|-|RDB_TYPE_STREAM_LISTPACKS (15)|
+|OBJ_MODULE (5)|-|RDB_TYPE_MODULE_2 (7)|
+  
+  - LUA 脚本;
+  
+  - Module 的后置信息;
+  
+  - CRC64 的 Checksum 校验码;
+
+
+
+### 2.1.10 版本十
+
+- 版本范围: 7.0.0 ~ 7.0.5 (以下分析基于 7.0.5 版本)
+
+- RDB 版本号: 0010
+
+- 版本特点:
+  
+  - LIST 数据类型的 QUICKLIST 编码优化;
+  - STREAM 数据类型的 LISTPACKS 编码优化;
+  - ZSET 数据类型的编码优化: 由 ZIPLIST 转换为 LISTPACK ;
+  - HASH 数据类型的编码优化: 由 ZIPLIST 转换为 LISTPACK ;
+  - 支持 Function 脚本的持久化;
+  - Aux 字段名称替换: aof-preamble 替换为 aof-base ;
+  
+- 持久化数据内容:
+  - 标记头尾信息;
+
+  - Aux 字段信息 ( RDB_OPCODE_AUX ):
+    - redis-ver : 当前 Redis 的版本;
+    - redis-bits : 当前机器位数, 32 位或 64 位;
+    - ctime : 当前 RDB 文件的创建时间, 单位秒;
+    - used-mem : 持久化时使用的内存大小;
+    - aof-base : 持久化 RDB 的数据是否位于 AOF 文件中;
+    - repl-stream-db : 主从复制时的当前 DBID (按需持久化);
+    - repl-id : 主从复制的复制 ID (按需持久化);
+    - repl-offset : 主从复制的复制偏移量 (按需持久化);
+    
+  - Module 的前置信息, 常用于在加载 RDB 数据前进行 Module 模块信息的初始化;
+
+  - Function 脚本信息, 包括 LUA 脚本信息;
+
+  - 多 DB 信息 ( RDB_OPCODE_SELECTDB );
+
+  - DB 的数据量信息 ( RDB_OPCODE_RESIZEDB ), 包括 Key 数量以及过期 Key 数量, 用于减少加载数据时 Dict 多次扩容的开销;
+
+  - 过期时间属性 (单位毫秒, RDB_OPCODE_EXPIRETIME_MS );
+
+  - KV 的访问空闲时间信息 ( RDB_OPCODE_IDLE ), 当且仅当内存剔除策略是 LRU 相关;
+
+  - KV 的访问频率信息 ( RDB_OPCODE_FREQ ), 当且仅当内存剔除策略时 LFU 相关;
+
+  - 不同的数据类型及编码:
+
+|数据类型|内存中编码类型|RDB 文件中编码|
+|:--------------:|:--------------------------:|:--------------------------------:|
+|OBJ_STRING (0)|OBJ_ENCODING_RAW (0)|RDB_TYPE_STRING (0)|
+|OBJ_STRING (0)|OBJ_ENCODING_INT (1)|RDB_TYPE_STRING (0)|
+|OBJ_LIST (1)|OBJ_ENCODING_QUICKLIST (9)|RDB_TYPE_LIST_QUICKLIST_2 (18)|
+|OBJ_SET (2)|OBJ_ENCODING_INTSET (6)|RDB_TYPE_SET_INTSET (11)|
+|OBJ_SET (2)|OBJ_ENCODING_HT (2)|RDB_TYPE_SET (2)|
+|OBJ_ZSET (3)|OBJ_ENCODING_LISTPACK (11)|RDB_TYPE_ZSET_LISTPACK (17)|
+|OBJ_ZSET (3)|OBJ_ENCODING_SKIPLIST (7)|RDB_TYPE_ZSET_2 (5)|
+|OBJ_HASH (4)|OBJ_ENCODING_LISTPACK (11)|RDB_TYPE_HASH_LISTPACK (16)|
+|OBJ_HASH (4)|OBJ_ENCODING_HT (2)|RDB_TYPE_HASH (4)|
+|OBJ_STREAM (6)|-|RDB_TYPE_STREAM_LISTPACKS_2 (19)|
+|OBJ_MODULE (5)|-|RDB_TYPE_MODULE_2 (7)|
+
+  - Module 的后置信息;
+
+  - CRC64 的 Checksum 校验码;
+
+
+
+## 2.2 持久化的数据流程演进
+
+### 2.2.1 Redis 2/3 系
+
++ 版本范围: 2.0.0 ~ 2.8.24 , 3.0.0 ~ 3.2.13(以下分析基于 3.2.13 版本)
+
++ 版本特点 (仅关注 RDB 持久化流程的特点):
+  + 较为健全的持久化流程;
++ 持久化流程:
+  + 主线程调用 fork 生成一个子进程, 子进程执行数据持久化的逻辑;
+  + 子进程打开一个  `temp-$pid.rdb` 临时 rdb 文件, 准备持久化内存中的数据;
+  + 子进程不断持久化各种数据, 按需计算 Checksum ;
+  + 子进程调用 fflush 和 fsync 刷新缓存数据;
+  + 子进程将   `temp-$pid.rdb` 临时 rdb 文件重命名为配置的 rdb 名称;
+
+
+
+### 2.2.2 Redis 4 系
+
++ 版本范围: 4.0.0 ~ 4.0.14(以下分析基于 4.0.14 版本)
+
++ 版本特点 (仅关注 RDB 持久化流程的特点):
+  + 子进程支持上报给父进程 CoW 内存使用情况;
++ 持久化流程:
+  + 主线程开启一个消息通信管道 ( server.child_info_pipe );
+  + 主线程调用 fork 生成一个子进程, 子进程执行数据持久化的逻辑;
+  + 子进程打开一个  `temp-$pid.rdb` 临时 rdb 文件, 准备持久化内存中的数据;
+  + 子进程不断持久化各种数据, 按需计算 Checksum ;
+  + 子进程调用 fflush 和 fsync 刷新缓存数据;
+  + 子进程将   `temp-$pid.rdb` 临时 rdb 文件重命名为配置的 rdb 名称;
+  + 子进程通过消息管道 ( 用于子进程上报给父进程 CoW 的内存使用量 ) 上报 CoW 内存使用量信息给父进程;
+
+
+
+### 2.2.3 Redis 5 系
+
++ 版本范围: 5.0.0 ~ 5.0.14(以下分析基于 5.0.14 版本)
+
++ 版本特点 (仅关注 RDB 持久化流程的特点):
+  + 支持渐进式 fflush ( server.rdb_save_incremental_fsync );
++ 持久化流程:
+  + 主线程开启一个消息通信管道 ( server.child_info_pipe );
+  + 主线程调用 fork 生成一个子进程, 子进程执行数据持久化的逻辑;
+  + 子进程打开一个  `temp-$pid.rdb` 临时 rdb 文件, 准备持久化内存中的数据;
+  + 子进程不断持久化各种数据, 按需计算 Checksum , 按需间歇执行 fflush 刷新数据到硬盘 ;
+  + 子进程调用 fflush 和 fsync 刷新缓存数据;
+  + 子进程将   `temp-$pid.rdb` 临时 rdb 文件重命名为配置的 rdb 名称;
+  + 子进程通过消息管道 ( 用于子进程上报给父进程 CoW 的内存使用量 ) 上报 CoW 内存使用量信息给父进程;
+
+
+
+### 2.2.4 Redis 6 系
+
++ 版本范围: 6.0.0 ~ 6.2.7(以下分析基于 6.2.7 版本)
+
++ 版本特点 (仅关注 RDB 持久化流程的特点):
+  + 子进程支持更多的定制配置;
+  + 支持 Module 相关的事件消息通知;
+  + 子进程持久化数据过程中支持间歇上报持久化的 Key 的数量信息;
++ 持久化流程:
+  + 主线程开启一个消息通信管道 ( server.child_info_pipe );
+  + 主线程调用 fork 生成一个子进程, 子进程执行数据持久化的逻辑;
+  + 子进程设置自己的 OOM Score , 特定的信号处理函数, 绑定执行 CPU ( server.bgsave_cpulist );
+  + 子进程打开一个  `temp-$pid.rdb` 临时 rdb 文件, 准备持久化内存中的数据;
+  + 子进程启用一些 Module 相关的事件消息通知机制;
+  + 子进程不断持久化各种数据, 按需计算 Checksum , 按需间歇执行 fflush 刷新数据到硬盘, 间歇上报给父进程持久化 Key 数量 ;
+  + 子进程调用 fflush 和 fsync 刷新缓存数据;
+  + 子进程将   `temp-$pid.rdb` 临时 rdb 文件重命名为配置的 rdb 名称;
+  + 子进程通过消息管道 ( 用于子进程上报给父进程 CoW 的内存使用量 ) 上报 CoW 内存使用量信息给父进程;
+
+
+
+### 2.2.5 Redis 7 系
+
++ 版本范围: 7.0.0 ~ 7.0.5(以下分析基于 7.0.5 版本)
+
++ 版本特点 (仅关注 RDB 持久化流程的特点):
+  + 引入 madvise(MADV_DONTNEED) 解决 CoW 内存增长过大的问题;
+  + 子进程补充 fsync 数据, 避免数据文件元信息丢失;
++ 持久化流程:
+  + 主线程开启一个消息通信管道 ( server.child_info_pipe );
+  + 主线程调用 fork 生成一个子进程, 子进程执行数据持久化的逻辑;
+  + 子进程设置自己的 OOM Score , 特定的信号处理函数, 绑定执行 CPU ( server.bgsave_cpulist );
+  + 子进程释放冗余的内存占用, 避免 CoW 的开销;
+  + 子进程打开一个  `temp-$pid.rdb` 临时 rdb 文件, 准备持久化内存中的数据;
+  + 子进程启用一些 Module 相关的事件消息通知机制;
+  + 子进程不断持久化各种数据 (持久化后的数据直接释放, 避免 CoW 开销), 按需计算 Checksum , 按需间歇执行 fflush 刷新数据到硬盘, 间歇上报给父进程持久化 Key 数量 ;
+  + 子进程调用 fflush 和 fsync 刷新缓存数据;
+  + 子进程将   `temp-$pid.rdb` 临时 rdb 文件重命名为配置的 rdb 名称;
+  + 子进程按需执行 fsync rdb 文件所在的目录, 避免数据元信息丢失 ( fsyncFileDir 函数 );
+  + 子进程通过消息管道 ( 用于子进程上报给父进程 CoW 的内存使用量 ) 上报 CoW 内存使用量信息给父进程;
+
+
+
+# 3. Redis AOF 持久化演进史
+
+## 3.1 Rewrite AOF 方案
+
++ 版本范围: 2.2.0 ~ 2.8.24(以下分析基于 2.8.24 版本)
+
++ 版本特点 (仅关注 AOF 持久化流程的特点):
+  + 首次支持追加文件的持久化以及重写方案;
+  + 主线程追加堆积的增量变更命令到 AOF 中;
+  + 重写时支持渐进式 fflush ( server.aof_rewrite_incremental_fsync );
++ 追加持久化流程:
+  + Redis 执行完成相关命令后, 按需将命令格式化追加到 server.aof_buf , RESP 数据格式化规则:
+    + 当出现 DB 切换后, 会主动写一个 SELECT 命令到 AOF 中;
+    + 当执行 SETEX/PSETEX 时, 会持久化为 SET 和 PEXPIREAT 两个命令;
+  + Redis 定时将 server.aof_buf 中的数据写盘, 主线程同步写盘;
+  + 数据写盘后, 需要按照不同的刷盘策略将数据实际落盘, 不同的刷盘策略为:
+    + AOF_FSYNC_NO : 不主动执行 fsync , 依靠操作系统的刷盘逻辑;
+    + AOF_FSYNC_ALWAYS : 尝试每次写盘后都执行 fsync ;
+    + AOF_FSYNC_EVERYSEC : 尝试每秒执行一次 fsync ;
++ 重写持久化流程:
+  + 主线程 fork 一个子进程执行持久化流程;
+  + 主线程开始堆积增量的 AOF 数据 ( aofRewriteBufferAppend 函数);
+  + 子进程打开一个  `temp-rewriteaof-$pid.aof` 临时 aof 文件, 准备持久化内存中的数据;
+  + 子进程按照 RESP 协议的持久化不同数据类型的数据, 相关持久化规则为:
+    + 当出现 DB 切换后, 会拼接一个 SELECT 命令到 AOF 中;
+    + REDIS_STRING 数据类型转换为一个 SET 命令;
+    + REDIS_LIST 数据类型转换为一个或多个 RPUSH 命令 (默认每 64 个数据项拆分为一个命令);
+    + REDIS_SET 数据类型转换为一个或多个 SADD 命令 (默认每 64 个数据项拆分为一个命令);
+    + REDIS_ZSET 数据类型转换为一个或多个 ZADD 命令 (默认每 64 个数据项拆分为一个命令);
+    + REDIS_HASH 数据类型转换为一个或多个 HMSET 命令 (默认每 64 个数据项拆分为一个命令);
+    + 带有过期属性的数据转换为一个 PEXPIREAT 命令;
+  + 子进程将  `temp-rewriteaof-$pid.aof` 临时 aof 文件重命名为 `temp-rewriteaof-bg-$pid.aof` ;
+  + 父进程打开 `temp-rewriteaof-bg-$pid.aof` 文件, 并追加堆积的增量的变更命令, 之后将其重命名为配置的 AOF 名称;
+
+![RewriteAOF流程](/assets/images/posts/redis-persistence/redis-persistence-rewriteaof.webp)
+
+
+
+## 3.2 Rewrite AOF 优化方案
+
++ 版本范围: 3.0.0 ~ 3.2.13(以下分析基于 3.2.13 版本)
+
++ 版本特点 (仅关注 AOF 持久化流程的特点):
+  + 过期时间操作的部分命令持久化为绝对时间;
+  + 父进程通过管道的方式发送追加的变更给持久化的子进程, 减少父进程阻塞写 AOF 的时间开销;
++ 追加持久化流程:
+  + Redis 执行完成相关命令后, 按需将命令格式化追加到 server.aof_buf , RESP 数据格式化规则:
+    + 当出现 DB 切换后, 会主动写一个 SELECT 命令到 AOF 中;
+    + 当执行 EXPIRE/PEXPIRE/EXPIREAT 时, 会持久化为 PEXPIREAT 命令;
+    + 当执行 SETEX/PSETEX 时, 会持久化为 SET 和 PEXPIREAT 两个命令;
+    + 当执行的 SET 命令带有 EX 或 PX 参数时, 会持久化为 SET 和 PEXPIREAT 两个命令;
+  + Redis 定时将 server.aof_buf 中的数据写盘, 主线程同步写盘;
+  + 数据写盘后, 需要按照不同的刷盘策略将数据实际落盘, 不同的刷盘策略为:
+    + AOF_FSYNC_NO : 不主动执行 fsync , 依靠操作系统的刷盘逻辑;
+    + AOF_FSYNC_ALWAYS : 尝试每次写盘后都执行 fsync ;
+    + AOF_FSYNC_EVERYSEC : 尝试每秒执行一次 fsync ;
++ 重写持久化流程:
+  + 主线程创建一批管道, 用于父子进程的通信;
+  + 主线程 fork 一个子进程执行持久化流程;
+  + 主线程开始堆积增量的 AOF 数据 ( aofRewriteBufferAppend 函数);
+  + 子进程打开一个  `temp-rewriteaof-$pid.aof` 临时 aof 文件, 准备持久化内存中的数据;
+  + 子进程启用一些 Module 相关的事件消息通知机制;
+  + 子进程按照 RESP 协议的持久化不同数据类型的数据, 相关持久化规则为:
+    + 当出现 DB 切换后, 会拼接一个 SELECT 命令到 AOF 中;
+    + OBJ_STRING 数据类型转换为一个 SET 命令;
+    + OBJ_LIST 数据类型转换为一个或多个 RPUSH 命令 (默认每 64 个数据项拆分为一个命令);
+    + OBJ_SET 数据类型转换为一个或多个 SADD 命令 (默认每 64 个数据项拆分为一个命令);
+    + OBJ_ZSET 数据类型转换为一个或多个 ZADD 命令 (默认每 64 个数据项拆分为一个命令);
+    + OBJ_HASH 数据类型转换为一个或多个 HMSET 命令 (默认每 64 个数据项拆分为一个命令);
+    + 带有过期属性的数据转换为一个 PEXPIREAT 命令;
+  + 子进程在持久化数据时定期从父进程的通信管道中读取增量的变更命令, 并将其存储到 server.aof_child_diff 中;
+  + 子进程通知父进程停止传输增量的变更命令, 之后将管道中未读取的变更命令读取完毕后追加到 server.aof_child_diff 中;
+  + 子进程将获取到的父进程传输的增量变更命令全部记录到当前持久化的 AOF 中;
+  + 子进程将  `temp-rewriteaof-$pid.aof` 临时 aof 文件重命名为 `temp-rewriteaof-bg-$pid.aof` ;
+  + 父进程打开 `temp-rewriteaof-bg-$pid.aof` 文件, 并将未同步给子进程的堆积的增量命令追到到 AOF 中;
+  + 父进程将 `temp-rewriteaof-bg-$pid.aof`  重命名为配置的 AOF 名称;
+
+![RewriteAOF优化版流程](/assets/images/posts/redis-persistence/redis-persistence-rewriteaof2.webp)
+
+
+
+## 3.3 Preamble RDB In AOF 方案
+
++ 版本范围: 4.0.0 ~ 6.2.7(以下分析基于 6.2.7 版本)
++ 版本特点 (仅关注 AOF 持久化流程的特点):
+  + SET 相关命令的持久化格式优化;
+  + AOF 中支持带有 RDB 格式的数据前缀, 可用于压缩 Rewrite 之后的 AOF 大小;
++ 追加持久化流程:
+  + Redis 执行完成相关命令后, 按需将命令格式化追加到 server.aof_buf , RESP 数据格式化规则:
+    + 当出现 DB 切换后, 会主动写一个 SELECT 命令到 AOF 中;
+    + 当执行 EXPIRE/PEXPIRE/EXPIREAT 时, 会持久化为 PEXPIREAT 命令;
+    + 当执行的 SET 命令带有 PX 参数时, 持久化的 SET 带有 PXAT 参数;
+  + Redis 定时将 server.aof_buf 中的数据写盘, 主线程同步写盘;
+  + 数据写盘后, 需要按照不同的刷盘策略将数据实际落盘, 不同的刷盘策略为:
+    + AOF_FSYNC_NO : 不主动执行 fsync , 依靠操作系统的刷盘逻辑;
+    + AOF_FSYNC_ALWAYS : 尝试每次写盘后都执行 fsync ;
+    + AOF_FSYNC_EVERYSEC : 尝试每秒执行一次 fsync ;
+
++ 重写持久化流程:
+
+  + 主线程创建一批管道, 用于父子进程的通信;
+
+  + 主线程 fork 一个子进程执行持久化流程;
+
+  + 主线程开始堆积增量的 AOF 数据 ( aofRewriteBufferAppend 函数);
+  + 子进程设置自己的 OOM Score , 特定的信号处理函数, 绑定执行 CPU ( server.aof_rewrite_cpulist );
+
+  + 子进程打开一个  `temp-rewriteaof-$pid.aof` 临时 aof 文件, 准备持久化内存中的数据;
+  + 子进程启用一些 Module 相关的事件消息通知机制;
+  + 子进程 rewrite 的 AOF 格式有两种情况:
+    + 前部分格式为 RDB , 后半部分为 RESP 规范的 AOF 格式 ( server.aof_use_rdb_preamble ): 
+      + 按照 RDB 的格式持久化内存中的数据, 并在持久化时不断通知父进程已经持久化的 Key 的数量信息;
+      + 持久化时按需间歇执行 fflush 刷新数据到硬盘;
+    + 全部为 RESP 规范的 AOF 格式: 则持久化不同数据类型的数据, 并按需间歇执行 fflush 刷新数据到硬盘, 相关持久化规则为:
+      + 当出现 DB 切换后, 会拼接一个 SELECT 命令到 AOF 中;
+      + OBJ_STRING 数据类型转换为一个 SET 命令;
+      + OBJ_LIST 数据类型转换为一个或多个 RPUSH 命令 (默认每 64 个数据项拆分为一个命令);
+      + OBJ_SET 数据类型转换为一个或多个 SADD 命令 (默认每 64 个数据项拆分为一个命令);
+      + OBJ_ZSET 数据类型转换为一个或多个 ZADD 命令 (默认每 64 个数据项拆分为一个命令);
+      + OBJ_HASH 数据类型转换为一个或多个 HMSET 命令 (默认每 64 个数据项拆分为一个命令);
+      + OBJ_STREAM 数据类型转换为 XADD / XSETID / XGROUP 一批命令;
+      + OBJ_MODULE 数据类型转换为自定义的 Rewrite 命令;
+      + 带有过期属性的数据转换为一个 PEXPIREAT 命令;
+
+  + 子进程定期从父进程的通信管道中读取增量的变更命令, 并将其存储到 server.aof_child_diff 中;
+
+  + 子进程通知父进程停止传输增量的变更命令, 之后将管道中未读取的变更命令读取完毕后追加到 server.aof_child_diff 中;
+
+  + 子进程将获取到的父进程传输的增量变更命令全部记录到当前持久化的 AOF 中;
+
+  + 子进程将  `temp-rewriteaof-$pid.aof` 临时 aof 文件重命名为 `temp-rewriteaof-bg-$pid.aof` ;
+
+  + 父进程打开 `temp-rewriteaof-bg-$pid.aof` 文件, 并将未同步给子进程的堆积的增量命令追到到 AOF 中;
+
+  + 父进程将 `temp-rewriteaof-bg-$pid.aof`  重命名为配置的 AOF 名称;
+
+![AOF中含有RDB格式的持久化流程](/assets/images/posts/redis-persistence/redis-persistence-aof-preamble.webp)
+
+
+
+## 3.4 Multi Part AOF 方案
+
++ 版本范围: 7.0.0 ~ 7.0.5(以下分析基于 7.0.5 版本)
++ 版本特点 (仅关注 AOF 持久化流程的特点):
+  + 统一 Backlog 和 AOF 中的变更命令格式, 解决了老版本中由于要格式化命令导致的两者中数据不一致的问题;
+  + 支持多 AOF 数据结构, 减少父子进程间传输增量命令的开销;
+  + 新支持命令时间戳注释;
++ 追加持久化流程:
+  + Redis 执行完成相关命令后, 按需将命令格式化追加到 server.aof_buf 中 ( alsoPropagate 函数来统一格式);
+  + Redis 定时将 server.aof_buf 中的数据写盘, 主线程同步写盘;
+  + 数据写盘后, 需要按照不同的刷盘策略将数据实际落盘, 不同的刷盘策略为:
+    + AOF_FSYNC_NO : 不主动执行 fsync , 依靠操作系统的刷盘逻辑;
+    + AOF_FSYNC_ALWAYS : 尝试每次写盘后都执行 fsync ;
+    + AOF_FSYNC_EVERYSEC : 尝试每秒执行一次 fsync ;
+
++ 数据文件:
+  + `$aofname.manifest` : 记录本地有效 AOF 列表的元数据文件;
+  + `$aofname.$base_seq_file_id.base.rdb` : Rewrite 过程中子进程生成的基础 AOF 文件;
+  + `$aofname.$incr_seq_file_id.incr.aof` : Rewrite 过程中父进程生成的增量 AOF 文件;
++ 重写持久化流程:
+  + 主线程创建 AOF 所在的目录 ( server.aof_dirname );
+  + 主线程打开需要存储增量写入的新的 AOF 文件;
+  + 主线程更新 manifest 文件;
+  + 主线程调用 fork 生成一个子进程, 子进程执行数据持久化的逻辑;
+  + 子进程设置自己的 OOM Score , 特定的信号处理函数, 绑定执行 CPU ( server.aof_rewrite_cpulist );
+  + 子进程释放冗余的内存占用, 避免 CoW 的开销;
+  + 子进程打开一个  `temp-rewriteaof-$pid.aof` 临时 aof 文件, 准备持久化内存中的数据;
+  + 子进程启用一些 Module 相关的事件消息通知机制;
+  + 子进程 rewrite 的 AOF 格式有两种情况:
+    + 前部分格式为 RDB , 后半部分为 RESP 规范的 AOF 格式 ( server.aof_use_rdb_preamble ): 
+      + 按照 RDB 的格式持久化内存中的数据, 并在持久化时不断通知父进程已经持久化的 Key 的数量信息;
+      + 持久化时按需间歇执行 fflush 刷新数据到硬盘;
+    + 全部为 RESP 规范的 AOF 格式: 则持久化不同数据类型的数据, 并按需间歇执行 fflush 刷新数据到硬盘, 相关持久化规则为:
+      + 当出现 DB 切换后, 会拼接一个 SELECT 命令到 AOF 中;
+      + OBJ_STRING 数据类型转换为一个 SET 命令;
+      + OBJ_LIST 数据类型转换为一个或多个 RPUSH 命令 (默认每 64 个数据项拆分为一个命令);
+      + OBJ_SET 数据类型转换为一个或多个 SADD 命令 (默认每 64 个数据项拆分为一个命令);
+      + OBJ_ZSET 数据类型转换为一个或多个 ZADD 命令 (默认每 64 个数据项拆分为一个命令);
+      + OBJ_HASH 数据类型转换为一个或多个 HMSET 命令 (默认每 64 个数据项拆分为一个命令);
+      + OBJ_STREAM 数据类型转换为 XADD / XSETID / XGROUP 等一批命令;
+      + OBJ_MODULE 数据类型转换为自定义的 Rewrite 命令;
+      + 带有过期属性的数据转换为一个 PEXPIREAT 命令;
+  + 子进程持久化过程中间歇向父进程汇报已经处理的 Key 的数量信息;
+  + 子进程调用 fflush 和 fsync 刷新缓存数据;
+  + 子进程将  `temp-rewriteaof-$pid.aof` 临时 aof 文件重命名为 `temp-rewriteaof-bg-$pid.aof` ;
+  + 子进程向父进程汇报 CoW 内存的使用情况;
+  + 父进程读取 manifest 获取持久化相关信息, 并开发下一个期望的 base 的 AOF;
+  + 父进程将  `temp-rewriteaof-bg-$pid.aof`  文件重命名为 下一个 base 的 AOF ;
+  + 父进程更新 manifest 文件中记录的元信息, 并清理无用的历史 AOF ;
+
+![MultiPartAOF 重写流程](/assets/images/posts/redis-persistence/redis-persistence-multi-part-aof.webp)
+
+
+
+# 4. 奇思妙想
+
+## 4.1 异步写 AOF 方案
+
+Redis 社区版本目前仅支持主线程同步写 AOF 的操作, 在写入量较大以及磁盘性能较差的场景中很容易出现写耗时的抖动问题, 为此很多使用 Redis 的厂商都定制了异步写 AOF 的方案, 这里介绍一种比较典型的实现方案.
+
++ 方案设计:
+  + 内存中维护一个队列, 用于记录用户所有的写入请求, RESP 格式兼容所有写操作 (使用 Redis 的 BIO 任务队列也可以);
+  +  后台线程不断消费该队列中的数据, 并将其持久化到本地的 AOF 中 (可以使用现有的 BIO 线程进行消费);
++ 关键点处理:
+  + 队列的大小限制: 可通过自定义的配置限制队列的内存大小, 避免出现数据丢失的风险;
+  + 后台线程写 AOF 失败的处理:
+    + 思路一: 后台线程写 AOF 失败后跳过, 继续写下一个. 这样就不保证 AOF 中数据的可靠性, 适用于纯缓存的场景; 同时可记录一些关键指标, 用于监控失败的次数, 失败的命令等信息;
+    + 思路二: 后台线程写 AOF 失败后通知主线程 (原子变量), 并不断重试, 直到写入成功. 这样能够保证 AOF 中数据的可靠性, 但是当磁盘出现异常的场景下, 很容易由于队列内存堆积导致实例内存增长, 或者在限制内存大小的情况下触发队列满的另一个处理场景.
+  + 内存中的队列到达限制之后的处理 (例如到达内存的约束值): (有些时候需要根据线上具体监控指标来选择哪种实现方式)
+    + 思路一: 禁写, 快速失败. 这能够保证服务的单次访问耗时, 但是需要客户端能够处理这种错误, 否则就有可能业务频发请求出现访问量暴涨的情况. 这种方案通常适用于业务对于访问耗时要求极高, 并且有很好的错误处理机制.
+    + 思路二: 阻塞等待队列中数据消费到阈值以下. 这种方式不可避免的就会影响单次访问的耗时, 并且会拉大整体的长尾访问耗时. 如果线上机器磁盘很好, 且几乎没有出现过异常, 并且业务的写入流量不是持续高峰, 可能只是瞬时的出现高峰, 并且业务也能够接受短暂的访问耗时增加, 这种方式对业务来说可能会更加友好.
+
+
+
+## 4.2 定制特征 AOF 方案
+
+Redis 7.0.0 中支持了一种 AOF 中的注释格式, 当前应该是只实现了关于时间戳的注释, 用于记录在持久化数据时对应命令的执行时间, 可用作于按时间点追溯的需求. 同理, 我们也可以基于这种注释的方式来应对更加丰富的场景.
+
+
+
+### 4.2.1 按时间点追溯场景
+
++ 方案设计:
+  + 在开启 AOF 持久化的情况下开启 server.aof_timestamp_enabled 配置, 保证每条持久化的命令前都附带对应的操作时间戳;
++ 注意点:
+  + 如果按照当前社区版本中的实现, 在执行了 RewriteAOF 之后, AOF 中记录的时间戳就会丢失, 失去了指令级的时间信息; 
+
+
+
+### 4.2.2 写入链路追踪
+
++ 方案设计:
+  + 在注释的信息中添加 IP 以及操作者信息, 用于追溯数据的写入源, 可用于快速定位问题, 排查异常流量;
++ 注意点:
+  + 加入这些信息之后会导致 AOF 大小增量变大, 同时 RewriteAOF 之后信息丢失;
+
+
+
+## 4.3 RDB + AOF 混合持久化方案
+
+在 Redis 的 MultiPartAOF 模式下, 如果启用了在 AOF 文件中持久化 RDB 格式的数据, 这其实也可以理解为一种 RDB + AOF 的混合持久化方案. 基本的思路都是存量 + 增量的数据持久化模型. 这里介绍另外一种独特的实现方案.
+
++ 方案设计:
+  + 基于存量 + 增量的数据持久化模型, 将 RDB 数据文件作为存量数据存储, 将 AOF 数据作为增量数据存储;
+  + RDB 和 AOF 的数据已某种关系关联一起, 实现数据加载的连续以及安全性;
+  + 将 AOF 拆分成多个固化的 AOF 文件, 不会对其执行 RewriteAOF 操作, 本地数据盘中最终会形成多个有序的 AOF ;
+
++ 数据持久化特点:
+  + AOF 持久化:
+    + 使用当前的增量数据持久化的流程, 必要时可以支持异步落盘;
+    + 设定单个 AOF 文件的阈值, 达到阈值后启用下一个 AOF 文件, 固化先前的 AOF 数据内容;
+    + 控制整体 AOF 文件数据的大小, 避免占用较大的硬盘空间, 必要时主动删除最老的 AOF 文件;
+  + RDB 持久化:
+    + 使用现有的 bgsave 持久化方式, 保存的数据与先前无异;
+    + 并额外持久化了一些 AOF 相关的信息: 包括当前对应的 AOF 名称, 数据偏移量, 操作的 DBID, 从而保证数据加载安全性;
+
+![RDB + AOF 混合持久化模型](/assets/images/posts/redis-persistence/redis-persistence-rdb-and-aof.webp)
+
+
+
+## 4.4 RDB Forkless 持久化方案
+
+以上讨论了很多持久化的方式, 全部都需要调用 fork 利用子进程来进行持久化的工作. fork 也不可避免的会导致进程的内存使用增长, Redis 7.0.0 中也做了一些工作, 尽可能的想要减少 CoW 导致的内存开销. 换个思维去想一下, Redis 能否不通过 fork 来进行数据的持久化, 业界提供了一种新的思路: Forkless 方案.
+
+
+
++ 方案设计:
+  + 利用 Redis 提供的迭代字典数据的思想来实现对已有数据的持久化;
+  + 锁定字典的状态, 禁止执行 Rehash 操作;
+  + 使用单独线程, 按照哈希表的下标, 有序遍历其中的全部数据, 然后将所有数据持久化;
++ 字典中哈希下标的分类 (考虑遍历过程中的数据变更):
+  + 已经遍历的: 当前桶中的数据已经被持久化, 需要记录该变更命令, 遍历完成后将记录的变更命令追加到持久化数据中;
+  + 正在遍历的: 拷贝变更冲突的数据;
+  + 还未遍历的: 直接执行, 后续遍历到时持久化的就是最新的数据;
+
+![哈希桶的遍历状态](/assets/images/posts/redis-persistence/redis-persistence-forkless-scan-state.webp)
+
++ 持久化数据格式 ( RDB 数据文件中的格式):
+  + RDB 格式: 遍历过程中所有未被修改的数据以这种编码方式进行持久化;
+  + RESP 格式 ( AOF 格式): 遍历过程中所有被修改的数据以 RESP 增量数据的方式进行持久化;
+
+
+
+# 5. 参考链接
+
++ [Redis 持久化机制演进与百度智能云的实践](https://mp.weixin.qq.com/s/9pzNddluP93Wt62cYZK5uw)
++ [百度 Redis 内核深度剖析(极客时间出品)](https://time.geekbang.org/qconplus/detail/100110469)

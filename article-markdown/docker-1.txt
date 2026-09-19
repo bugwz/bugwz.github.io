@@ -1,0 +1,480 @@
+# Docker 学习笔记 - Docker 入门篇
+
+Docker 使用 Google 公司推出的 [Go 语言](https://golang.org/) 进行开发实现, 基于 Linux 内核的 [cgroup](https://zh.wikipedia.org/wiki/Cgroups),[namespace](https://en.wikipedia.org/wiki/Linux_namespaces), 以及 [AUFS](https://en.wikipedia.org/wiki/Aufs) 类的 [Union FS](https://en.wikipedia.org/wiki/Union_mount) 等技术, 对进程进行封装隔离, 属于 [操作系统层面的虚拟化技术](https://en.wikipedia.org/wiki/Operating-system-level_virtualization). 由于隔离的进程独立于宿主和其它的隔离的进程, 因此也称其为容器. 最初实现是基于 [LXC](https://linuxcontainers.org/lxc/introduction/), 从 0.7 版本以后开始去除 LXC, 转而使用自行开发的 [libcontainer](https://github.com/docker/libcontainer), 从 1.11 开始, 则进一步演进为使用 [runC](https://github.com/opencontainers/runc) 和 [containerd](https://github.com/containerd/containerd).
+
+# 1. Docker 架构
+
+Docker 使用客户端-服务器 (C/S) 架构模式, 使用远程 API 来管理和创建 Docker 容器. Docker 容器通过 Docker 镜像来创建. 容器与镜像的关系类似于面向对象编程中的对象与类.
+
+- Docker 镜像 (Images): Docker 镜像是用于创建 Docker 容器的模板;
+- Docker 容器 (Container): 容器是独立运行的一个或一组应用;
+- Docker 客户端 (Client): Docker 客户端通过命令行或者其他工具使用 Docker API (<https://docs.docker.com/reference/api/docker_remote_api>) 与 Docker 的守护进程通信;
+- Docker 主机 (Host): 一个物理或者虚拟的机器用于执行 Docker 守护进程和容器;
+- Docker 仓库 (Registry): Docker 仓库用来保存镜像, 可以理解为代码控制中的代码仓库, Docker Hub([https://hub.docker.com](https://hub.docker.com/)) 提供了庞大的镜像集合供使用;
+- Docker Machine: Docker Machine 是一个简化 Docker 安装的命令行工具, 通过一个简单的命令行即可在相应的平台上安装 Docker, 比如 VirtualBox, Digital Ocean, Microsoft Azure;
+
+# 2. Docker 基本指令
+
+## 2.1 容器生命周期管理
+
+### 2.1.1 Run 命令
+
+```bash
+docker run [OPTIONS] IMAGE [COMMAND] [ARG...]:创建一个新的容器并运行一个命令
+
+Options:
+-a stdin: 指定标准输入输出内容类型,可选 STDIN/STDOUT/STDERR 三项;
+-d: 后台运行容器,并返回容器ID;
+-i: 以交互模式运行容器,通常与 -t 同时使用;
+-p: 端口映射,格式为:主机(宿主)端口:容器端口
+-t: 为容器重新分配一个伪输入终端,通常与 -i 同时使用;
+--name="nginx-lb": 为容器指定一个名称;
+--dns 8.8.8.8: 指定容器使用的DNS服务器,默认和宿主一致;
+--dns-search example.com: 指定容器DNS搜索域名,默认和宿主一致;
+-h "mars": 指定容器的hostname;
+-e username="ritchie": 设置环境变量;
+--env-file=[]: 从指定文件读入环境变量;
+--cpuset="0-2" or --cpuset="0,1,2": 绑定容器到指定CPU运行;
+-m :设置容器使用内存最大值;
+--net="bridge": 指定容器的网络连接类型,支持 bridge/host/none/container: 四种类型;
+--link=[]: 添加链接到另一个容器;
+--expose=[]: 开放一个端口或一组端口;
+
+Examples:
+docker run --name mynginx -d nginx:latest
+docker run -P -d nginx:latest
+docker run -p 80:80 -v /data:/data -d nginx:latest
+docker run -p 127.0.0.1:80:8080/tcp ubuntu bash
+```
+
+### 2.1.2 容器启停命令
+
+```bash
+ddocker start [OPTIONS] CONTAINER [CONTAINER...] :启动一个或多个已经被停止的容器
+docker stop [OPTIONS] CONTAINER [CONTAINER...] :停止一个运行中的容器
+docker restart [OPTIONS] CONTAINER [CONTAINER...] :重启容器
+```
+
+### 2.1.3 kill 命令
+
+```bash
+docker kill [OPTIONS] CONTAINER [CONTAINER...]:杀掉一个运行中的容器
+
+Options:
+-s :向容器发送一个信号
+
+Examples:
+docker kill -s KILL mynginx
+```
+
+### 2.1.4 rm 命令
+
+```bash
+docker rm [OPTIONS] CONTAINER [CONTAINER...]:删除一个或多少容器
+
+Options:
+-f :通过SIGKILL信号强制删除一个运行中的容器;
+-l :移除容器间的网络连接,而非容器本身;
+-v :-v 删除与容器关联的卷;
+
+Examples:
+docker rm -f db01 db02
+docker rm -l db
+docker rm -v nginx01
+```
+
+### 2.1.5 pause/unpause 命令
+
+```bash
+docker pause [OPTIONS] CONTAINER [CONTAINER...] :暂停容器中所有的进程
+docker unpause [OPTIONS] CONTAINER [CONTAINER...] :恢复容器中所有的进程
+
+Options:
+docker pause db01
+docker unpause db01
+```
+
+### 2.1.6 create 命令
+
+```bash
+docker create [OPTIONS] IMAGE [COMMAND] [ARG...]:创建一个新的容器但不启动它
+
+Examples:
+docker create  --name myrunoob  nginx:latest
+```
+
+### 2.1.7 exec 命令
+
+```bash
+docker exec [OPTIONS] CONTAINER COMMAND [ARG...]:在运行的容器中执行命令
+
+Options:
+-d :分离模式: 在后台运行
+-i :即使没有附加也保持STDIN 打开
+-t :分配一个伪终端
+
+Examples:
+docker exec -it mynginx /bin/sh /root/runoob.sh
+docker exec -i -t  mynginx /bin/bash
+```
+
+## 2.2 容器操作
+
+### 2.2.1 ps 命令
+
+```bash
+docker ps [OPTIONS]:列出容器
+
+Options:
+-a :显示所有的容器,包括未运行的;
+-f :根据条件过滤显示的内容;
+--format :指定返回值的模板文件;
+-l :显示最近创建的容器;
+-n :列出最近创建的n个容器;
+--no-trunc :不截断输出;
+-q :静默模式,只显示容器编号;
+-s :显示总的文件大小;
+
+Example:
+docker ps -n 5
+docker ps -a -q
+```
+
+### 2.2.2 inspect 命令
+
+```bash
+docker inspect [OPTIONS] NAME|ID [NAME|ID...]: 获取容器/镜像的元数据
+
+Options:
+-f :指定返回值的模板文件;
+-s :显示总的文件大小;
+--type :为指定类型返回JSON;
+
+Example:
+docker inspect mysql:5.6
+docker inspect --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mymysql
+```
+
+### 2.2.3 top 命令
+
+```bash
+docker top [OPTIONS] CONTAINER [ps OPTIONS] :查看容器中运行的进程信息,支持 ps 命令参数
+
+Example:
+docker top mymysql
+for i in  `docker ps |grep Up|awk '{print $1}'`;do echo \ &&docker top $i; done
+```
+
+### 2.2.4 attach 命令
+
+```bash
+docker attach [OPTIONS] CONTAINER :连接到正在运行中的容器
+
+Example:
+docker attach --sig-proxy=false mynginx
+```
+
+### 2.2.5 events 命令
+
+```bash
+docker events [OPTIONS]: 从服务器获取实时事件
+
+Options:
+-f :根据条件过滤事件;
+--since :从指定的时间戳后显示所有事件;
+--until :流水时间显示到指定的时间为止;
+
+Examples:
+docker events  --since="1467302400"
+docker events -f "image"="mysql:5.6" --since="1467302400"
+
+```
+
+### 2.2.6 logs 命令
+
+```bash
+docker logs [OPTIONS] CONTAINER : 获取容器的日志
+
+Options:
+-f : 跟踪日志输出
+--since :显示某个开始时间的所有日志
+-t : 显示时间戳
+--tail :仅列出最新N条容器日志
+
+Example:
+docker logs -f mynginx
+docker logs --since="2016-07-01" --tail=10 mynginx
+```
+
+## 2.3 wait 命令
+
+```bash
+docker wait [OPTIONS] CONTAINER [CONTAINER...]: 阻塞运行直到容器停止,然后打印出它的退出代码
+
+Example:
+docker wait CONTAINER
+```
+
+## 2.4 export 命令
+
+```bash
+docker export [OPTIONS] CONTAINER:将文件系统作为一个tar归档文件导出到STDOUT
+
+Options:
+-o :将输入内容写到文件
+
+Examples:
+docker export -o mysql-`date +%Y%m%d`.tar a404c6c174a2
+```
+
+## 2.5 port 命令
+
+```bash
+docker port [OPTIONS] CONTAINER [PRIVATE_PORT[/PROTO]]:列出指定的容器的端口映射,或者查找将PRIVATE_PORT NAT到面向公众的端口
+
+Examples:
+docker port mymysql
+```
+
+# 3. 容器 rootfs 命令
+
+## 3.1 commit 命令
+
+```bash
+docker commit [OPTIONS] CONTAINER [REPOSITORY[:TAG]]::从容器创建一个新的镜像
+
+Options:
+-a :提交的镜像作者;
+-c :使用Dockerfile指令来创建镜像;
+-m :提交时的说明文字;
+-p :在commit时,将容器暂停;
+
+Examples:
+docker commit -a "runoob.com" -m "my apache" a404c6c174a2  mymysql:v1
+docker images mymysql:v1
+```
+
+## 3.2 cp 命令
+
+```bash
+用于容器与主机之间的数据拷贝
+docker cp [OPTIONS] CONTAINER:SRC_PATH DEST_PATH|-
+docker cp [OPTIONS] SRC_PATH|- CONTAINER:DEST_PATH
+
+Options:
+-L :保持源目标中的链接
+
+Examples:
+docker cp /www/runoob 96f7f14e99ab:/www/
+docker cp /www/runoob 96f7f14e99ab:/www
+docker cp  96f7f14e99ab:/www /tmp/
+```
+
+## 3.3 diff 命令
+
+```bash
+docker diff [OPTIONS] CONTAINER : 检查容器里文件结构的更改
+
+Examples:
+docker diff mymysql
+```
+
+# 4. 镜像仓库
+
+## 4.1 login/logout 命令
+
+```bash
+docker login [OPTIONS] [SERVER]: 登陆到一个Docker镜像仓库
+docker logout [OPTIONS] [SERVER]: 登出一个Docker镜像仓库
+
+Options:
+-u :登陆的用户名
+-p :登陆的密码
+
+
+Examples:
+docker login -u root -p root
+docker logout
+```
+
+## 4.2 pull 命令
+
+```bash
+docker pull [OPTIONS] NAME[:TAG|@DIGEST]: 从镜像仓库中拉取或者更新指定镜像
+
+Options:
+-a :拉取所有 tagged 镜像
+--disable-content-trust :忽略镜像的校验,默认开启
+
+Examples:
+docker pull java
+docker pull -a java
+```
+
+## 4.3 push 命令
+
+```bash
+docker push [OPTIONS] NAME[:TAG]: 将本地的镜像上传到镜像仓库,要先登陆到镜像仓库
+
+Options:
+--disable-content-trust :忽略镜像的校验,默认开启
+
+Examples:
+docker push myapache:v1
+```
+
+## 4.4 search 命令
+
+```bash
+docker search [OPTIONS] TERM: 从Docker Hub查找镜像
+
+Options:
+--automated :只列出 automated build类型的镜像;
+--no-trunc :显示完整的镜像描述;
+-s :列出收藏数不小于指定值的镜像;
+
+Examples:
+docker search -s 10 java
+```
+
+# 5. 本地镜像管理
+
+## 5.1 images 命令
+
+```bash
+docker images [OPTIONS] [REPOSITORY[:TAG]]: 列出本地镜像
+
+Options:
+-a :列出本地所有的镜像(含中间映像层,默认情况下,过滤掉中间映像层);
+--digests :显示镜像的摘要信息;
+-f :显示满足条件的镜像;
+--format :指定返回值的模板文件;
+--no-trunc :显示完整的镜像信息;
+-q :只显示镜像ID;
+
+Examples:
+docker images
+docker images ubuntu
+```
+
+## 5.2 rmi 命令
+
+```bash
+docker rmi [OPTIONS] IMAGE [IMAGE...]: 删除本地一个或多少镜像
+
+Options:
+-f :强制删除;
+--no-prune :不移除该镜像的过程镜像,默认移除;
+
+Examples:
+docker rmi -f runoob/ubuntu:v4
+```
+
+## 5.3 tag 命令
+
+```bash
+docker tag [OPTIONS] IMAGE[:TAG] [REGISTRYHOST/][USERNAME/]NAME[:TAG] : 标记本地镜像,将其归入某一仓库
+
+Examples:
+docker tag ubuntu:15.10 runoob/ubuntu:v3
+docker images   runoob/ubuntu:v3
+```
+
+## 5.4 build 命令
+
+```bash
+docker build [OPTIONS] PATH | URL | - 命令用于使用 Dockerfile 创建镜像
+
+Options:
+--build-arg=[] :设置镜像创建时的变量;
+--cpu-shares :设置 cpu 使用权重;
+--cpu-period :限制 CPU CFS周期;
+--cpu-quota :限制 CPU CFS配额;
+--cpuset-cpus :指定使用的CPU id;
+--cpuset-mems :指定使用的内存 id;
+--disable-content-trust :忽略校验,默认开启;
+-f :指定要使用的Dockerfile路径;
+--force-rm :设置镜像过程中删除中间容器;
+--isolation :使用容器隔离技术;
+--label=[] :设置镜像使用的元数据;
+-m :设置内存最大值;
+--memory-swap :设置Swap的最大值为内存+swap,"-1"表示不限swap;
+--no-cache :创建镜像的过程不使用缓存;
+--pull :尝试去更新镜像的新版本;
+--quiet, -q :安静模式,成功后只输出镜像 ID;
+--rm :设置镜像成功后删除中间容器;
+--shm-size :设置/dev/shm的大小,默认值是64M;
+--ulimit :Ulimit配置.
+--tag, -t: 镜像的名字及标签,通常 name:tag 或者 name 格式;可以在一次构建中为一个镜像设置多个标签.
+--network: 默认 default.在构建期间设置RUN指令的网络模式
+
+Examples:
+docker build -t runoob/ubuntu:v1 .
+docker build github.com/creack/docker-firefox
+docker build -f /path/to/a/Dockerfile .
+docker build -t test/myapp .
+```
+
+## 5.5 history 命令
+
+```bash
+docker history [OPTIONS] IMAGE : 查看指定镜像的创建历史
+
+Options:
+-H :以可读的格式打印镜像大小和日期,默认为true;
+--no-trunc :显示完整的提交记录;
+-q :仅列出提交记录ID;
+
+Examples:
+docker history runoob/ubuntu:v3
+
+```
+
+## 5.6 save 命令
+
+```bash
+docker save [OPTIONS] IMAGE [IMAGE...]: 将指定镜像保存成 tar 归档文件
+
+Options:
+-o :输出到的文件
+
+Examples:
+docker save -o my_ubuntu_v3.tar runoob/ubuntu:v3
+```
+
+## 5.7 import 命令
+
+```bash
+docker import [OPTIONS] file|URL|- [REPOSITORY[:TAG]]: 从归档文件中创建镜像
+
+Options:
+-c :应用docker 指令创建镜像;
+-m :提交时的说明文字;
+
+Examples:
+docker import my_ubuntu_v3.tar runoob/ubuntu:v4
+docker images runoob/ubuntu:v4
+```
+
+# 6. info|version
+
+## 6.1 info 命令
+
+```bash
+docker info [OPTIONS]: 显示 Docker 系统信息,包括镜像和容器数
+
+Examples:
+docker info
+```
+
+## 6.2 version 命令
+
+```bash
+docker version [OPTIONS]:显示 Docker 版本信息
+
+Options:
+-f :指定返回值的模板文件
+
+Examples:
+docker version
+```

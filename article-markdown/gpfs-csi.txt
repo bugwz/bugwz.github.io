@@ -1,0 +1,1205 @@
+# GPFS CSI 对接 K8S 指南
+
+# 1. 介绍
+
+GPFS CSI 指的是 GPFS (现在被称为 IBM Spectrum Scale) 的容器存储接口. IBM Spectrum Scale 是一种高性能的共享磁盘文件管理系统, 旨在支持大规模的数据集和高吞吐量的环境, 如高性能计算 (HPC), 大数据分析和 AI 工作负载. 通过 GPFS CSI, 用户可以有效地将 Spectrum Scale 集成到 Kubernetes 这样的容器管理系统中, 以实现数据的动态扩展和管理.
+
+GPFS CSI 仓库代码: https://github.com/IBM/ibm-spectrum-scale-csi
+
+
+**本文中的机器部署拓扑:**
+|机器节点|机器 IP 地址|角色|
+|:--:|:--:|:--:|
+|node01|10.10.0.1|Server/Client/GUI(Dashboard)|
+|node02|10.10.0.2|Server/Client|
+|node03|10.10.0.3|Server/Client/minikube|
+
+字段解释:
++ `Server`: 部署 GPFS 集群的节点;
++ `Client`: 挂载 GPFS 数据目录的节点;
++ `GUI(Dashboard)`: 启动 GPFS GUI 服务的节点;
++ `minikube`: 搭建 K8S 测试集群的节点;
+
+
+
+# 2. 配置 GPFS 集群
+
+为了后续支持 GPFS CSI, 需要调整一些集群配置, 新增关联的用户信息等操作. 以下操作总结自 [IBM Doc: Installation Performing Pre Tasks](https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=installation-performing-pre-tasks).
+
+**相关命令:** (位于 10.10.0.1 机器上执行)
+```bash
+# 查看 GUI 用户
+/usr/lpp/mmfs/gui/cli/lsuser
+
+# 查看 GUI 用户组
+/usr/lpp/mmfs/gui/cli/lsusergrp
+
+# 创建 CsiAdmin 用户组(默认已经存在)
+/usr/lpp/mmfs/gui/cli/mkusergrp CsiAdmin --role csiadmin
+
+# 创建 csiuser 用户, 使其归属于 CsiAdmin 用户组
+# 该用户会用于 SCI 驱动程序
+/usr/lpp/mmfs/gui/cli/mkuser csiuser -p csipassword -g CsiAdmin
+
+# 设置配额
+/usr/lpp/mmfs/bin/mmchfs defaultfs -Q yes
+
+# 验证文件系统配置
+# 确保 perfileset-quota 参数值为 no
+/usr/lpp/mmfs/bin/mmlsfs defaultfs --filesetdf -Q --perfileset-quota
+
+# 启用用户配额
+/usr/lpp/mmfs/bin/mmchconfig enforceFilesetQuotaOnRoot=yes
+
+# 对于 Red Hat OpenShift 的特定参数
+/usr/lpp/mmfs/bin/mmchconfig controlSetxattrImmutableSELinux=yes
+
+# 设置在容器中显示正确的卷大小
+/usr/lpp/mmfs/bin/mmchfs defaultfs --filesetdf
+
+# 启用自动 inode 扩展
+# 该功能仅限于 IBM Storage Scale 5.1.4 及以上的版本
+# 启用此设置后, 文件集上指定的 inode-limit 设置将被忽略
+/usr/lpp/mmfs/bin/mmchfs defaultfs --auto-inode-limit
+
+# 确保所有 Client 节点上已经挂载 GPFS 数据目录
+# 如果没有挂载则执行挂载操作
+mmmount defaultfs /gpfsdata -N node01
+mmmount defaultfs /gpfsdata -N node02
+mmmount defaultfs /gpfsdata -N node03
+```
+
+
+**相关输出信息:**
+```bash
+[root@node01 data]# /usr/lpp/mmfs/bin/mmchfs defaultfs -Q yes
+mmchfs: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+
+[root@node01 data]# /usr/lpp/mmfs/bin/mmlsfs defaultfs --filesetdf -Q --perfileset-quota
+flag                value                    description
+------------------- ------------------------ -----------------------------------
+ --filesetdf        yes                      Fileset df enabled?
+ -Q                 user;group;fileset       Quotas accounting enabled
+                    user;group;fileset       Quotas enforced
+                    none                     Default quotas enabled
+ --perfileset-quota no                       Per-fileset quota enforcement
+
+
+[root@node01 data]# /usr/lpp/mmfs/bin/mmchconfig enforceFilesetQuotaOnRoot=yes
+mmchconfig: Command successfully completed
+mmchconfig: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+
+[root@node01 data]# /usr/lpp/mmfs/bin/mmchconfig controlSetxattrImmutableSELinux=yes
+mmchconfig: Command successfully completed
+mmchconfig: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+```
+
+
+
+# 3. 搭建 K8S 集群
+
+## 3.1 安装工具
+
+为了进行测试, 这里使用 minikube 工具搭建单节点的 K8S 测试集群. 为此我们需要安装 kubectl 和 minikube 工具.
+
+**相关命令:** (位于 10.10.0.3 机器上执行)
+```bash
+# 安装 kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+kubectl version --client
+
+# 安装 minikube
+curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube && rm minikube-linux-amd64
+minikube version
+```
+
+## 3.2 搭建集群
+
+**注意:** 由于我的测试机器上使用的是 podman, 所以在使用 minikube 部署集群的时候建议使用非 root 用户执行.
+
+**相关命令:** (位于 10.10.0.3 机器上执行)
+```bash
+# 通过 minikube 搭建单节点集群
+# 注意: 由于 minikube 是创建了虚拟机节点, 因此为了能够成功启动对应的 Pod, 我们需要将对应路径 mount 到虚拟机节点内部
+minikube start --mount=true --mount-string="/gpfsdata:/gpfsdata"
+
+# 查看虚拟机内部挂载目录信息
+minikube ssh "hostname; df -h"
+
+# 启动 dashboard (单独 shell 窗口执行, 该命令会前台运行)
+minikube dashboard --url=true
+
+# 启动 proxy 代理, 用于浏览器窗口访问
+kubectl proxy --port=8000 --address='10.10.0.3' --accept-hosts='^.*'
+
+# 浏览器访问 dashboard
+http://10.10.0.3:8000/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/
+```
+
+**相关输出信息:**
+```bash
+[bugwz@node03 data]$ minikube start --mount=true --mount-string="/gpfsdata:/gpfsdata"
+* minikube v1.36.0 on Centos 8.5.2111
+==== AUTHENTICATING FOR org.libvirt.unix.manage ====
+System policy prevents management of local virtualized systems
+Multiple identities can be used for authentication:
+ 1.  admin
+ 2.  bugwz
+Choose identity to authenticate as (1-2): 2
+Password:
+==== AUTHENTICATION COMPLETE ====
+* Automatically selected the podman driver. Other choices: ssh, none
+* Using Podman driver with root privileges
+* Starting "minikube" primary control-plane node in "minikube" cluster
+* Pulling base image v0.0.47 ...
+E0702 21:23:25.427430 4094686 cache.go:225] Error downloading kic artifacts:  not yet implemented, see issue #8426
+* Creating podman container (CPUs=2, Memory=3900MB) ...
+* Preparing Kubernetes v1.33.1 on Docker 28.1.1 ...
+  - Generating certificates and keys ...
+  - Booting up control plane ...
+  - Configuring RBAC rules ...
+* Configuring bridge CNI (Container Networking Interface) ...
+* Verifying Kubernetes components...
+  - Using image gcr.io/k8s-minikube/storage-provisioner:v5
+* Enabled addons: default-storageclass, storage-provisioner
+* Done! kubectl is now configured to use "minikube" cluster and "default" namespace by default
+```
+
+
+## 3.3 配置集群
+
+为适配 CSI 驱动, 集群节点需要设置一些标签, 且测试一下集群节点与 GPFS 集群 GUI 的连接是否正常.
+
+**相关命令:** (位于 10.10.0.3 机器上执行)
+```bash
+# 查看节点信息
+kubectl get nodes
+
+# 由于是测试集群且只有一个节点, 为此只需要标记 minikube 节点
+kubectl label node minikube scale=true --overwrite=true
+
+# 查看节点并显示标签
+kubectl get nodes --show-labels
+
+# 测试网络通信是否正常
+# 以下用户名密码为 GUI 的登录用户名和密码
+curl --insecure -u 'admin:admin..' -X GET https://10.10.0.1:443/scalemgmt/v2/cluster
+```
+
+
+**相关输出信息:**
+```bash
+[bugwz@node03 ~]$ curl --insecure -u 'admin:admin..' -X GET https://10.10.0.1:443/scalemgmt/v2/cluster
+{
+  "cluster" : {
+    "clusterSummary" : {
+      "clusterId" : 12883004940135644857,
+      "clusterName" : "gpfscluster.node01",
+      "primaryServer" : "node01",
+      "rcpPath" : "/usr/bin/scp",
+      "rcpSudoWrapper" : false,
+      "repositoryType" : "CCR",
+      "rshPath" : "/usr/bin/ssh",
+      "rshSudoWrapper" : false,
+      "uidDomain" : "gpfscluster.node01"
+    },
+    "capacityLicensing" : {
+      "liableCapacity" : 644245094400,
+      "liableNsdCount" : 6,
+      "liableNsds" : [ {
+        "nsdName" : "data01",
+        "liableCapacity" : 107374182400
+      }, {
+        "nsdName" : "data02",
+        "liableCapacity" : 107374182400
+      }, {
+        "nsdName" : "data03",
+        "liableCapacity" : 107374182400
+      }, {
+        "nsdName" : "data04",
+        "liableCapacity" : 107374182400
+      }, {
+        "nsdName" : "data05",
+        "liableCapacity" : 107374182400
+      }, {
+        "nsdName" : "data06",
+        "liableCapacity" : 107374182400
+      } ]
+    }
+  },
+  "status" : {
+    "code" : 200,
+    "message" : "The request finished successfully."
+  }
+}
+```
+
+
+# 4. 部署 CSI 环境
+
+本文的 GPFS 集群环境通过 [GPFS 集群部署与运维记录](https://bugwz.com/2024/08/01/gpfs/) 文档进行部署, 集群版本为 `5.1.8.1`, 需要根据该集群版本选择合适的 GPFS CSI 版本进行对接. 参考下表, 需要选择 2.11.x 版本的 CSI, 为此最终选择 [v2.11.1](https://github.com/IBM/ibm-spectrum-scale-csi/tree/v2.11.1) 版本. 详细操作参考 [IBM Doc: ](https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=installation-installing-storage-scale-container-storage-interface-driver-by-using-clis).
+
+
+**IBM Storage Scale CSI 兼容性表:** (以下对照表来自于 [IBM Doc: Planning Hardware Software Requirements](https://www.ibm.com/docs/en/scalecsi/2.14.0?topic=planning-hardware-software-requirements))
+|CSI 版本|架构|IBM Storage Scale 版本|OCP|
+|:--:|:--:|:--:|:--:|
+|2.9.0|x86,ppc64le|5.1.2.1 或更高版本|4.10, 4.11, 4.12|
+|2.10.x|x86,ppc64le|5.1.2.1 或更高版本|4.12, 4.13, 4.14|
+|2.11.x|x86,ppc64le|5.1.2.1 或更高版本|4.13, 4.14, 4.15|
+|2.12.x|x86,ppc64le|5.1.9.x 或更高版本|4.14, 4.15, 4.16|
+|2.13.x|x86,ppc64le|5.1.9.x 或更高版本|4.15, 4.16, 4.17|
+|2.14.x|x86,ppc64le|5.1.9.x 或更高版本|4.16, 4.17, 4.18|
+
+
+## 4.1 部署 CSI Operator
+
+> **注意:** 以下操作需要使用非 root 用户操作.
+
+**相关命令:** (位于 10.10.0.3 机器上执行)
+```bash
+# 创建命名空间
+kubectl create namespace ibm-spectrum-scale-csi-driver
+
+# 下载 CSI 2.11.1 Operator 配置清单
+curl -O https://raw.githubusercontent.com/IBM/ibm-spectrum-scale-csi/v2.11.1/generated/installer/ibm-spectrum-scale-csi-operator.yaml
+
+# 应用 CSI 2.11.1 Operator 配置清单
+kubectl create -f ibm-spectrum-scale-csi-operator.yaml
+
+# 验证 Operator 是否已部署, 并且 Operator pod 处于运行状态
+kubectl get pod,deployment -n ibm-spectrum-scale-csi-driver
+```
+
+
+**相关输出信息:**
+```bash
+[bugwz@node03 data]$ kubectl get pod,deployment -n ibm-spectrum-scale-csi-driver
+NAME                                                   READY   STATUS    RESTARTS   AGE
+pod/ibm-spectrum-scale-csi-operator-8457c4b588-lmrbg   1/1     Running   0          35s
+
+NAME                                              READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/ibm-spectrum-scale-csi-operator   1/1     1            1           35s
+```
+
+## 4.2 部署 CSI 驱动程序
+
+> **注意:** 以下操作需要使用非 root 用户操作.
+
+**相关命令:** (位于 10.10.0.3 机器上执行)
+```bash
+# 使用 IBM Storage Scale GUI 服务器的凭证在 ibm-spectrum-scale-csi-driver 命名空间中创建密钥
+# 创建的密钥名为 csisecret, 使用的 GUI 用户名为 csiuser, GUI 用户密码为 csipassword
+# 注意下面使用 GUI 用户角色必须为 csiadmin
+kubectl create secret generic csisecret --from-literal=username=csiuser --from-literal=password=csipassword -n ibm-spectrum-scale-csi-driver
+
+# 密钥匹配 CSI 产品
+kubectl label secret csisecret product=ibm-spectrum-scale-csi -n ibm-spectrum-scale-csi-driver
+
+# 查看 secret 详细信息
+kubectl describe secrets csisecret -n ibm-spectrum-scale-csi-driver
+kubectl get secrets csisecret -o yaml -n ibm-spectrum-scale-csi-driver
+
+
+# 如果 secret 配置错了, 可以使用下面的命令修改用户或密码
+kubectl get secrets csisecret -o yaml -n ibm-spectrum-scale-csi-driver
+# 解析其中的用户或者密码
+echo 'Y3NpdXNlcg=='| base64 -d
+# 生成新的用户或密码
+echo -n 'csipassword' | base64
+# 修改用户或密码
+kubectl edit secret csisecret -n ibm-spectrum-scale-csi-driver
+
+
+# 新增 Operator 自定义资源所需的配置参数文件, 该资源用于配置 CSI 驱动程序
+# 文件名为 csiscaleoperators.csi.ibm.com_cr.yaml
+# 
+vi csiscaleoperators.csi.ibm.com_cr.yaml
+cat csiscaleoperators.csi.ibm.com_cr.yaml
+
+# 部署 CSI 驱动程序
+kubectl apply -f csiscaleoperators.csi.ibm.com_cr.yaml
+
+# 验证 CSI 驱动程序等资源是否就绪
+# 注意: 由于 K8S 测试集群只有一个节点, 且由于 csi attacher 配置了 pod 的亲和性, 导致两个 csi attacher 无法部署
+#       到同一个 node 上, 从而导致只有一个 csi attacher 处于运行状态.
+kubectl get pod,daemonset,deployment -n ibm-spectrum-scale-csi-driver
+```
+
+
+> **注意:** 由于我们使用 minikube 搭建的虚拟机环境, 且虚拟机 hostname 为 minikube, 因此在检测 GPFS 挂载点的时候无法与 node03 对应上, 为此我们需要建立 K8S 节点与 GPFS 节点的映射关系. 详见 [修改映射关系的 IBM Doc](https://www.ibm.com/docs/en/scalecsi?topic=o-kubernetes-spectrum-scale-node-mapping-9#concept_or5_3q1_zjb). 修改后的 csiscaleoperators.csi.ibm.com_cr.yaml 文件内容如下.
+
+
+**csiscaleoperators.csi.ibm.com_cr.yaml 文件内容:** (详细文档参考 [IBM Doc](https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=configurations-operator#concept_aqh_zg5_xjb), )
+```yaml
+---
+apiVersion: csi.ibm.com/v1
+kind: "CSIScaleOperator"
+metadata:
+  name: "ibm-spectrum-scale-csi"
+  namespace: "ibm-spectrum-scale-csi-driver"
+  labels:
+    app.kubernetes.io/name: ibm-spectrum-scale-csi-operator
+    app.kubernetes.io/instance: ibm-spectrum-scale-csi-operator
+    app.kubernetes.io/managed-by: ibm-spectrum-scale-csi-operator
+    release: ibm-spectrum-scale-csi-operator
+status: {}
+spec:
+  clusters:
+    - id: "12883004940135644857"
+      secrets: "csisecret"
+      secureSslMode: false
+      primary:
+        primaryFs: "defaultfs"
+      restApi:
+        - guiHost: "10.10.0.1"
+  nodeMapping:
+   - k8sNode: "minikube"
+     spectrumscaleNode: "node03"
+  attacherNodeSelector:
+    - key: "scale"
+      value: "true"
+  provisionerNodeSelector:
+    - key: "scale"
+      value: "true"
+  pluginNodeSelector:
+    - key: "scale"
+      value: "true"
+  snapshotterNodeSelector:
+    - key: "scale"
+      value: "true"
+  resizerNodeSelector:
+    - key: "scale"
+      value: "true"
+```
+
+在以上配置中, 我们只需要关注 `cluster` 字段内部的配置.
++ `id`: GPFS 集群 ID, 可通过 `mmlscluster` 命令获取;
++ `secrets`: 预创建的 Secret 的名称, 其中包含用于连接到 id 参数所指定集群的 GUI 服务器的用户名和密码;
++ `primaryFs`: 主文件系统名称;
++ `guiHost`: 针对 GPFS 集群指定的 GUI 节点的 FQDN 或 IP 地址, 如果多个可设置多个 guiHost 参数进行指定;
+
+
+**相关输出信息:**
+```bash
+[bugwz@node03 data]$ kubectl get pod,daemonset,deployment -n ibm-spectrum-scale-csi-driver
+NAME                                                      READY   STATUS    RESTARTS   AGE
+pod/ibm-spectrum-scale-csi-attacher-764479b5-qn9df        0/1     Pending   0          28m
+pod/ibm-spectrum-scale-csi-attacher-764479b5-zxtbz        1/1     Running   0          28m
+pod/ibm-spectrum-scale-csi-g75vn                          3/3     Running   0          28m
+pod/ibm-spectrum-scale-csi-operator-8457c4b588-lmrbg      1/1     Running   0          29m
+pod/ibm-spectrum-scale-csi-provisioner-6db678cd-wrt7w     1/1     Running   0          28m
+pod/ibm-spectrum-scale-csi-resizer-659c95b8cc-vtbcc       1/1     Running   0          28m
+pod/ibm-spectrum-scale-csi-snapshotter-6495f6bd4d-hzskh   1/1     Running   0          28m
+
+NAME                                    DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+daemonset.apps/ibm-spectrum-scale-csi   1         1         1       1            1           scale=true      28m
+
+NAME                                                 READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/ibm-spectrum-scale-csi-attacher      1/2     2            1           28m
+deployment.apps/ibm-spectrum-scale-csi-operator      1/1     1            1           29m
+deployment.apps/ibm-spectrum-scale-csi-provisioner   1/1     1            1           28m
+deployment.apps/ibm-spectrum-scale-csi-resizer       1/1     1            1           28m
+deployment.apps/ibm-spectrum-scale-csi-snapshotter   1/1     1            1           28m
+```
+
+
+# 5. 使用 CSI
+
+
+## 5.1 静态配置
+
+使用现有的静态配置清单进行静态配置. 实现通过手动定义存储卷来访问 GPFS 中预先存在的数据. 按照 K8S 的实现, 我们可以手动创建 PV/PVC, 然后启动一个 Pod 来通过 CSI 使用对应的存储资源, 以下步骤参考 [IBM Doc](https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=driver-static-provisioning).
+
+> **注意:** 从 GPFS CSI 2.14.x 开始, 除了现有的清单进行静态配置的方法外, 还支持动态方式的静态配置. 这种新方法增强了卷操作的功能, 例如卷快照, 克隆和恢复, 并具有更大的灵活性. 详见 [IBM Doc](https://www.ibm.com/docs/en/scalecsi/2.14.0?topic=provisioning-static-in-dynamic-way-recommended). 但由于本文的测试环境仅可用于 GPFS CSI 2.11.x 版本, 所以该特性并不详细介绍.
+
+
+### 5.1.1 生成静态配置清单
+
+**相关命令:**
+```bash
+# 下载静态配置清单生成脚本
+curl -O https://raw.githubusercontent.com/IBM/ibm-spectrum-scale-csi/v2.11.1/tools/generate_static_provisioning_yamls.sh
+
+# 生成静态配置清单
+# 注意: --path 和 --fileset 选项互斥. 必须至少指定其中一个选项.
+# 注意: 该脚本执行时会要求输入 GUI 的用户名和密码, 需要输入 admin 的用户密码
+# 
+# 示例1: 基于目录的静态卷, 生成静态配置清单
+# ./generate_static_provisioning_yamls.sh --filesystem defaultfs --path /gpfsdata/fs1/staticpv --size 10 --pvname mystaticpv --guihost 10.10.0.1
+# 
+# 示例2: 基于文件集的卷, 生成静态配置清单
+# ./generate_static_provisioning_yamls.sh --filesystem defaultfs --fileset f1 --size 10 --pvname mystaticpv --guihost 10.10.0.1
+# 
+mkdir -p /gpfsdata/k8s/staticpv
+./generate_static_provisioning_yamls.sh --filesystem defaultfs --path /gpfsdata/k8s/staticpv --size 10 --pvname mystaticpv --guihost 10.10.0.1
+```
+
+
+**相关输出信息:**
+```bash
+[bugwz@node03 data]$ ./generate_static_provisioning_yamls.sh --filesystem defaultfs --path /gpfsdata/k8s/staticpv --size 10 --pvname mystaticpv --guihost 10.10.0.1
+GUI Username: admin
+GUI Password:
+INFO: volumeHandle: 0;0;12883004940135644857;3A1B320A:68633F8D;;;/gpfsdata/k8s/staticpv
+INFO: Successfully created mystaticpv.yaml
+INFO: Successfully created pvc-mystaticpv.yaml
+
+[bugwz@node03 data]$ ll
+-rwxrwxr-x 1 bugwz bugwz 12839 Jul  1 15:47 generate_static_provisioning_yamls.sh
+-rw-rw-r-- 1 bugwz bugwz   313 Jul  1 15:56 mystaticpv.yaml
+-rw-rw-r-- 1 bugwz bugwz   237 Jul  1 16:07 pvc-mystaticpv.yaml
+```
+
+
+### 5.1.2 创建 PV
+
+持久卷 (PV) 是由管理员静态配置或使用存储类动态配置的存储. 其示例文件模板为 [static_pv.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/staticprovisioning/static_pv.yaml). 这里仅展示通过上述脚本生成的对应配置文件的内容, 并解释其字段信息.
+
+**mystaticpv.yaml 内容:**
+```yaml
+# -- mystaticpv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mystaticpv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  csi:
+    driver: spectrumscale.csi.ibm.com
+    volumeHandle: 0;0;12883004940135644857;3A1B320A:68633F8D;;;/gpfsdata/k8s/staticpv
+  storageClassName: ""
+```
+
+**volumeHandle 字段解析:**
++ `格式`: 0; [Volume type]; [Cluster ID]; [Filesystem UUID]; ; [Fileset name]; [Path to the directory or fileset linkpath]
++ `字段含义`:
+   + `Volume type`: 卷类型. 基于目录的卷该值为 0, 基于依赖文件集的卷该值为 1, 基于独立文件集的卷该值为 2.
+   + `Cluster ID`: GPFS 集群 ID. 可通过 mmlscluster 命令获取.
+   + `Filesystem UUID`: GPFS 集群中文件系统的 UUID. 可通过 mmlsfs defaultfs --uid 命令获取.
+   + `空值`:
+   + `Fileset name`: 文件集名称. 由于这里使用目录, 所以该值为空;
+   + `Path to the directory or fileset linkpath`: 目录的完整路径;
+
+
+**相关命令:**
+```bash
+# 使用上述生成的 mystaticpv.yaml 文件创建 PV
+kubectl apply -f mystaticpv.yaml
+
+# 查看服务状态
+kubectl get pv,pvc,pod,deployment -n default
+```
+
+
+### 5.1.3 创建 PVC
+
+PVC 是用户对存储的请求. PVC 有两种类型: 静态配置和动态配置. 其静态配置的示例文件模板为 [static_pvc.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/staticprovisioning/static_pvc.yaml). 这里仅展示通过上述脚本生成的对应配置文件的内容.
+
+
+> **注意:** 如果手动修改对应的 PVC 文件, 需要确保 PVC 请求的存储空间要小于等于特定 PV 的存储空间, 这样才能绑定成功.
+
+
+**pvc-mystaticpv.yaml 内容:**
+```yaml
+# -- pvc-mystaticpv.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-mystaticpv
+  namespace: default
+spec:
+  volumeName: mystaticpv
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: ""
+```
+
+**相关命令:**
+```bash
+# 创建 PV
+# 设置对应文件中的 namespace 字段值为 default
+kubectl apply -f pvc-mystaticpv.yaml
+
+# 查看服务状态
+kubectl get pv,pvc,pod,deployment -n default
+```
+
+
+### 5.1.4 创建 Pod
+
+其示例文件模板为 [static_pod.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/staticprovisioning/static_pod.yaml).
+
+> **注意:** claimName 是 Pod 用于持久化存储的 PVC 名称. readOnly 标志可以设置为 true, 在这种情况下, Pod 会以只读模式挂载 PVC.
+
+**static_pod.yaml 内容:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-scale-staticdemo-pod
+  labels:
+    app: nginx
+spec:
+  containers:
+   - name: web-server
+     image: nginx
+     volumeMounts:
+       - name: mypvc
+         mountPath: /usr/share/nginx/html/scale
+     ports:
+     - containerPort: 80
+  volumes:
+   - name: mypvc
+     persistentVolumeClaim:
+       claimName: pvc-mystaticpv
+       readOnly: false
+```
+
+
+**相关命令:**
+```bash
+# 创建 Pod
+kubectl apply -f static_pod.yaml
+
+# 查看服务状态
+kubectl get pv,pvc,pod,deployment -n default
+
+# 进入 Pod 查看映射的目录信息
+kubectl exec -it csi-scale-staticdemo-pod -- /bin/bash
+df -h /usr/share/nginx/html/scale
+```
+
+
+**相关输出信息:**
+```bash
+[bugwz@node03 data]$ kubectl get pod -n default
+NAME                       READY   STATUS    RESTARTS   AGE
+csi-scale-staticdemo-pod   1/1     Running   0          4m20s
+
+[bugwz@node03 data]$ kubectl exec -it csi-scale-staticdemo-pod -- /bin/bash
+root@csi-scale-staticdemo-pod:/# df -h /usr/share/nginx/html/scale
+Filesystem      Size  Used Avail Use% Mounted on
+defaultfs       600G   39G  562G   7% /usr/share/nginx/html/scale
+```
+
+
+## 5.2 动态配置
+
+参考 [IBM Doc: Driver Dynamic Provisioning](https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=driver-dynamic-provisioning)
+
+
+### 5.2.1 轻量级卷
+
+轻量级卷 (Lightweight Volumes) 是基于目录的卷, 为每个新的动态卷创建一个新目录. 没有创建卷的数量限制, 但是缺少配额和快照的功能. 参考 [IBM Doc: Creating Lightweight Volumes](https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=class-storage-creating-lightweight-volumes).
+
+
+#### 5.2.1.1 创建 StorageClass
+
+**storageclasslw.yaml 配置:**  (参考 [storageclasslw.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/dynamicprovisioning/lightweight/storageclasslw.yaml))
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ibm-spectrum-scale-csi-lt
+provisioner: spectrumscale.csi.ibm.com
+parameters:
+  volBackendFs: "defaultfs"
+  volDirBasePath: "dynamic/lightweight"
+reclaimPolicy: Delete
+```
+
+**关键字段解释:**
++ `volBackendFs`: 对应 GPFS 文件系统名称, 必须在其上创建基于目录的卷的文件系统.
++ `volDirBasePath`: 对应 GPFS 文件系统中挂载点的相对路径, 此路径必须存在.
+
+
+**相关命令:**
+```bash
+# 应用 storageclass 配置
+kubectl apply -f storageclasslw.yaml
+
+# 查看 storageclass 状态
+kubectl get storageclass -n default
+```
+
+**相关输出记录:**
+```bash
+[bugwz@node03 dynamic]$ kubectl apply -f storageclasslw.yaml
+storageclass.storage.k8s.io/ibm-spectrum-scale-csi-lt created
+
+[bugwz@node03 dynamic]$ kubectl get storageclass -n default
+NAME                        PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+ibm-spectrum-scale-csi-lt   spectrumscale.csi.ibm.com   Delete          Immediate           false                  116s
+standard (default)          k8s.io/minikube-hostpath    Delete          Immediate           false                  13h
+```
+
+
+#### 5.2.1.2 创建 PVC
+
+使用此 storageClass 创建持久卷声明 (PVC), 如以下示例所示: 根据您的要求修改 PVC 名称, 存储和 storageClassName 值.
+
+**pvclw.yaml 配置:**  (参考 [pvclw.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/dynamicprovisioning/lightweight/pvclw.yaml))
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scale-lt-pvc
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: ibm-spectrum-scale-csi-lt
+```
+
+**相关命令:**
+```bash
+# 应用 pvc 配置
+kubectl apply -f pvclw.yaml
+
+# 查看 pvc 状态
+kubectl get storageclass,pvc -n default
+
+# 查看 GPFS 数据目录信息
+sudo tree /gpfsdata/dynamic/lightweight/
+```
+
+
+**相关输出记录:**
+```bash
+[bugwz@node03 lw]$ kubectl get storageclass,pvc -n default
+NAME                                                    PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+storageclass.storage.k8s.io/ibm-spectrum-scale-csi-lt   spectrumscale.csi.ibm.com   Delete          Immediate           false                  20m
+storageclass.storage.k8s.io/standard (default)          k8s.io/minikube-hostpath    Delete          Immediate           false                  13h
+
+NAME                                   STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/scale-lt-pvc     Bound    pvc-9e61d403-2005-48f7-960f-ddddac18b2c8   1Gi        RWX            ibm-spectrum-scale-csi-lt   <unset>                 3m44s
+
+
+[bugwz@node03 lightweight]# sudo tree /gpfsdata/dynamic/lightweight/
+/gpfsdata/dynamic/lightweight/
+└── pvc-9e61d403-2005-48f7-960f-ddddac18b2c8
+
+1 directory, 0 files
+```
+
+
+#### 5.2.1.3 创建 Pod
+
+对应以上配置修改下面的信息.
+
+**podlw.yaml 配置:**  (参考 [pvclw.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/dynamicprovisioning/lightweight/podlw.yaml))
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-scale-ltwtdemo-pod
+  labels:
+    app: nginx
+spec:
+  containers:
+   - name: web-server
+     image: nginx
+     volumeMounts:
+       - name: mypvc
+         mountPath: /usr/share/nginx/html/scale
+     ports:
+     - containerPort: 80
+  volumes:
+   - name: mypvc
+     persistentVolumeClaim:
+       claimName: scale-lt-pvc
+       readOnly: false
+```
+
+**相关命令:**
+```bash
+# 应用 pod 配置
+kubectl apply -f podlw.yaml
+
+# 查看 pod 状态
+kubectl get storageclass,pvc,pod -n default
+```
+
+**相关输出记录:**
+```bash
+[bugwz@node03 lw]$ kubectl get storageclass,pvc,pod -n default
+NAME                                                    PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+storageclass.storage.k8s.io/ibm-spectrum-scale-csi-lt   spectrumscale.csi.ibm.com   Delete          Immediate           false                  19m
+storageclass.storage.k8s.io/standard (default)          k8s.io/minikube-hostpath    Delete          Immediate           false                  13h
+
+NAME                                   STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/scale-lt-pvc     Bound    pvc-9e61d403-2005-48f7-960f-ddddac18b2c8   1Gi        RWX            ibm-spectrum-scale-csi-lt   <unset>                 3m28s
+
+NAME                           READY   STATUS    RESTARTS   AGE
+pod/csi-scale-ltwtdemo-pod     1/1     Running   0          22s
+```
+
+
+
+### 5.2.2 文件集卷 (独立)
+
+独立文件集卷 (Fileset-based(Independent) Volumes). 在 GPFS 文件系统中, 文件集是文件系统命名空间的子树, 在许多方面其行为类似于一个独立的文件系统. 文件集允许用户对文件系统进行分区, 从而能够以比整个文件系统更细粒度的粒度执行管理操作. 参考 [IBM Doc: Creating Fileset Volumes](https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=class-storage-creating-fileset-based-volumes).
+
+
+#### 5.2.2.1 创建 StorageClass
+
+**storageclassfileset.yaml 配置:**  (参考 [storageclassfileset.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/dynamicprovisioning/fileset/independent/storageclassfileset.yaml))
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+   name: ibm-spectrum-scale-csi-fileset
+provisioner: spectrumscale.csi.ibm.com
+parameters:
+    volBackendFs: "defaultfs"
+    shared: "true"
+reclaimPolicy: Delete
+```
+
+
+**关键字段解释:**
++ `volBackendFs`: 对应 GPFS 文件系统名称.
++ `shared`: 如果您的 Pod 中包含非 root 用户, 并且他们使用具有 ReadWriteMany (RWX) 访问模式的 PVC, 请设置该参数为 true. 默认值为 false.
+
+
+**相关命令:**
+```bash
+# 应用 storageclass 配置
+kubectl apply -f storageclassfileset.yaml
+
+# 查看 storageclass 状态
+kubectl get storageclass -n default
+```
+
+**相关输出记录:**
+```bash
+[bugwz@node03 dynamic]$ kubectl apply -f storageclasslw.yaml
+storageclass.storage.k8s.io/ibm-spectrum-scale-csi-fileset created
+
+
+[bugwz@node03 dynamic]$ kubectl get storageclass -n default
+NAME                             PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+ibm-spectrum-scale-csi-fileset   spectrumscale.csi.ibm.com   Delete          Immediate           false                  7s
+standard (default)               k8s.io/minikube-hostpath    Delete          Immediate           false                  13h
+```
+
+
+
+#### 5.2.2.2 创建 PVC
+
+使用此 storageClass 创建持久卷声明 (PVC), 如以下示例所示: 根据您的要求修改相关参数.
+
+**pvcfileset.yaml 配置:**  (参考 [pvcfileset.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/dynamicprovisioning/fileset/independent/pvcfileset.yaml))
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scale-fset-pvc
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: ibm-spectrum-scale-csi-fileset
+```
+
+**相关命令:**
+```bash
+# 应用 pvc 配置
+kubectl apply -f pvcfileset.yaml
+
+# 查看 pvc 状态
+kubectl get storageclass,pvc -n default
+
+# 查看 GPFS 数据目录信息
+ls -al /gpfsdata/
+sudo tree /gpfsdata/
+```
+
+
+**相关输出记录:**
+```bash
+[bugwz@node03 lw]$ kubectl get storageclass,pvc -n default
+NAME                                                         PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+storageclass.storage.k8s.io/ibm-spectrum-scale-csi-fileset   spectrumscale.csi.ibm.com   Delete          Immediate           false                  5m47s
+storageclass.storage.k8s.io/standard (default)               k8s.io/minikube-hostpath    Delete          Immediate           false                  13h
+
+NAME                                   STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                     VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/scale-fset-pvc   Bound    pvc-d100b2f5-f1e9-4812-946f-437e586da8a5   1Gi        RWX            ibm-spectrum-scale-csi-fileset   <unset>                 2m57s
+
+[bugwz@node03 fileset]$ ls -al /gpfsdata/
+total 2
+drwxrwx--x 3 root root 4096 Jul  3 11:14 pvc-d100b2f5-f1e9-4812-946f-437e586da8a5
+drwxrwx--x 3 root root 4096 Jul  1 14:33 spectrum-scale-csi-volume-store
+
+
+[bugwz@node03 fileset]$ sudo tree /gpfsdata/pvc-d100b2f5-f1e9-4812-946f-437e586da8a5
+/gpfsdata/pvc-d100b2f5-f1e9-4812-946f-437e586da8a5
+└── pvc-d100b2f5-f1e9-4812-946f-437e586da8a5-data
+
+1 directory, 0 files
+```
+
+
+#### 5.2.2.3 创建 Pod
+
+对应以上配置修改下面的信息.
+
+**podfileset.yaml 配置:**  (参考 [podfileset.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/dynamicprovisioning/fileset/independent/podfileset.yaml))
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-scale-fsetdemo-pod
+  labels:
+    app: nginx
+spec:
+  containers:
+   - name: web-server
+     image: nginx
+     volumeMounts:
+       - name: mypvc
+         mountPath: /usr/share/nginx/html/scale
+     ports:
+     - containerPort: 80
+  volumes:
+   - name: mypvc
+     persistentVolumeClaim:
+       claimName: scale-fset-pvc
+       readOnly: false
+```
+
+**相关命令:**
+```bash
+# 应用 pod 配置
+kubectl apply -f podfileset.yaml
+
+# 查看 pod 状态
+kubectl get storageclass,pvc,pod -n default
+```
+
+**相关输出记录:**
+```bash
+[bugwz@node03 fileset]$ kubectl get storageclass,pvc,pod -n default
+NAME                                                         PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+storageclass.storage.k8s.io/ibm-spectrum-scale-csi-fileset   spectrumscale.csi.ibm.com   Delete          Immediate           false                  10m
+storageclass.storage.k8s.io/standard (default)               k8s.io/minikube-hostpath    Delete          Immediate           false                  13h
+
+NAME                                   STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                     VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/scale-fset-pvc   Bound    pvc-d100b2f5-f1e9-4812-946f-437e586da8a5   1Gi        RWX            ibm-spectrum-scale-csi-fileset   <unset>                 8m6s
+
+NAME                           READY   STATUS    RESTARTS   AGE
+pod/csi-scale-fsetdemo-pod     1/1     Running   0          12s
+```
+
+
+### 5.2.3 文件集卷 (依赖)
+
+依赖文件集卷 (Fileset-based(Dependent) Volumes).
+
+#### 5.2.3.1 创建 StorageClass
+
+在配置 StorageClass 之前, 我们可以在 GPFS Server 节点创建一个独立的 Fileset, 作为下面的 Parent Fileset 使用.
+
+> **注意:** 在创建 Fileset-based(Dependent) Volumes 的时候, 其 Parent Fileset 必须是一个独立的 Fileset.
+
+**前置操作:**
+```bash
+# 创建一个 quota 为 10GB 的独立的 fileset
+mmcrfileset defaultfs fileset-independent --inode-space new
+mmsetquota defaultfs:fileset-independent --block 10737418240:10737418240
+mmlinkfileset defaultfs fileset-independent -J /gpfsdata/fileset-independent
+```
+
+**storageclassfilesetdependent.yaml 配置:**  (参考 [storageclassfileset.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/dynamicprovisioning/fileset/dependent/storageclassfileset.yaml))
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+   name: ibm-spectrum-scale-csi-fileset-dependent
+provisioner: spectrumscale.csi.ibm.com
+parameters:
+    volBackendFs: "defaultfs"
+    filesetType: "dependent"
+    parentFileset: "fileset-independent"
+    shared: "true"
+reclaimPolicy: Delete
+```
+
+
+**关键字段解释:**
++ `volBackendFs`: 对应 GPFS 文件系统名称.
++ `filesetType`: 文件集类型, 有效选项为 independent/dependent, 默认值为 independent.
++ `parentFileset`: 父文件集名称. 仅 filesetType 为 dependent 时有效. 默认值为 root.
++ `shared`: 如果您的 Pod 中包含非 root 用户, 并且他们使用具有 ReadWriteMany (RWX) 访问模式的 PVC, 请设置该参数为 true. 默认值为 false.
+
+
+**相关命令:**
+```bash
+# 应用 storageclass 配置
+kubectl apply -f storageclassfilesetdependent.yaml
+
+# 查看 storageclass 状态
+kubectl get storageclass -n default
+```
+
+**相关输出记录:**
+```bash
+[bugwz@node03 dynamic]$ kubectl apply -f storageclasslw.yaml
+storageclass.storage.k8s.io/ibm-spectrum-scale-csi-fileset-dependent created
+
+
+[bugwz@node03 dynamic]$ kubectl get storageclass -n default
+NAME                                       PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+ibm-spectrum-scale-csi-fileset-dependent   spectrumscale.csi.ibm.com   Delete          Immediate           false                  18s
+standard (default)                         k8s.io/minikube-hostpath    Delete          Immediate           false                  14h
+```
+
+
+#### 5.2.3.2 创建 PVC
+
+使用此 storageClass 创建持久卷声明 (PVC), 如以下示例所示: 根据您的要求修改相关参数.
+
+**pvcfilesetdependent.yaml 配置:**  (参考 [pvcfileset.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/dynamicprovisioning/fileset/dependent/pvcfileset.yaml))
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scale-fset-pvc-dependent
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: ibm-spectrum-scale-csi-fileset-dependent
+```
+
+**相关命令:**
+```bash
+# 应用 pvc 配置
+kubectl apply -f pvcfilesetdependent.yaml
+
+# 查看 pvc 状态
+kubectl get storageclass,pvc -n default
+
+# 查看 GPFS 数据目录信息
+sudo ls -al /gpfsdata/fileset-independent
+sudo tree /gpfsdata/fileset-independent
+```
+
+
+**相关输出记录:**
+```bash
+[bugwz@node03 fileset]$ kubectl get storageclass,pvc -n default
+NAME                                                                   PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+storageclass.storage.k8s.io/ibm-spectrum-scale-csi-fileset-dependent   spectrumscale.csi.ibm.com   Delete          Immediate           false                  66s
+storageclass.storage.k8s.io/standard (default)                         k8s.io/minikube-hostpath    Delete          Immediate           false                  14h
+
+NAME                                             STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                               VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/scale-fset-pvc-dependent   Bound    pvc-147f3484-b0ec-4258-93b2-403ce0a6f8eb   1Gi        RWX            ibm-spectrum-scale-csi-fileset-dependent   <unset>                 49s
+persistentvolumeclaim/scale-lt-pvc               Bound    pvc-9e61d403-2005-48f7-960f-ddddac18b2c8   1Gi        RWX            ibm-spectrum-scale-csi-lt                  <unset>                 58m
+
+
+[bugwz@node03 fileset]$ sudo ls -al /gpfsdata/fileset-independent
+total 515
+drwx------ 3 root root   4096 Jul  3 12:00 .
+drwxr-xr-x 8 root root 262144 Jul  3 11:59 ..
+drwxrwx--x 3 root root   4096 Jul  3 12:00 pvc-147f3484-b0ec-4258-93b2-403ce0a6f8eb
+dr-xr-xr-x 2 root root   8192 Jan  1  1970 .snapshots
+
+
+[bugwz@node03 fileset]$ sudo tree /gpfsdata/fileset-independent
+/gpfsdata/fileset-independent
+└── pvc-147f3484-b0ec-4258-93b2-403ce0a6f8eb
+    └── pvc-147f3484-b0ec-4258-93b2-403ce0a6f8eb-data
+
+2 directories, 0 files
+```
+
+
+#### 5.2.3.3 创建 Pod
+
+对应以上配置修改下面的信息.
+
+**podfilesetdependent.yaml 配置:**  (参考 [podfileset.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version1/volume/dynamicprovisioning/fileset/dependent/podfileset.yaml))
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-scale-fsetdemo-pod-dependent
+  labels:
+    app: nginx
+spec:
+  containers:
+   - name: web-server
+     image: nginx
+     volumeMounts:
+       - name: mypvc
+         mountPath: /usr/share/nginx/html/scale
+     ports:
+     - containerPort: 80
+  volumes:
+   - name: mypvc
+     persistentVolumeClaim:
+       claimName: scale-fset-pvc-dependent
+       readOnly: false
+```
+
+**相关命令:**
+```bash
+# 应用 pod 配置
+kubectl apply -f podfilesetdependent.yaml
+
+# 查看 pod 状态
+kubectl get storageclass,pvc,pod -n default
+```
+
+**相关输出记录:**
+```bash
+[bugwz@node03 fileset]$ kubectl get storageclass,pvc,pod -n default
+NAME                                                                   PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+storageclass.storage.k8s.io/ibm-spectrum-scale-csi-fileset-dependent   spectrumscale.csi.ibm.com   Delete          Immediate           false                  5m56s
+storageclass.storage.k8s.io/standard (default)                         k8s.io/minikube-hostpath    Delete          Immediate           false                  14h
+
+NAME                                             STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                               VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/scale-fset-pvc-dependent   Bound    pvc-147f3484-b0ec-4258-93b2-403ce0a6f8eb   1Gi        RWX            ibm-spectrum-scale-csi-fileset-dependent   <unset>                 5m39s
+
+NAME                                   READY   STATUS    RESTARTS   AGE
+pod/csi-scale-fsetdemo-pod-dependent   1/1     Running   0          12s
+```
+
+
+
+### 5.2.4 一致性组卷
+
+一致性组卷 (Consistency Group Volumes). 在主集群所拥有的文件系统或主集群以外的其他集群所拥有的文件系统上的一致性组中创建 PVC. 关于 Consistency Group 的相关资料: [IBM Doc: Consistency Group](https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=driver-consistency-group-cg), [IBM Doc: Creating Consistency Group Volumes](https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=class-storage-creating-consistency-group-volumes).
+
+
+**注意:**
++ 要使用一致性组功能, 您必须使用 GPFS(IBM Storage Scale) 5.1.3.0 或更高版本.
++ 由于本文的测试环境中没有条件部署多集群, 所以该模块功能未作验证, 需读者自行操作验证.
+
+
+#### 5.2.4.1 创建 StorageClass
+
+**storageclassconsistencygroup.yaml 配置:**  (参考 [storageclass.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version2/volume/storageclass.yaml))
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ibm-spectrum-scale-csi-consistency-group
+provisioner: spectrumscale.csi.ibm.com
+parameters:
+    version: "2"
+    volBackendFs: "remotefs"
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+```
+
+
+**关键字段解释:**
++ `version`: 表示存储类的版本. 1 表示该存储类不用于一致性组, 2  表示存储类用于一致性组.
++ `volBackendFs`: 对应 GPFS 文件系统名称. 文件系统名称是主集群上远程挂载的文件系统的名称.
+
+
+**相关命令:**
+```bash
+# 应用 storageclass 配置
+kubectl apply -f storageclassconsistencygroup.yaml
+
+# 查看 storageclass 状态
+kubectl get storageclass -n default
+```
+
+
+#### 5.2.4.2 创建 PVC
+
+
+使用此 storageClass 创建持久卷声明 (PVC), 如以下示例所示: 根据您的要求修改相关参数.
+
+**pvcconsistencygroup.yaml 配置:**  (参考 [pvc.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version2/volume/pvc.yaml))
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scale-consistency-group-pvc
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: ibm-spectrum-scale-csi-consistency-group
+```
+
+**相关命令:**
+```bash
+# 应用 pvc 配置
+kubectl apply -f pvcconsistencygroup.yaml
+
+# 查看 pvc 状态
+kubectl get storageclass,pvc -n default
+```
+
+
+#### 5.2.4.3 创建 Pod
+
+
+对应以上配置修改下面的信息.
+
+**podconsistencygroup.yaml 配置:**  (参考 [pod.yaml](https://github.com/IBM/ibm-spectrum-scale-csi/blob/v2.11.1/driver/examples/version2/volume/pod.yaml))
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-scale-consistency-group-pod
+  labels:
+    app: nginx
+spec:
+  containers:
+   - name: web-server
+     image: nginx
+     volumeMounts:
+       - name: mypvc
+         mountPath: /usr/share/nginx/html/scale
+     ports:
+     - containerPort: 80
+  volumes:
+   - name: mypvc
+     persistentVolumeClaim:
+       claimName: scale-consistency-group-pvc
+       readOnly: false
+```
+
+**相关命令:**
+```bash
+# 应用 pod 配置
+kubectl apply -f podconsistencygroup.yaml
+
+# 查看 pod 状态
+kubectl get storageclass,pvc,pod -n default
+```
+
+
+# 6. 参考链接
++ https://github.com/IBM/ibm-spectrum-scale-csi
++ https://www.ibm.com/docs/en/scalecsi/2.11.0
++ https://www.ibm.com/docs/en/scalecsi/2.11.0?topic=storage-scale-container-storage-interface-driver-211
++ https://www.ibm.com/docs/en/scalecsi/2.13.0?topic=213-using-storage-scale-container-storage-interface-driver
++ https://www.ibm.com/docs/en/scalecsi/2.14.0?topic=STXKQY_CSI_SHR_2.14.0/com.ibm.spectrum.scale.csi.v21r3.doc/bl1csi_using.htm
++ https://www.ibm.com/docs/en/scalecsi/2.14.0?topic=STXKQY_CSI_SHR_2.14.0/com.ibm.spectrum.scale.csi.v21r3.doc/bl1csi_config_csi_storageclass.htm

@@ -1,0 +1,60 @@
+# 小米 8 刷入 MIUI12 国外版
+
+# 1. MIUI 相关版本
+
++ [国内版本](https://www.miui.com/download.html): MIUI 的官方国内版本, 功能比较齐全, 国内的服务套件比较齐全 (小爱同学等), 但是广告比较多, 并且预装应用以及后台常驻的系统组件比较多, 缺少 Google 套件 (可以通过其他方式安装, 但是会有稳定性以及兼容问题);
++ [国际版](https://c.mi.com/global/miuidownload/index): MIUI 的官方的国际版本 (也被称为俄罗斯版本), 自带过多的 Google 套件, 比较臃肿, 没有广告; 不自带小米钱包, 因此无法原生使用小米公交等服务 (后续可刷入);
++ [波兰版本](https://miuipolska.pl/download/): MIUI 的第三方定制的 ROM, 自带 Google 套件, 没有广告; 不自带小米钱包, 因此无法原生使用小米公交等服务 (后续可刷入);
++ [英国版本](https://xiaomi.eu/community/): MIUI 的第三方定制的 ROM, 自带 Google 套件, 没有广告; 不自带小米钱包, 因此无法原生使用小米公交等服务 (后续可刷入);
+
+# 2. 刷机教程
+
+针对于[国内版本](https://www.miui.com/download.html)和[国际版](https://c.mi.com/global/miuidownload/index), 我们可是使用小米官方提供的刷机方式进行刷机即可,[官方教程](http://www.miui.com/shuaji-329.html). 针对于第三方地址的 ROM, 可以按照如下方式进行刷机. 接下来我们将对小米 8 进行刷机, ROM 为英国版本 MIUI12.
+
+## 2.1 解锁 Bootloader
+
+关于 Bootloader 的详细介绍可以查看[百度百科 - Bootloader](https://baike.baidu.com/item/Boot%20Loader), 简而言之就是手机厂商为了防止用户刷入第三方 ROM 导致系统出现不可逆的损坏, 同时也为了保护手机底层以及用户的一些敏感信息. 目前小米全线的手机都对 Bootloader 进行了加锁, 我们可以使用小米官方提供的解锁方式进行解锁:[解锁小米手机](http://www.miui.com/unlock/index.html)
+
+## 2.2 安装 TWRP
+
+[TWRP](https://zh.wikipedia.org/wiki/TWRP), 全称是 `Team Win Recovery Project` 是一款知名的第三方的 Recovery 工具, 关于 Recovery 的介绍可以参考[百度百科 - Recovery](https://baike.baidu.com/item/Recovery/9995978), 在进行第三方 ROM 的刷机之前我们需要给系统刷入 TWRP, 我们可以在[TWRP的官网](https://twrp.me/)找到对应手机版本的 TWRP 进行刷入, 具体步骤如下:
+
++ 在 TWRP 支持的设备列表选择手机厂商型号:https://twrp.me/Devices/ ;
++ 选择对应手机型号的最新版本的 TWRP 进行下载即可, 截止到测试时最新版本为 `3.3.1-2`;
++ 备份手机中的重要数据, 刷机过程中需要清除手机数据;
++ 手机进入 fastboot 模式 (小米 8 在关机后长按电源键+音量下键即可进入) 连接电脑, 使用以下指令验证手机设备使用正常识别并且进行刷入操作:
+  + `adb devices`: 如果获取到手机设备序列号即代表当前电脑已经识别手机并连接成功;
+  + `fastboot flash recovery twrp-x.x.x-x-polaris.img`: 将下载好的 TWRP 刷入手机, 之后后通过提示信息可判断是否刷入成功;
+  + `fastboot oem reboot-recovery`: 重启手机并进入 `TWRP Recovery` 模式;
+
+## 2.3 下载 ROM 包并刷机
+
++ 由于我们计划刷入的 ROM 为 `MIUI12英国版`, 因此在[英国版本](https://xiaomi.eu/community/)网站中下载指定的版本, 我们使用的版本为 `MIUI12的20.6.11`;
++ 将下载好的 ROM 包存入手机;
++ 进入手机的 `TWRP Recovery` 模式, 小米 8 可通过以下方式进入: 同时按电源键+音量上键, 在手机震动出现小米 Logo 后松开电源键, 不松开音量上键等待进入;
++ 在 `TWRP Recovery` 模式中选择安装对应的 ROM 包即可;
++ 由于使用的是非国内版的 ROM 包, 安装完成后进入系统启动配置时可能需要能够访问外网的网络环境;
+
+## 2.4 刷入小米钱包
+
+小米 8 本身支持全功能 NFC, 但是由于国外版本的 ROM 没有内置小米钱包, 刷机之后无法使用小米公交卡等 NFC 服务, 因此需要手动刷入小米钱包.
+
+### 2.4.1 下载国内版本对应 ROM
+
+我们需要首先从国内版本的 ROM 中提取出小米钱包, 因此之前需要下载与国外版相同版本 ROM 的国内 ROM, 但是由于 `MIUI12` 的 `20.6.11` 版本刚刚释出, 并且 `MIUI12` 在国内处于预约测试状态, 只能通过之前预约的在手机端进行更新下载, 我们暂时没有找到 `20.6.11` 版本的国内的 ROM 的下载方式, 不过我们仍旧可以通过较低版本的 `MIUI12` 的 ROM 包进行提取操作, 网友给出了 `MIUI12` 的较低版本的部分机型的下载地址:https://news.mydrivers.com/1/686/686222.htm
+
+### 2.4.2 提取小米钱包
+
++ 下载提取工具 `mipay-extract`:https://github.com/linusyang92/mipay-extract;
++ 将下载的国内版的 ROM 放入 `mipay-extract` 文件夹目录中, 并运行同目录下的 `extract.bat` (Windows 环境下);
++ 将提取出来的 `mipay-*-*.zip` 拷入手机根目录中;
+
+### 2.4.3 刷入小米钱包
+
++ 重启进入 `TWRP Recovery` 模式, 选择 `挂载`, 并选中 `System`, 然后返回点击 `安装`, 选择对应的 `mipay-*-*.zip` 进行卡刷即可;
++ 刷入成功后进入手机系统后, 会发现系统中多了一个 `小米钱包` 的软件, 然后进入 `设置`, 将系统中的 NFC 相关设置的 `安全模块位置` 修改为 `内置安全模块`;
++ 后续即可正常使用 NFC 用于公交, NFC 卡片复制等;
+
+# 3. 参考网址
+
++ http://www.midousir.com/2019/05/xiaomi8-pro-recovery/

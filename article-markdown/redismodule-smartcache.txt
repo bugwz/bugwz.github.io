@@ -1,0 +1,78 @@
+# RedisModule 剖析 - SmartCache
+
+`SmartCache` 是一款基于 `RedisModule` 实现的数据缓存模块, 目前仅支持与 MySQL 进行数据缓存交互. 在客户端访问数据的时候, 如果该数据不存在于 Redis 中, 则 Redis 会向配置的 MySQL 发起数据请求, 将数据缓存到本地, 并设置一定的过期时间, 之后将缓存的数据发送给客户端, 从而实现了 `Read-Through Cache` 这种缓存模式. 缓存的数据经过格式化处理 (格式化方式比较简单, 参考下文), 因此客户端读取到访问数据后还需要进行额外的转换解析.
+
+# 1. 简介
+
++ GitHub 地址:https://github.com/fcerbell/redismodule-smartcache/
+
+# 2. 架构设计
+
+## 2.1 相关命令
+
++ scache.create : 创建一个新的缓存信息, 通过指定的 mysql 地址信息, 该缓存维护一个与 mysql 的连接信息;
++ scache.list : 遍历出所有创建的缓存信息 (返回缓存信息标示);
++ scache.info : 获取指定的缓存信息 (缓存信息使用链表存储, 数据量较多时访问可能有性能瓶颈);
++ scache.test : 验证特定的缓存信息与 mysql 的连接是否 ok (缓存信息使用链表存储, 数据量较多时访问可能有性能瓶颈);
++ scache.flush : 暂不支持;
++ scache.delete : 删除指定的缓存信息, 同时断开与 mysql 的连接;
++ scache.getvalue : 从缓存中获取对应的值;
++ scache.getmeta : 从缓存中获取对应的值的属性;
+
+## 2.2 数据结构
+
+```c++
+// 缓存对象的结构体
+typedef struct CacheDetails_s {
+    char* cachename;              // 设置的缓存名,独立无二的缓存标识符
+    uint16_t ttl;                 // 值到期前的默认生存时间(以秒为单位)
+    char* dbhost;                 // 数据库服务器的主机IP 地址或 DNS 名称
+    uint16_t dbport;              // port数据库服务器的 TCP 端口(通常为 3306)
+    char* dbname;                 // 需要连接的数据库名
+    char* dbuser;                 // 连接到数据库的用户登录名
+    char* dbpass;                 // 密码连接数据库的密码
+    MYSQL* dbhandle;              // 连接mysql的句柄
+    struct CacheDetails_s* next;  // 记录下一个缓存对象
+} CacheDetails;
+```
+
+# 3. 数据缓存读取流程
+
+## 3.1 数据缓存流程
+
+相关函数 : `SCachePopulate` , 主要流程如下:
++ 向对应 mysql 发送 query 命令 (调用 `mysql_query` 接口), 并接受返回结果 (异常则直接返回);
++ 拼接两个缓存信息 key ,`cachename::query::meta` 和 `cachename::query::value` ;
++ 解析 mysql 的返回值, 并将数据存储到两个 key 中:
+  + 将返回结果每个字段及其属性存储进 `cachename::query::meta` 中:
+    + 相关命令 : `RPUSH cachename::query::meta name|type` ;
+    + 数据的格式为 : 即 `name|type` 的内容为 mysql 返回信息的对应字段的名称和类型;
+  + 将返回结果每一行数据依次存储进 `cachename::query::value` 中:
+    + 相关命令 : `RPUSH cachename::query::value field1|field2|field3` ; 
+    + 数据的格式 : 即 `field1|field2|field3` 的内容为 mysql 返回结果中一行中的每一列的数据拼接成的字符串, 分隔符为 `|` ;
+
+## 3.2 数据读取流程
+
++ `scache.getvalue` 执行流程 :
+  1. 拼接特殊 key, 格式为 : `cachename::query::value` (其中 `cachename` 和 `query` 是命令中传入的参数);
+  2. 在本地 DB 中执行 `LRANGE cachename::query::value 0 -1` 获取所有数据;
+  3. 如果数据为空, 则调用 `SCachePopulate` 函数填充数据后再次执行 `LRANGE cachename::query::value 0 -1` 获取数据;
+  4. 最终拿到的数据就是一批 `field1|field2|field3` 数据的数组 (类似于 sql 指令的多行返回值);
++ `scache.getmeta` 执行流程 :
+  1. 拼接特殊 key, 格式为 : `cachename::query::meta` (其中 `cachename` 和 `query` 是命令中传入的参数);
+  2. 在本地 DB 中执行 `LRANGE cachename::query::meta 0 -1` 获取所有数据;
+  3. 如果数据为空, 则调用 `SCachePopulate` 函数填充数据后再次执行 `LRANGE cachename::query::meta 0 -1` 获取数据;
+  4. 最终拿到的数据就是一批 `name|type` 数据的数组 (类似于 sql 指令的返回值对应的每一列的属性信息);
+
+# 4. 问题与思考
+
+## 4.1 问题
+
++ 在新创建一个缓存对象的时候, 会阻塞当前客户端并创建一个线程 (通过函数 `SCacheCreate_ThreadMain` ) 来异步连接 mysql 服务, 但是在后续数据查询的查询的过程中, 好像是同步的查询请求, 因此这里会阻塞其他客户端的访问, 从而影响访问性能;
++ 缓存的数据经过格式化处理, 客户端无法直接使用, 需要进行解析;
++ 缓存数据作为独立 key 的数据进行存储, 并且暂时还未实现 `scache.flush` 的功能, 因此需要取消缓存数据之后的数据冗余问题;
++ 使用链表存储缓存对象, 在缓存对象数据量较大的场景下不可避免的会有性能问题, 这一点可以做一些优化;
+
+## 4.2 思考
+
++ 通过封装缓存服务与存储服务的交互逻辑, 提供了一种更加简单的缓存模型, 但是往往业务的缓存方式不是这么简单直接, 因此在实际的使用中可能并不适合;

@@ -1,0 +1,505 @@
+# ProxyAssistant - 强大的浏览器代理管理扩展
+
+ProxyAssistant 是一款功能强大的浏览器代理管理扩展, 支持 Chrome, Firefox, Edge 等多款浏览器, 支持多场景管理, 帮助用户轻松配置和切换网络代理. 作为一款开源的浏览器扩展, ProxyAssistant 凭借其丰富的功能特性, 优秀的用户体验和完善的多语言支持, 已成为众多用户管理网络代理的首选工具.
+
+# 1. 项目概述
+
+## 1.1 项目简介
+
+ProxyAssistant 诞生于对高效代理管理工具的需求. 作为一款现代化的浏览器扩展, 它采用了最新的 Manifest V3 规范, 充分利用了现代浏览器提供的各种 API, 为用户提供了一个界面美观, 功能完善, 操作便捷的代理管理解决方案. 项目采用原生 JavaScript 和 jQuery 开发, 是一款成熟稳定的代理管理工具.
+
+该扩展的核心设计理念是 "简单易用, 功能强大". 无论是需要频繁切换不同代理服务器的用户, 还是需要为不同网站配置不同代理规则的高级用户, ProxyAssistant 都能满足其需求. 同时, 项目完全开源, 采用 MIT 许可证, 任何人都可以自由使用, 修改和分发.
+
+**项目地址**:https://github.com/bugwz/ProxyAssistant
+
+![代理助手](/assets/images/covers/posts/proxyassistant.webp)
+
+## 1.2 技术栈与架构
+
+在架构设计上, 项目采用了清晰的模块化结构. `worker.js` 负责代理配置管理和 PAC 脚本生成, `popup.js` 处理弹窗界面交互, `main.js` 负责设置页面的完整功能, `i18n.js` 提供多语言支持. 这种分层架构使得代码易于维护和扩展, 也便于贡献者理解和参与开发.
+
+ProxyAssistant 在技术选型上始终坚持简洁高效的原则. 项目使用以下核心技术构建:
+
+|技术组件|用途说明|
+|:---------:|:---------:|
+|原生 JavaScript|核心业务逻辑开发, 确保最佳性能|
+|jQuery|DOM 操作和事件处理, 简化跨浏览器兼容|
+|Jest|单元测试, 集成测试和端到端测试框架|
+|Manifest V3|Chrome 扩展规范, Service Worker 替代后台页面|
+|Chrome Storage API|本地和云端数据存储|
+|i18n|完整的国际化支持|
+
+
+## 1.3 浏览器兼容性
+
+ProxyAssistant 对主流浏览器提供了良好的支持:
+
+|浏览器|支持情况|技术方案|
+|:-------:|:---------:|:---------:|
+|Chrome|✅ 完全支持|Manifest V3 + Service Worker|
+|Firefox|✅ 完全支持|Manifest V3 + proxy.onRequest API|
+|Edge|✅ 兼容支持|基于 Chromium, 可安装 Chrome 扩展|
+
+值得注意的是, Firefox 版本要求最低版本为 142.0, 这是为了确保能够完整支持所需的扩展 API. 对于需要跨浏览器使用的用户, ProxyAssistant 提供了统一的配置同步功能, 可以在不同浏览器间无缝迁移代理配置.
+
+# 2. 核心功能特性
+
+## 2.1 多协议代理支持
+
+ProxyAssistant 支持市场上主流的代理协议, 满足不同场景的需求:
+
+|协议类型|支持情况|应用场景|
+|:---------:|:---------:|:---------:|
+|HTTP|✅ 完全支持|传统网页浏览, 兼容性最好|
+|HTTPS|✅ 完全支持|安全加密传输, 保护隐私|
+|SOCKS5|✅ 完全支持|支持 TCP 和 UDP 协议, 应用广泛|
+|SOCKS4|✅ 完全支持|兼容旧版系统和应用|
+
+每种协议都支持完整的认证功能 (注意: 受限于 Chrome 的约束, SOCKS5 的连接认证), 用户可以为代理服务器配置用户名和密码, 扩展会自动处理认证请求, 确保安全可靠地使用代理服务. 这种多协议支持使得 ProxyAssistant 能够适应各种复杂的网络环境和代理服务提供商.
+
+## 2.2 三种代理状态
+
+为了满足不同用户的使用习惯和需求, ProxyAssistant 提供了三种代理状态:
+
+|状态|描述|适用场景|
+|:-----:|:------:|:---------:|
+|禁用|禁用代理, 使用系统默认网络连接|需要直接访问本地网络时|
+|手动|从列表中手动选择代理|单一代理固定使用|
+|自动|根据 URL 规则自动选择匹配代理|不同网站使用不同代理|
+
+自动模式是 ProxyAssistant 的一大特色功能. 用户可以为每个代理配置 URL 规则, 包括 "不走代理的地址" 和 "走代理的地址". 系统会根据访问的网站自动选择合适的代理, 实现了智能路由功能. 例如, 可以让国内网站直连, 特定国外网站走代理, 大大提高了使用的灵活性.
+
+## 2.3 自定义场景模式
+
+场景模式是 ProxyAssistant 1.5.0 版本引入的重大功能更新, 它允许用户创建不同的代理配置集合:
+
+- **多场景支持**: 可以创建如 "公司","家庭","开发环境" 等不同场景
+- **快速切换**: 一键在不同场景间切换代理列表, 无需重复配置
+- **灵活管理**: 支持场景的新增, 重命名, 删除及排序
+- **代理迁移**: 支持将代理在不同场景间移动, 方便整理
+
+这种设计非常适合需要在多个网络环境间切换的用户. 例如, 在公司使用公司提供的代理, 在家使用科学上网代理, 通过场景切换可以瞬间完成代理配置的变更, 极大提升了使用效率.
+
+## 2.4 数据同步
+
+ProxyAssistant 支持两种同步方式: **浏览器原生同步** 和 **Github Gist 同步**.
+
+### 2.4.1 浏览器原生同步
+
+使用浏览器账号进行数据同步:
+- Chrome 使用 `chrome.storage.sync` API
+- Firefox 使用 `browser.storage.sync` API
+- 自动通过 Chrome/Firefox 账号同步
+- 分块存储: 配置数据自动分块 (每块 7KB), 绕过 8KB 单项配额限制
+- 数据校验: 使用校验和确保同步数据的完整性
+- 原子操作: Push 操作先清空旧数据再写入新数据, 保证一致性
+- 配额显示: 实时显示已用/总配额 (100KB) 和分块数量
+
+### 2.4.2 GitHub Gist 同步
+
+通过 GitHub Gist 实现跨浏览器同步:
+- 需要配置 GitHub Personal Access Token
+- 支持手动 push/pull 或自动同步
+- 配置内容加密存储, 导出时自动清除敏感信息
+
+|配置项|描述|
+|:-------:|:------:|
+|访问密钥|GitHub Personal Access Token (需具有 gist 权限)|
+|文件名|Gist 中的文件名, 默认为 proxy_assistant_config.json|
+|Gist ID|自动识别保存, 无需手动输入|
+
+## 2.5 数据导入和导出
+
+ProxyAssistant 提供了完善的导入导出功能:
+
+- **导出配置**: 生成包含所有代理信息, 主题设置, 语言设置等信息的 JSON 文件
+- **导入配置**: 支持从 JSON 文件恢复配置
+- **数据安全**: 导出文件自动清除敏感信息 (Token, 密码)
+- **格式兼容**: 支持导入旧版本配置文件
+
+导出功能使得配置分享变得非常简单. 用户可以将自己的代理配置导出为 JSON 文件, 分享给团队成员或在其他设备上导入使用, 既方便又安全.
+
+## 2.6 主题模式
+
+ProxyAssistant 提供了完整的主题支持:
+
+|主题类型|描述|
+|:---------:|:-----:|
+|白天模式|适合白天使用, 界面清爽明亮|
+|夜间模式|适合夜间使用, 减少眼睛疲劳|
+|自动切换|根据配置的时间段自动切换主题|
+
+用户可以根据自己的使用习惯和喜好选择合适的主题模式, 也可以设置自动切换, 让扩展根据时间自动调整界面风格, 体现了产品设计的人文关怀.
+
+## 2.7 多语言支持
+
+ProxyAssistant 在国际化方面做得非常出色, 目前支持 10 种语言:
+
+|语言|代码|状态|
+|:-----:|:------:|:------:|
+|简体中文|zh-CN|✅ 已支持|
+|繁體中文|zh-TW|✅ 已支持|
+|English|en|✅ 已支持|
+|日本語|ja|✅ 已支持|
+|Français|fr|✅ 已支持|
+|Deutsch|de|✅ 已支持|
+|Español|es|✅ 已支持|
+|Português|pt|✅ 已支持|
+|Русский|ru|✅ 已支持|
+|한국어|ko|✅ 已支持|
+
+国际化实现结合了 Chrome i18n API 和自管理的语言包, 确保用户可以在扩展内实时切换语言. 这种广泛的多语言支持使得 ProxyAssistant 能够服务于全球各地的用户.
+
+
+
+# 3. 安装与使用
+
+## 3.1 安装方式
+
+### 3.1.1 Chrome 浏览器
+
+**方式一 (推荐)**: 从 Chrome 官方商店安装
+1. 打开 Chrome, 访问 Chrome 网上应用商店
+2. 搜索 "代理助手", 或直接访问 [代理助手](https://chromewebstore.google.com/detail/%E4%BB%A3%E7%90%86%E5%8A%A9%E6%89%8B/mfemgikpcpndehimgkjghpcofjcgdhdk?hl=zh-CN&utm_source=ext_sidebar)
+3. 点击 "添加至 Chrome"
+
+**方式二**: 本地安装
+1. 前往 GitHub Releases 页面
+2. 下载 `proxy-assistant-chrome-x.x.x.zip` 文件
+3. 解压后加载 `src` 目录
+
+### 3.1.2 Firefox 浏览器
+
+**方式一 (推荐)**: 从 Firefox 官方附加组件安装
+1. 打开 Firefox, 访问 Firefox 附加组件
+2. 搜索 "代理助手", 或直接访问 [代理助手](https://addons.mozilla.org/zh-CN/firefox/addon/proxyassistant/?utm_source=addons.mozilla.org&utm_medium=referral&utm_content=search)
+3. 点击 "添加到 Firefox"
+
+**方式二**: 本地安装
+1. 从 release 目录下载 Firefox 扩展安装包 (`.xpi` 文件)
+2. 在附加组件页面从文件安装
+
+### 3.1.3 Microsoft Edge
+
+Edge 浏览器基于 Chromium 内核, 可以直接安装 Chrome 扩展:
+1. 访问 `edge://extensions/`
+2. 开启开发者模式
+3. 加载 Chrome 扩展或从 Chrome 网上应用店安装, 或直接访问 [代理助手](https://chromewebstore.google.com/detail/%E4%BB%A3%E7%90%86%E5%8A%A9%E6%89%8B/mfemgikpcpndehimgkjghpcofjcgdhdk?hl=zh-CN&utm_source=ext_sidebar)
+
+## 3.2 使用指南
+
+1. **添加代理**: 点击扩展图标 → 设置 → 新增代理 → 填写代理信息
+2. **使用代理**:
+   - 手动模式: 从列表中选择代理
+   - 自动模式: 配置 URL 规则, 自动匹配
+3. **场景切换**: 在弹窗中切换不同场景
+4. **导入导出**: 设置页面支持配置文件的导入导出
+
+# 4. 开发与测试
+
+## 4.1 项目结构
+
+ProxyAssistant 采用清晰的项目结构, 便于开发和维护:
+
+```
+ProxyAssistant/
+├── conf/                     # 示例配置
+├── readme/                   # 多语言文档
+├── src/                      # 源代码
+│   ├── manifest_chrome.json  # Chrome 扩展配置
+│   ├── manifest_firefox.json # Firefox 扩展配置
+│   ├── main.html             # 设置页面
+│   ├── popup.html            # 弹窗页面
+│   ├── js/
+│   │   ├── main.js           # 设置页面主逻辑
+│   │   ├── popup.js          # 弹窗 UI 逻辑
+│   │   ├── worker.js         # Service Worker
+│   │   ├── i18n.js           # 国际化支持
+│   │   └── jquery.js         # jQuery 库
+│   ├── css/
+│   │   ├── main.css          # 设置页面样式
+│   │   ├── popup.css         # 弹窗样式
+│   │   ├── theme.css         # 主题样式
+│   │   └── eye-button.css    # 显示密码按钮样式
+│   └── images/               # 图片资源
+├── tests/                    # 测试目录
+│   ├── jest.config.js        # Jest 测试配置
+│   ├── setup.js              # 测试环境设置
+│   ├── __mocks__/            # Mock 文件
+│   ├── unit/                 # 单元测试
+│   ├── integration/          # 集成测试
+│   └── e2e/                  # 端到端测试
+├── build/                    # 构建产物目录
+├── package.json              # 项目依赖配置
+├── Makefile                  # 构建命令入口
+└── AGENTS.md                 # 开发指南
+```
+
+## 4.2 测试框架
+
+ProxyAssistant 使用 Jest 作为测试框架, 建立了完整的测试体系:
+
+|测试类型|命令|描述|
+|:---------:|:------:|:------:|
+|单元测试|make test_unit|测试核心功能模块|
+|集成测试|make test_integration|测试模块间交互|
+|端到端测试|make test_e2e|测试完整用户流程|
+|全部测试|make test|运行所有测试|
+|覆盖率报告|npm run test:coverage|生成测试覆盖率报告|
+
+项目还提供了监听模式 (`npm run test:watch`), 支持开发过程中实时运行测试, 确保代码质量.
+
+## 4.3 构建流程
+
+ProxyAssistant 提供了完整的构建脚本:
+
+|命令|描述|
+|:------:|:------:|
+|make build|构建 Chrome 和 Firefox 扩展|
+|make build VERSION=dev|指定版本号构建|
+|make clean|清理构建产物|
+
+构建产物包括:
+- `ProxyAssistant_{VERSION}_chrome.zip` - Chrome 安装包
+- `ProxyAssistant_{VERSION}_chrome.tar.gz` - Chrome 源码包
+- `ProxyAssistant_{VERSION}_firefox.zip` - Firefox 安装包
+- `ProxyAssistant_{VERSION}_firefox.tar.gz` - Firefox 源码包
+- `ProxyAssistant_{VERSION}_firefox.xpi` - Firefox 官方扩展包
+
+## 4.4 代码规范
+
+项目遵循严格的代码规范:
+
+- **缩进**: 2 个空格
+- **引号**: 单引号
+- **命名**: 小驼峰 (camelCase), 常量使用大写下划线
+- **分号**: 一致使用
+
+详细的开发规范请参考 [AGENTS.md](https://github.com/bugwz/ProxyAssistant/blob/HEAD/AGENTS.md).
+
+# 5. 应用场景
+
+## 5.1 多代理切换
+
+对于需要在不同网络环境间切换的用户, ProxyAssistant 提供了便捷的解决方案:
+- 为不同网络环境配置不同代理
+- 办公网络使用公司代理
+- 家庭网络使用科学上网代理
+- 一键快速切换, 无需重复配置
+
+## 5.2 智能路由
+
+ProxyAssistant 的自动模式和 URL 规则配置功能实现了智能路由:
+- 国内网站直连, 享受最快速度
+- 特定网站走代理, 突破网络限制
+- 根据域名自动选择, 无需手动切换
+
+## 5.3 团队共享
+
+ProxyAssistant 的导入导出功能便于团队协作:
+- 导出配置文件
+- 分享给团队成员
+- 保持统一的代理配置
+
+# 6. 外部插件格式说明
+
+## 6.1 AutoProxy 格式
+
+**描述**:
++ 一种用于浏览器代理扩展 (如 SwitchyOmega) 的规则格式, 核心基于 Adblock Plus 1.1 (ADP) 语法;
++ 由于 AutoProxy 定义时间较早, 主要针对 HTTP 代理, 没有考虑到 HTTPS 的普遍使用, 所以对于 **包含 `*` 的文本** 和 **以 `@@` 开头的不含 `*` 的文本** 的匹配规则内部都只匹配了 http, 对于这里我们做了调整, 加入了对于 https 的匹配;
++ 参考当前最新的 [Adblock Plus - How to write filters](http://adblockplus.org/en/filters);
+
+**匹配规则**:
++ **以 `[` 开头的行**: 头部标记, 被忽略
+  + 示例: `[AutoProxy`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `!` 开头的行**: 注释行, 被忽略
+  + 示例: `!comment`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **空行**: 空行被忽略
+  + 示例:
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `|` 开头**: 匹配以指定字符串开头的 URL
+  + 示例: `|http://example.com/`
+  + 解析后的模式: `http://example.com/*`
+  + PAC 转换规则 (JavaScript): `if (url.startsWith('http://example.com/')) return "PROXY";`
++ **以 `||` 开头**: 匹配域名及其所有子域名
+  + 示例: `||google.com`
+  + 解析后的模式: `*.google.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.google.com') || host === 'google.com') return "PROXY";`
++ **以 `/` 开头和结尾的正则**: 使用正则表达式匹配完整 URL
+  + 示例: `/^https?:\/\/.*\.google\.com\//`
+  + 解析后的模式: `^https?:\/\/.*\.google\.com\/`
+  + PAC 转换规则 (JavaScript): `if (/${pattern}/.test(url)) return "PROXY";`
++ **不含 `*` 的文本**: 匹配包含关键词的 URL
+  + 示例: `google`
+  + 解析后的模式: `google`
+  + PAC 转换规则 (JavaScript): `if (url.indexOf('google') >= 0) return "PROXY";`
++ **包含 `*` 的文本**: 通配符的 URL, 匹配 `http(s)://` 前缀
+  + 示例: `*.google.com/*`
+  + 解析后的模式: `http(s)://*.google.com/*`
+  + PAC 转换规则 (JavaScript): `if (/^https?:\/\/[^\/]*\.google\.com\//.test(url)) return "PROXY";`
++ **以 `@@` 开头的 `|` 规则**: 例外规则, 以指定字符串开头的 URL
+  + 示例: `@@|http://example.com/`
+  + 解析后的模式: `http://example.com/*`
+  + PAC 转换规则 (JavaScript): `if (url.startsWith('http://example.com/')) return "DIRECT";`
++ **以 `@@` 开头的 `||` 规则**: 例外规则, 域名及其所有子域名
+  + 示例: `@@||google.com`
+  + 解析后的模式: `*.google.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.google.com') || host === 'google.com') return "DIRECT";`
++ **以 `@@` 开头的正则**: 例外规则, 正则表达式匹配完整 URL
+  + 示例: `@@/^https?:\/\/.*\.google\.com\//`
+  + 解析后的模式: `^https?:\/\/.*\.google\.com\/`
+  + PAC 转换规则 (JavaScript): `if (/${pattern}/.test(url)) return "DIRECT";`
++ **以 `@@` 开头的不含 `*` 的文本**: 例外规则, 包含关键词的 URL
+  + 示例: `@@google`
+  + 解析后的模式: `google`
+  + PAC 转换规则 (JavaScript): `if (url.indexOf('google') >= 0) return "DIRECT";`
++ **以 `@@` 开头的含 `*` 的文本**: 例外规则, 通配符匹配的 URL
+  + 示例: `@@*.google.com/*`
+  + 解析后的模式: `http(s)://*.google.com/*`
+  + PAC 转换规则 (JavaScript): `if (/^https?:\/\/[^\/]*\.google\.com\//.test(url)) return "DIRECT";`
+
+
+## 6.2 Switchy Omega 格式
+
+**描述**:
++ 文本以 `[SwitchyOmega Conditions]` 开头;
++ 支持 `@with result,@note` 等指令;
++ 规则可以包含 `+profile` 后缀;
++ 支持 `!` 开头的例外规则;
+
+**匹配规则**:
++ **以 `[` 开头的行**: 头部标记, 被忽略
+  + 示例: `[SwitchyOmega Conditions]`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `;` 开头的行**: 注释行, 被忽略
+  + 示例: `; comment`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **空行**: 空行被忽略
+  + 示例:
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `@` 开头的指令**: 指令行, 设置解析模式
+  + 示例: `@with result`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `@note` 开头的指令**: 为下一条规则添加注释
+  + 示例: `@note 注释`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `|` 开头的规则**: 匹配以指定字符串开头的 URL
+  + 示例: `|http://example.com/`
+  + 解析后的模式: `http://example.com/*`
+  + PAC 转换规则 (JavaScript): `if (url.startsWith('http://example.com/')) return "PROXY";`
++ **以 `||` 开头的规则**: 匹配域名及其子域名
+  + 示例: `||example.com`
+  + 解析后的模式: `*.example.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.example.com') || host === 'example.com') return "PROXY";`
++ **普通文本**: 匹配域名及其子域名
+  + 示例: `example.com`
+  + 解析后的模式: `*.example.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.example.com') || host === 'example.com') return "PROXY";`
++ **以 `/` 开头和结尾的正则**: 使用正则表达式匹配完整 URL
+  + 示例: `/^https?:\/\/.*\.example\.com\//`
+  + 解析后的模式: `^https?:\/\/.*\.example\.com\/`
+  + PAC 转换规则 (JavaScript): `if (/${pattern}/.test(url)) return "PROXY";`
++ **以 `:` 开头的规则**: 特殊字符转义后的规则
+  + 示例: `: example.com`
+  + 解析后的模式: `*.example.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.example.com') || host === 'example.com') return "PROXY";`
++ **带 `+` 结果的规则**: 在 withResult 模式下指定结果
+  + 示例: `example.com +proxy`
+  + 解析后的模式: `*.example.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.example.com') || host === 'example.com') return "PROXY";`
++ **以 `!` 开头的规则**: 例外规则 (在非 withResult 模式下)
+  + 示例: `!example.com`
+  + 解析后的模式: `*.example.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.example.com') || host === 'example.com') return "DIRECT";`
++ **以 `!` 开头带结果的规则**: 例外规则 (在 withResult 模式下)
+  + 示例: `!example.com +direct`
+  + 解析后的模式: `*.example.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.example.com') || host === 'example.com') return "DIRECT";`
++ **以 `*` 开头的规则**: 例外规则, 在 withResult 模式下作为默认规则
+  + 示例: `* +direct`
+  + 解析后的模式: 全局默认规则
+  + PAC 转换规则 (JavaScript): `return "DIRECT";`
+
+## 6.3 Switchy Legacy 格式
+
+**描述**:
++ 不以 `[SwitchyOmega Conditions]` 开头;
++ 文本以 `#` 开头或包含 `\n#` (换行后以 `#` 开头);
++ 以 `#BEGIN` 开始, `#END` 结束;
++ 使用 `[WILDCARD]` 和 `[REGEXP]` 分区:
+  + `[WILDCARD]` 表示该分区内包含通配符规则;
+  + `[REGEXP]` 表示该分区内包含正则表达式规则;
+  + 默认没有分区的时候将其视为 `[WILDCARD]`;
+  + `WILDCARD` 和 `REGEXP` 不区分大小写;
++ 支持 `;` 开头的注释;
++ 支持 `!` 开头的例外规则;
+
+
+**匹配规则**:
++ **以 `#` 开头的标记**: 规则列表开始标记
+  + 示例: `#BEGIN`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `#` 开头的标记**: 规则列表结束标记
+  + 示例: `#END`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `;` 开头的行**: 注释行, 被忽略
+  + 示例: `; comment`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **空行**: 空行被忽略
+  + 示例:
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `[` 开头的分区标记**: 切换到通配符规则分区
+  + 示例: `[WILDCARD]`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **以 `[` 开头的分区标记**: 切换到正则表达式分区
+  + 示例: `[REGEXP]`
+  + 解析后的模式: 忽略
+  + PAC 转换规则 (JavaScript): 无
++ **WILDCARD 分区普通文本**: 匹配域名及其子域名
+  + 示例: `example.com`
+  + 解析后的模式: `*.example.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.example.com') || host === 'example.com') return "PROXY";`
++ **WILDCARD 分区带 `*` 的文本**: 匹配指定通配符的 URL
+  + 示例: `*.example.com/*`
+  + 解析后的模式: `*.example.com/*`
+  + PAC 转换规则 (JavaScript): `if (/^(?:.*\.)?example\.com\//.test(url)) return "PROXY";`
++ **WILDCARD 分区以 `@` 开头的文本**: 匹配指定通配符的 URL
+  + 示例: `@example.com/*`
+  + 解析后的模式: `*.example.com/*`
+  + PAC 转换规则 (JavaScript): `if (/^(?:.*\.)?example\.com\//.test(url)) return "PROXY";`
++ **WILDCARD 分区以 `!` 开头的规则**: 例外规则, 域名及其子域名
+  + 示例: `!example.com`
+  + 解析后的模式: `*.example.com`
+  + PAC 转换规则 (JavaScript): `if (host.endsWith('.example.com') || host === 'example.com') return "DIRECT";`
++ **WILDCARD 分区以 `!` 开头的带 `*` 规则**: 例外规则, 指定通配符的 URL
+  + 示例: `!*.example.com/*`
+  + 解析后的模式: `*.example.com/*`
+  + PAC 转换规则 (JavaScript): `if (/^(?:.*\.)?example\.com\//.test(url)) return "DIRECT";`
++ **REGEXP 分区普通文本**: 匹配正则表达式完整 URL
+  + 示例: `/^https?:\/\/.*\.example\.com\//`
+  + 解析后的模式: `^https?:\/\/.*\.example\.com\/`
+  + PAC 转换规则 (JavaScript): `if (/${pattern}/.test(url)) return "PROXY";`
++ **REGEXP 分区无斜杠文本**: 匹配正则表达式完整 URL (无斜杠)
+  + 示例: `^http://secure\.site\.com/`
+  + 解析后的模式: `^http://secure\.site\.com/`
+  + PAC 转换规则 (JavaScript): `if (/${pattern}/.test(url)) return "PROXY";`
++ **REGEXP 分区以 `!` 开头的规则**: 例外规则, 正则表达式规则
+  + 示例: `!/^https?:\/\/.*\.example\.com\//`
+  + 解析后的模式: `^https?:\/\/.*\.example\.com\/`
+  + PAC 转换规则 (JavaScript): `if (/${pattern}/.test(url)) return "DIRECT";`

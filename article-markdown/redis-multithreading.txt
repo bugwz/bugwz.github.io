@@ -1,0 +1,44 @@
+# Redis 的多线程特性
+
+Redis6.0 即将发布, 比较吸引我的便是 Redis6.0 支持的多线程技术, Redis 本身也并不是简单的单进程/线程模型, 包括 bgsave 的进程以及对于一些慢请求的 io 线程 (惰性删除, 日志刷盘等), 这次多线程的优化主要解决了 Redis 单进程/线程处理模型在协议解析以及网络 IO 上的消耗问题, 在命令的处理上仍旧是单线程.
+
+# 1. 逻辑分析
+
+## 1.1 两个配置
+
++ `io-threads`: 启用的 IO 的线程数, 最大为 128(老版本中配置判断为 512, 新版本已经修复统一为 128);
++ `io-threads-do-reads`: 是否启用 IO 多线程;
+
+## 1.2 两个队列
+
++ `clients_pending_read`: 待处理的客户端的请求数据队列 (需要进行协议解析等操作);
++ `clients_pending_write`: 待处理的客户端的回复数据队列 (需要进行回复客户端等操作);
+
+## 1.3 两类线程
+
+**注意: 启用的所有的多线程在同一时刻执行的任务类型是一样的**
+
++ `IO_THREADS_OP_WRITE`: 执行 `clients_pending_read` 任务的线程;
++ `IO_THREADS_OP_READ`: 执行 `clients_pending_write` 任务的线程;
+
+## 1.4 多个函数
+
++ `initThreadedIO`: 初始化多线程, 并将多线程置为停止状态;
++ `startThreadedIO`: 启动多线程, 并将 `io_threads_active` 状态置为 `1`;
++ `stopThreadedIO`: 停止多线程, 并将 `io_threads_active` 状态置为 `0`, 需要处理多线程中未处理完成的任务;
++ `IOThreadMain`: 多线程的执行函数, 依据多线程的操作不同 (`IO_THREADS_OP_WRITE`/`IO_THREADS_OP_READ`) 执行对应的客户端的回复或者读取操作;
++ `handleClientsWithPendingWritesUsingThreads`: 将 `clients_pending_write` 队列中待处理的处理客户端的 `回复` 分配给线程进行回复等操作;
++ `handleClientsWithPendingReadsUsingThreads`: 将 `clients_pending_read` 队列中待处理的客户端的 `请求` 分配给处理线程进行协议解析等操作, 然后执行相应的命令逻辑;
++ `afterSleep`: 事件循环执行完成之后调用, 函数内会调用 `handleClientsWithPendingReadsUsingThreads` 函数;
+
++ `processCommandAndResetClient`: 封装了 `processCommand` 函数, 增加多线程模型的情况的处理逻辑;
++ `postponeClientRead`: 依据是否启动多线程, 直接处理客户端的请求还是将请求添加到待处理队列 `clients_pending_read` 中;
++ `stopThreadedIOIfNeeded`: 如果 `clients_pending_write` 较小, 即客户端数量较少时自动停止多线程;
+
+
+
+![逻辑示意图](/assets/images/posts/redis-multithreading/redis-multithreading.webp)
+
+
+
+参考文档:https://mp.weixin.qq.com/s/6WQNq5dNk-GuEhZXtVCo-A

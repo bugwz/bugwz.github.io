@@ -1,0 +1,440 @@
+# Ceph QoS 机制深入分析
+
+# 1. CephFS QoS
+
+社区的相关实现:
++ 基于 tokenbucket 算法的目录 QoS: https://github.com/ceph/ceph/pull/29266
++ 基于 dmclock 算法的 subvolume QoS: 来自日本的 line 公司提出的想法, https://github.com/ceph/ceph/pull/38506, https://github.com/ceph/ceph/pull/52147
+
+
+## 1.1 基于 TokenBucket 算法的目录 QoS
+
+该实现并未合并到主分支.
+
+
+
+![tokenbucket qos](/assets/images/posts/ceph-qos/ceph-qos-tokenbucket.webp)
+
+
+
+**相关材料**:
++ 社区的原始 PR: https://github.com/ceph/ceph/pull/29266
+
+**实现特点**:
++ 基于 `TokenBucketThrottle` 类在客户端侧实现的 `TokenBucket` 类型的 `QoS`, 用于约束每个独立的客户端的访问请求;
++ `QoS` 的限制粒度为每个独立的客户端, 没有全局的 QoS 限制;
++ 用于限制目录级别的操作 `QoS`;
++ 支持 `IOPS` 和 `BPS` 的 `QoS` 限制, 且支持突发流量;
++ 仅支持 `FUSE` 类型的挂载方式, 该代码未引入 Linux 内核, 所以暂不支持 `Kernel` 类型的挂载方式;
+
+
+**相关命令**:
+
+```bash
+# getfattr
+getfattr -d /mnt/cephfs/testdirs/
+getfattr -n ceph.qos /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.limit.iops /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.burst.iops /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.limit.read_iops /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.burst.read_iops /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.limit.write_iops /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.burst.write_iops /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.limit.bps /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.burst.bps /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.limit.read_bps /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.burst.read_bps /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.limit.write_bps /mnt/cephfs/testdirs/
+getfattr -n ceph.qos.burst.write_bps /mnt/cephfs/testdirs/
+
+# setfattr
+setfattr -n ceph.qos.limit.iops -v 200 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.burst.iops -v 2000 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.limit.read_iops -v 100 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.burst.read_iops -v 1000 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.limit.write_iops -v 100 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.burst.write_iops -v 1000 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.limit.bps -v 500 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.burst.bps -v 2000 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.limit.read_bps -v 100 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.burst.read_bps -v 1000 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.limit.write_bps -v 300 /mnt/cephfs/testdirs/
+setfattr -n ceph.qos.burst.write_bps -v 1000 /mnt/cephfs/testdirs/
+```
+
+
+## 1.2 基于 mclock 算法的 subvolume QoS
+
+该方案是由日本的 Line 公司开发的, 该方案已经在他们内部环境线上运行. 然后在 2023 年的 Cephalcon 上进行了分享. 该实现并未合并到主分支.
+
+
+
+![mclock subvolume qos](/assets/images/posts/ceph-qos/ceph-qos-mclock-subvolume.webp)
+
+
+
+**相关材料**:
++ ceph dmclock 项目代码: https://github.com/ceph/dmclock
++ Cephalcon 2023 关于 MDS QoS 的演讲日程: https://ceph2023.sched.com/event/1JKas/optimizing-cephfs-with-combining-mds-qos-scheduling-and-static-dynamic-subtree-partitioning-yongseok-oh-jinmyeong-lee-line
++ Cephalcon 2023 关于 MDS QoS 的演讲视频: https://www.youtube.com/watch?v=pDURll6Y-Ug#t=21m07s
++ 社区的第一版提交代码: https://github.com/ceph/ceph/pull/38506
++ 社区的第二版提交代码: https://github.com/ceph/ceph/pull/52147
++ Ceph MDS QoS Tracker: https://tracker.ceph.com/issues/48509
++ Ceph MDS QoS 邮件列表讨论记录: https://lists.ceph.io/hyperkitty/list/dev@ceph.io/thread/XO33ZPJ3BONNIKWMGN6A7K62F74C5AJO/
++ dmClock: Handling Throughput Variability for Hypervisor IO Scheduling 论文: https://www.usenix.org/legacy/events/osdi10/tech/full_papers/Gulati.pdf
+
+
+**实现特点**:
++ 从 `MDS` 侧改造支持, 无需客户端改造支持;
++ 限制了客户端对 `subvolume` 的元数据请求 (create/mkdir/lookup 等) 的 `QoS`, 限制粒度为 `subvolume`;
++ 如果多个客户端挂载了相同的 `subvolume`, 则多个客户端的综合性能之和满足对应的 `subvolume` 的 `QoS` 限制;
++ 多个 `MDS` 均可针对不同的 `subvolume` 配置对应的 `QoS`, 但是 `MDS` 间该配置相互独立, 所以虽然社区 `PR` 中叫做 `dmclock`, 但是目前使用的仍是 `mclock` 的逻辑;
++ 只有 `active` 的 `MDS` 才会尝试开启该特性, 如果对应的 `MDS` 状态发生了变化, 该特性也会尝试开启或者关闭;
++ 处理客户端请求时, 会解析对应请求所属的 `subvolume`, 从而判断是否执行 `QoS` 约束限制;
++ `dmclock` 的后端实现依赖于 `crimson::dmclock::PushPriorityQueue` 类的实现, 相关代码位于 `src/dmclock/src/dmclock_server.h` 文件中的 `crimson::dmclock::PriorityQueueBase::do_add_request` 函数;
+
+
+**相关配置**:
++ 全局配置:
+  + `mds_dmclock_enable`: 使用启用 `dmclock` 的 `QoS` 功能, 默认为 `false`;
+  + `mds_dmclock_limit`: 限制每个 `subvolume` 的 `QoS` 的上限, 默认值为 `1000`, 需要使用 `qos set` 命令来操作开启 `subvolume` 的该配置;
+  + `mds_dmclock_reservation`: 限制每个 `subvolume` 的 `QoS` 的预留值, 默认值为 `1000`, 需要使用 `qos set` 命令来操作开启 `subvolume` 的该配置;
+  + `mds_dmclock_weight`: 限制每个 `subvolume` 的 `QoS` 的权重, 默认值为 `1000`, 需要使用 `qos set` 命令来操作开启 `subvolume` 的该配置;
++ subvolume 配置:
+  + `limit`: 限制每个 `subvolume` 的 `QoS` 的上限, 该值需不小于 `reservation`;
+  + `reservation`: 限制每个 `subvolume` 的 `QoS` 的预留值;
+  + `weight`: 限制每个 `subvolume` 的 `QoS` 的权重;
+
+
+**相关命令**:
+
+```bash
+# global config
+ceph daemon mds.fs01 config get mds_dmclock_enable true/false
+ceph daemon mds.fs01 config get mds_dmclock_limit $limit
+ceph daemon mds.fs01 config get mds_dmclock_reservation $reservation
+ceph daemon mds.fs01 config get mds_dmclock_weight $weight
+
+# dump qos info
+ceph daemon mds.fs01 dump qos
+
+# get qos info
+ceph daemon mds.fs01 qos get $subvol_path
+
+# set qos info
+ceph daemon mds.fs01 qos set $subvol_path $reservation $weight $limit
+ceph daemon mds.fs01 qos rm $subvol_path
+```
+
+
+
+## 1.3 基于 mclock 算法 user QoS
+
+该方案相比于 **1.2, 基于 mclock 算法的 subvolume QoS** 的实现, 限制的粒度有所不同, 1.2 中提到的限制粒度是基于 subvolume, 而该方案中限制 auth user, 后端的具体实现基本一致.
+
+**实现特点**:
++ 限制粒度为 auth user, 可针对不同的用户自定义访问 QoS;
++ 不依赖于 subvolume 的特性, 即使业务不使用 subvolume 也能使用;
++ 在多 MDS 的情况下, 由于用户的访问请求可能会打到不同的 MDS 上, 并且目前 MDS 间没有针对于用户的总访问请求进行沟通 (即后端 MDS 对于 QoS 的限制是相互独立的), 所以可能需要针对用户的访问目录进行一定的约束, 或者在限制用户的总 QoS 的数量时考虑除以特定的 MDS 的数量来进行均摊访问限制;
+
+
+# 2. CephRBD QoS
+
+以下分析基于 Ceph [V18.2.7](https://github.com/ceph/ceph/tree/v18.2.7) 分支代码.
+
+
+
+![mclock rbd qos](/assets/images/posts/ceph-qos/ceph-qos-mclock-rbd.webp)
+
+**相关材料**:
++ Ceph RBD QoS 的资料: https://docs.ceph.com/en/latest/rbd/rbd-config-ref/#qos-settings
++ 相关 PR: https://github.com/ceph/ceph/pull/17032, https://github.com/ceph/ceph/pull/21635
+
+
+**实现特点**:
++ 基于 TokenBucket 实现的 QoS;
++ 在客户端侧进行实现, 每个客户端之间的限制互不关联, 相互独立;
++ 当启用多个限制条件时, 最终会依据配置的最严格的限制条件;
++ 配置信息以 OMAP 的方式存储在对应 pool 中的 image 的 header 对象中, 可以通过 `rbd info ceph-rbd/rbd01.img` 命令查看 `block_name_prefix` 字段中的后缀信息, 之后使用 `rados -p ceph-rbd listomapvals rbd_header.$postfix` 命令来获取已经设置过的配置信息;
+
+
+**相关配置**:
++ `rbd_qos_iops_limit`: 每秒 IO 操作的期望限制, 默认为 0;
++ `rbd_qos_iops_burst`: 所需的 IO 操作突发限制, 默认为 0;
++ `rbd_qos_iops_burst_seconds`: IO 操作所需的突发持续时间 (以秒为单位), 默认为 1 秒;
++ `rbd_qos_read_iops_limit`: 每秒读取操作的期望限制, 默认为 0;
++ `rbd_qos_read_iops_burst`: 所需的读取操作突发限制, 默认为 0;
++ `rbd_qos_read_iops_burst_seconds`: 读取操作所需的突发持续时间 (以秒为单位), 默认为 1 秒;
++ `rbd_qos_write_iops_limit`: 每秒写入操作的期望限制, 默认为 0;
++ `rbd_qos_write_iops_burst`: 所需的写入操作突发限制, 默认为 0;
++ `rbd_qos_write_iops_burst_seconds`: 写入操作所需的突发持续时间 (以秒为单位), 默认为 1 秒;
++ `rbd_qos_bps_limit`: 每秒 IO 字节数的期望限制, 默认为 0;
++ `rbd_qos_bps_burst`: 所需的 IO 字节突发限制, 默认为 0;
++ `rbd_qos_bps_burst_seconds`: 所需的 IO 字节突发持续时间 (以秒为单位), 默认为 1 秒;
++ `rbd_qos_read_bps_limit`: 每秒读取字节数的期望限制, 默认为 0;
++ `rbd_qos_read_bps_burst`: 所需的读取字节突发限制, 默认为 0;
++ `rbd_qos_read_bps_burst_seconds`: 所需的读取字节突发持续时间 (以秒为单位), 默认为 1 秒;
++ `rbd_qos_write_bps_limit`: 每秒写入字节数的期望限制, 默认为 0;
++ `rbd_qos_write_bps_burst`: 所需的写入字节突发限制, 默认为 0;
++ `rbd_qos_write_bps_burst_seconds`: 所需的写入字节突发持续时间 (以秒为单位), 默认为 1 秒;
++ `rbd_qos_schedule_tick_min`: 这决定了当达到节流阀的限制时, I/O 可以解除阻塞的最短时间 (以毫秒为单位). 就令牌桶算法而言, 这是将令牌添加到桶中的最小间隔. 默认为 50 秒;
++ `rbd_qos_exclude_ops`: 可选地从 QoS 中排除操作. 此设置接受整数位掩码值或以逗号分隔的操作名称字符串. 此设置始终在内部存储为整数位掩码值. 操作位掩码值和操作名称之间的映射如下: +1 -> read, +2 -> write, +4 -> discreply, +8 -> write_same, +16 -> compare_and_write;
+
+**相关命令**:
+
+```bash
+# ceph-rbd is pool name, rbd01.img is image name
+
+# get pool/image info
+rbd info ceph-rbd/rbd01.img
+
+# get configs from pool object
+rados -p ceph-rbd listomapvals rbd_header.$postfix
+
+# bench test
+rbd bench -p ceph-rbd --image rbd01.img --io-size 4K --io-total 10G --io-type read
+rbd bench -p ceph-rbd --image rbd01.img --io-size 4K --io-total 10G --io-type write
+
+# get
+rbd config image get ceph-rbd/rbd01.img rbd_qos_iops_limit
+rbd config image get ceph-rbd/rbd01.img rbd_qos_iops_burst
+rbd config image get ceph-rbd/rbd01.img rbd_qos_iops_burst_seconds
+rbd config image get ceph-rbd/rbd01.img rbd_qos_read_iops_limit
+rbd config image get ceph-rbd/rbd01.img rbd_qos_read_iops_burst
+rbd config image get ceph-rbd/rbd01.img rbd_qos_read_iops_burst_seconds
+rbd config image get ceph-rbd/rbd01.img rbd_qos_write_iops_limit
+rbd config image get ceph-rbd/rbd01.img rbd_qos_write_iops_burst
+rbd config image get ceph-rbd/rbd01.img rbd_qos_write_iops_burst_seconds
+rbd config image get ceph-rbd/rbd01.img rbd_qos_bps_limit
+rbd config image get ceph-rbd/rbd01.img rbd_qos_bps_burst
+rbd config image get ceph-rbd/rbd01.img rbd_qos_bps_burst_seconds
+rbd config image get ceph-rbd/rbd01.img rbd_qos_read_bps_limit
+rbd config image get ceph-rbd/rbd01.img rbd_qos_read_bps_burst
+rbd config image get ceph-rbd/rbd01.img rbd_qos_read_bps_burst_seconds
+rbd config image get ceph-rbd/rbd01.img rbd_qos_write_bps_limit
+rbd config image get ceph-rbd/rbd01.img rbd_qos_write_bps_burst
+rbd config image get ceph-rbd/rbd01.img rbd_qos_write_bps_burst_seconds
+rbd config image get ceph-rbd/rbd01.img rbd_qos_schedule_tick_min
+rbd config image get ceph-rbd/rbd01.img rbd_qos_exclude_ops
+
+# set
+rbd config image set ceph-rbd/rbd01.img rbd_qos_iops_limit 1000
+rbd config image set ceph-rbd/rbd01.img rbd_qos_iops_burst 2000
+rbd config image set ceph-rbd/rbd01.img rbd_qos_iops_burst_seconds 5
+rbd config image set ceph-rbd/rbd01.img rbd_qos_read_iops_limit 100
+rbd config image set ceph-rbd/rbd01.img rbd_qos_read_iops_burst 200
+rbd config image set ceph-rbd/rbd01.img rbd_qos_read_iops_burst_seconds 5
+rbd config image set ceph-rbd/rbd01.img rbd_qos_write_iops_limit 200
+rbd config image set ceph-rbd/rbd01.img rbd_qos_write_iops_burst 400
+rbd config image set ceph-rbd/rbd01.img rbd_qos_write_iops_burst_seconds 5
+rbd config image set ceph-rbd/rbd01.img rbd_qos_bps_limit 104857600
+rbd config image set ceph-rbd/rbd01.img rbd_qos_bps_burst 209715200
+rbd config image set ceph-rbd/rbd01.img rbd_qos_bps_burst_seconds 5
+rbd config image set ceph-rbd/rbd01.img rbd_qos_read_bps_limit 10485760
+rbd config image set ceph-rbd/rbd01.img rbd_qos_read_bps_burst 20971520
+rbd config image set ceph-rbd/rbd01.img rbd_qos_read_bps_burst_seconds 5
+rbd config image set ceph-rbd/rbd01.img rbd_qos_write_bps_limit 20971520
+rbd config image set ceph-rbd/rbd01.img rbd_qos_write_bps_burst 41943040
+rbd config image set ceph-rbd/rbd01.img rbd_qos_write_bps_burst_seconds 5
+rbd config image set ceph-rbd/rbd01.img rbd_qos_schedule_tick_min 60
+rbd config image set ceph-rbd/rbd01.img rbd_qos_exclude_ops
+
+# remove item
+rbd config image remove ceph-rbd/rbd01.img $ITEM
+```
+
+# 3. CephRGW QoS
+
+以下分析基于 Ceph [V18.2.7](https://github.com/ceph/ceph/tree/v18.2.7) 分支代码.
+
+**相关材料**:
++ Ceph RGW QoS 的资料: https://docs.ceph.com/en/latest/radosgw/config-ref/#qos-settings
++ 基于 mClock 的 QoS: https://docs.ceph.com/en/reef/rados/configuration/osd-config-ref/#dmclock-qos
+
+
+**实现特点**:
++ 从 Nautilus 版本中引入, 当前最新代码尚处于实验阶段, 不建议用于生产环境;
++ 基于 mClock 实现的 QoS, 后端 mclock 的实现采用 `crimson::dmclock::PullPriorityQueue` 类;
++ 当 osd_op_queue 配置的值为 mclock_scheduler 时才会启用 mclock 算法; 如果使用 throttler 调度器则只是一个普通的限流器, 用于判断是否返回到达限制错误, 没有使用 mclock 的算法实现;
++ 每次调度请求时, 先会调用 `PullPriorityQueue::add_request` 函数记录请求, 之后会立刻通过 `AsyncScheduler::process` 函数来调用 `PullPriorityQueue::pull_request` 函数处理请求;
++ 该 mclock 实现的是不同的请求类别 (admin/auth/data/metadata) 间的 QoS 控制, 详细对应的 OP 操作类别关系如下:
+  + admin 请求类别对应的操作为 `RGWGetClusterStat/RGWRESTOp`;
+  + auth 请求类别对应的操作为 `RGW_SWIFT_Auth_Get`;
+  + data 请求类别对应的操作为 `RGWGetObj/RGWBulkDelete/RGWBulkUploadOp/RGWPutObj/RGWPostObj/RGWDeleteObj/RGWCopyObj`;
+  + metadata 请求类别对应的操作为 `RGWOp/RGWGetBucketPolicyStatus/RGWPutBucketPublicAccessBlock/RGWGetBucketPublicAccessBlock/RGWDeleteBucketPublicAccessBlock`;
+
+**相关配置**:
++ `rgw_scheduler_type`: 使用的 RGW 调度程序. 可选值为 throttler 和 dmclock, 默认值为 throttler. 当使用 dmclock 时会采用 `dmc::AsyncScheduler` 调度器, 当使用 throttler 时会采用 `dmc::SimpleThrottler` 调度器;
++ `rgw_max_concurrent_requests`: Beast 前端能够处理的最大并发 HTTP 请求数. 调整此值有助于限制高负载下的内存使用量. 默认值为 1024;
+  + 当 rgw_scheduler_type 配置为 throttler 时, 该值用于限制同时最大请求的数量, 超过此值会快速失败, 并返回客户端 `-ERR_RATE_LIMITED` 错误, 如果没有到达最大限制, 则会正常执行;
+  + 当 rgw_scheduler_type 配置为 dmclock 时,
++ `rgw_dmclock_admin_res`: mclock 预留给管理员请求, 默认值为 100.0;
++ `rgw_dmclock_admin_wgt`: 管理请求的 mclock 权重, 默认值为 100.0;
++ `rgw_dmclock_admin_lim`: 管理请求的 mclock 限制, 默认值为 0.0;
++ `rgw_dmclock_auth_res`: 对象数据请求的 mclock 保留, 默认值为 200.0;
++ `rgw_dmclock_auth_wgt`: 对象数据请求的 mclock 权重, 默认值为 100.0;
++ `rgw_dmclock_auth_lim`: 对象数据请求的 mclock 限制, 默认值为 0.0;
++ `rgw_dmclock_data_res`: 用于对象数据请求的 mclock 保留, 默认值为 500.0;
++ `rgw_dmclock_data_wgt`: 对象数据请求的 mclock 权重, 默认值为 500.0;
++ `rgw_dmclock_data_lim`: 用于元数据请求的 mclock 预留, 默认值为 0.0;
++ `rgw_dmclock_metadata_res`: 用于元数据请求的 mclock 预留, 默认值为 500.0;
++ `rgw_dmclock_metadata_wgt`: 元数据请求的 mclock 权重, 默认值为 500.0;
++ `rgw_dmclock_metadata_lim`: 元数据请求的 mclock 限制, 默认值为 0.0;
+
+
+**相关命令**:
+
+```bash
+# get
+ceph config get client.rgw rgw_dmclock_admin_res
+ceph config get client.rgw rgw_dmclock_admin_wgt
+ceph config get client.rgw rgw_dmclock_admin_lim
+ceph config get client.rgw rgw_dmclock_auth_res
+ceph config get client.rgw rgw_dmclock_auth_wgt
+ceph config get client.rgw rgw_dmclock_auth_lim
+ceph config get client.rgw rgw_dmclock_data_res
+ceph config get client.rgw rgw_dmclock_data_wgt
+ceph config get client.rgw rgw_dmclock_data_lim
+ceph config get client.rgw rgw_dmclock_metadata_res
+ceph config get client.rgw rgw_dmclock_metadata_wgt
+ceph config get client.rgw rgw_dmclock_metadata_lim
+
+# set
+ceph config set client.rgw rgw_dmclock_admin_res 101
+......
+
+```
+
+
+# 4. OSD QoS
+
+以下分析基于 Ceph [V18.2.7](https://github.com/ceph/ceph/tree/v18.2.7) 分支代码.
+
+
+
+![mclock osd qos](/assets/images/posts/ceph-qos/ceph-qos-osd.webp)
+
+
+**相关材料**:
++ Ceph OSD mclock 官方文档: https://docs.ceph.com/en/latest/rados/configuration/osd-config-ref/#dmclock-qos
++ https://ceph.io/en/news/blog/2021/qos-study-with-mclock-and-wpq-schedulers/
++ https://ceph.com/en/news/blog/2022/mclock-vs-wpq-testing-with-background-ops-part1/
++ https://ceph.com/en/news/blog/2022/mclock-vs-wpq-testing-with-background-ops-part2/
++ https://docs.ceph.com/en/quincy/dev/osd_internals/mclock_wpq_cmp_study/
++ https://github.com/ceph/ceph/pull/14997
++ https://github.com/ceph/ceph/pull/14330
+
+
+**实现特点**:
++ 限制粒度为 OSD 中抽象出的多种请求模式间的 QoS, 按照 mclock 的限制规则, 我们需要限制不同请求间的流量, 在限制的请求中, 请求类别被作为 Key, 目前 OSD Scheduler 中共引入了四种请求类别, 分别是 background_recovery/background_best_effort/immediate/client, 每个操作都有与之对应的请求类别, 进而每个 OSD Shard 内部可以限制不同请求类别间的 QoS;
++ 配置中引入了 osd_mclock_profile 参数, 提供了一种配置不同请求类别间 QoS 参数的方式, 详细的配置影响及关系参见相关配置中的解释;
++ client/background_recovery/background_best_effort 的 res/wgt/lim 配置的有效范围都是 0 到 1.0, 这并不是实际应用在 mclock 中的参数, 实际应用的值的计算公式为: `osd_mclock_max_sequential_bandwidth_[hdd/ssd] / osd_op_num_shards * []_res` 或者 `osd_mclock_max_sequential_bandwidth_[hdd/ssd] / osd_op_num_shards * []_lim`, 这样才是每个 OSD Shard 针对不同的请求类别配置的 QoS 参数;
+
+
+**相关配置**:
++ `osd_op_queue`: 每个 OSD 内普通队列的操作优先级队列算法, 可选值为 wpq/mclock_scheduler/debug_random, 默认值为 mclock_scheduler, 无法动态修改;
+  + `wpq`: 根据操作的优先级出队, 以防止任何队列的饥饿, 有助于解决一些 OSD 比其他 OSD 更过载的情况;
+  + `mclock_scheduler`: 根据操作所属的类别 (恢复, 擦洗, 快照修剪, 客户端操作, osd 子操作) 来优先处理操作;
+  + `debug_random`: 随机选择以上的算法;
++ `osd_op_queue_cut_off`: 高优先级操作和低优先级操作之间的阈值, 可选值为 low/high/debug_random, 默认值为 high, 无法动态修改;
+  + `low`: 将所有复制操作及更高优先级的操作发送到严格队列, 对应的具体数值为 CEPH_MSG_PRIO_LOW (64);
+  + `high`: 将复制确认操作及更高优先级的操作发送到严格队列, 设置为 high 应该有助于当集群中的一些 OSD 非常繁忙时, 特别是与 osd_op_queue 设置中的 wpq 结合使用时. 非常繁忙的 OSD 处理复制流量可能会在没有这些设置的情况下饿死这些 OSD 上的主要客户端流量, 对应的具体数值为 CEPH_MSG_PRIO_HIGH (196);
+  + `debug_random`: 随机选择以上的配置;
++ `osd_mclock_profile`: mclock 配置文件类型, 可选值为 balanced/high_recovery_ops/high_client_ops/custom, 默认值为 balanced, 无法动态修改;
+  + `balanced`: 该模式下, client 请求类别配置为 R: 0.5/W: 1/L: 0, background_recovery 请求类别配置为 R: 0.5/W: 1/L: 0, background_best_effort 请求类别配置为 R: 0/W: 1/L: 0.9;
+  + `high_recovery_ops`: 该模式下, client 请求类别配置为 R: 0.3/W: 1/L: 0, background_recovery 请求类别配置为 R: 0.7/W: 2/L: 0, background_best_effort 请求类别配置为 R: 0/W: 1/L: 0;
+  + `high_client_ops`: 该模式下, , client 请求类别配置为 R: 0.6/W: 2/L: 0, background_recovery 请求类别配置为 R: 0.4/W: 1/L: 0, background_best_effort 请求类别配置为 R: 0/W: 1/L: 0.7;
+  + `custom`: 该模式下, 自定义配置对应的配置;
++ `osd_mclock_scheduler_client_res`: 每个客户端预留的 IO 比例 (默认), 可选值的范围为 [0, 1.0], 默认值为 0.0;
++ `osd_mclock_scheduler_client_wgt`: 每个客户端的 IO 份额 (默认) 超过预留, 默认值为 1;
++ `osd_mclock_scheduler_client_lim`: 每个客户端的 IO 限制 (默认) 超过预留, 可选值的范围为 [0, 1.0], 默认值为 0.0;
++ `osd_mclock_scheduler_background_recovery_res`: 为后台恢复保留的 IO 比例 (默认), 可选值的范围为 [0, 1.0], 默认值为 0.0;
++ `osd_mclock_scheduler_background_recovery_wgt`: 每次后台恢复的 IO 份额超过预留, 默认值为 1;
++ `osd_mclock_scheduler_background_recovery_lim`: 超出预留的后台恢复的 IO 限制, 可选值的范围为 [0, 1.0], 默认值为 0.0;
++ `osd_mclock_scheduler_background_best_effort_res`: 为后台 best_effort 保留的 IO 比例 (默认), 可选值的范围为 [0, 1.0], 默认值为 0.0;
++ `osd_mclock_scheduler_background_best_effort_wgt`: 每个后台 best_effort 的 IO 份额超过预留, 默认值为 1;
++ `osd_mclock_scheduler_background_best_effort_lim`: 超过预留的后台 best_effort 的 IO 限制, 可选值的范围为 [0, 1.0], 默认值为 0.0;
++ `osd_mclock_max_capacity_iops_hdd`: 每个 OSD 的最大随机写入 IOPS 容量 (在 4KiB 块大小下) (针对旋转介质), 默认值为 315;
++ `osd_mclock_max_capacity_iops_ssd`: 每个 OSD 的最大随机写入 IOPS 容量 (在 4 KiB 块大小下) (针对固态介质), 默认值为 21500;
++ `osd_mclock_max_sequential_bandwidth_hdd`: OSD 的最大顺序带宽, 以字节/秒为单位 (针对旋转介质), 默认值为 150M;
++ `osd_mclock_max_sequential_bandwidth_ssd`: OSD 的最大顺序带宽, 以字节/秒为单位 (针对固态介质), 默认值为 1200M;
++ `osd_mclock_iops_capacity_threshold_hdd`: 超过此 IOPS 容量阈值 (在 4KiB 块大小下) 时, 将忽略 OSD 的基准测试结果 (针对旋转介质). 默认值为 500;
++ `osd_mclock_iops_capacity_low_threshold_hdd`: 低于此 IOPS 容量阈值 (在 4KiB 块大小下) 时, 将忽略 OSD 的基准测试结果 (针对旋转介质). 默认值为 50;
++ `osd_mclock_iops_capacity_threshold_ssd`: 超过此 IOPS 容量阈值 (在 4KiB 块大小下) 时, 将忽略 OSD 的基准测试结果 (针对固态介质). 默认值为 80000;
++ `osd_mclock_iops_capacity_low_threshold_ssd`: 低于此 IOPS 容量阈值 (在 4KiB 块大小下) 时, 将忽略 OSD 的基准测试结果 (针对固态介质). 默认值为 1000;
++ `osd_push_per_object_cost`: 提供推送操作的开销, 默认值为 1000B;
++ `osd_async_recovery_min_cost`: 当前日志条目数差异和历史丢失对象数的混合测量, 高于该值时, 我们会在适当时切换到使用异步恢复, 默认值为 100;
++ `osd_mclock_scheduler_anticipation_timeout`: mclock 预期超时时间 (以秒为单位), 默认值为 0;
++ `osd_mclock_force_run_benchmark_on_init`: 强制在 OSD 初始化/启动时运行 OSD 基准测试, 默认值为 false;
++ `osd_mclock_skip_benchmark`: 在 OSD 初始化/启动时跳过 OSD 基准测试, 默认值为 false;
++ `osd_mclock_override_recovery_settings`: 启用对 mClock 调度器的恢复/回填限制的覆盖, 默认值为 false;
+
+
+**相关命令**:
+
+```bash
+# get
+ceph tell osd.* config get osd_op_queue
+ceph tell osd.* config get osd_op_queue_cut_off
+ceph tell osd.* config get osd_mclock_profile
+ceph tell osd.* config get osd_mclock_scheduler_client_res
+ceph tell osd.* config get osd_mclock_scheduler_client_wgt
+ceph tell osd.* config get osd_mclock_scheduler_client_lim
+ceph tell osd.* config get osd_mclock_scheduler_background_recovery_res
+ceph tell osd.* config get osd_mclock_scheduler_background_recovery_wgt
+ceph tell osd.* config get osd_mclock_scheduler_background_recovery_lim
+ceph tell osd.* config get osd_mclock_scheduler_background_best_effort_res
+ceph tell osd.* config get osd_mclock_scheduler_background_best_effort_wgt
+ceph tell osd.* config get osd_mclock_scheduler_background_best_effort_lim
+ceph tell osd.* config get osd_mclock_scheduler_client_res
+ceph tell osd.* config get osd_mclock_scheduler_client_res
+ceph tell osd.* config get osd_mclock_scheduler_client_res
+...
+
+# set
+ceph tell osd.* config set osd_mclock_profile custom
+ceph tell osd.* config set osd_mclock_max_sequential_bandwidth_hdd 157286401
+ceph tell osd.* config set osd_mclock_max_sequential_bandwidth_ssd 1258291201
+```
+
+
+
+# 5. Pool QoS
+
+以下基于 https://github.com/ceph/ceph/pull/19340 代码进行分析.
+
+
+
+![mclock pool qos](/assets/images/posts/ceph-qos/ceph-qos-pool.webp)
+
+**相关材料**:
++ 相关 PR: https://github.com/ceph/ceph/pull/19340
+
+
+**实现特点**:
++ 限制粒度为 OSD Shard, 即每个 OSD Shard 中都会单独限制对应 pool 的 QoS, 因此社区在测试的时候将 osd_op_num_shards 等配置设置为 1, 在实际生产场景下需要针对 OSD Shard 的数量进行计算;
++ 该实现基于 mclock 进行实现, 采用的是 PullPriorityQueue 类;
++ 新增的 pool 的配置需要持久化存储到 pg_pool 结构体中, 因此修改了对应数据结构的编解码逻辑及版本信息;
++ 该实现未合并到社区;
+
+**相关配置**:
++ `osd_op_queue`: OSD 中操作队列的类型, 之前可选参数为 wpq/prioritized/mclock_opclass/mclock_client/debug_random, 该变动中新增了一个 mclock_pool. 默认值为 wpq;
++ `osd_pool_default_mclock_res`: 默认的 mclock 预留值, 默认值为 0.0;
++ `osd_pool_default_mclock_wgt`: 默认的 mclock 权重值, 默认值为 1.0;
++ `osd_pool_default_mclock_lim`: 默认的 mclock 限制值, 默认值为 0.0;
+
+**相关命令**:
+
+```bash
+# pool name is ceph-rbd
+
+# get
+ceph osd pool get ceph-rbd qos_res
+ceph osd pool get ceph-rbd qos_wgt
+ceph osd pool get ceph-rbd qos_lim
+
+# set
+ceph osd pool set ceph-rbd qos_res
+ceph osd pool set ceph-rbd qos_wgt
+ceph osd pool set ceph-rbd qos_lim
+```

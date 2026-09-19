@@ -1,0 +1,479 @@
+# CephFS 对接 Samba 使用教程
+
+# 1. Samba 介绍
+
+Samba 是一款基于 GNU 通用公共许可证的自由软件, Samba 项目是软件自由保护协会 (Software Freedom Conservancy) 的成员. 自 1992 年以来, Samba 一直为所有使用 SMB/CIFS 协议的客户端 (例如所有版本的 DOS 和 Windows, OS/2, Linux 以及许多其他系统) 提供安全, 稳定且快速的文件和打印服务.
+
+Samba 项目源码位于 https://git.samba.org/samba.git, 镜像代码仓库地址为 https://github.com/samba-team/samba.
+
+## 1.1 二进制包安装部署
+
+我们的机器环境为 `CentOS 8.5.2111`, 受限于系统版本较老, 导致最终安装版本为 [Samba 4.19.4](https://github.com/samba-team/samba/tree/samba-4.19.4). 以下操作基于这些环境进行.
+
+由于安装的 Samba 软件默认缺少 vfs_ceph 的相关库, 所以在测试的时候无法测试一些使用场景, 因此在实际部署测试的时候并不会使用该版本进行测试, 而是会采用编译安装的版本进行测试.
+
+### 1.1.1 环境初始化
+
+**相关命令:**
+```bash
+# 安装软件
+dnf install -y samba samba-client samba-common
+```
+
+### 1.1.2 运行环境配置
+
+详细配置信息可以查看 /etc/samba/smb.conf.example 文件, 或者使用 man smb.conf 命令.
+
+**/etc/samba/smb.conf 配置内容:** (配置模板为: [examples/smb.conf.default](https://github.com/samba-team/samba/blob/samba-4.19.4/examples/smb.conf.default))
+```conf
+[global]
+    workgroup = SAMBA
+    security = user
+    passdb backend = tdbsam
+    printing = cups
+    printcap name = cups
+    load printers = yes
+    cups options = raw
+    # Install samba-usershares package for support
+    include = /etc/samba/usershares.conf
+
+[homes]
+    comment = Home Directories
+    valid users = %S, %D%w%S
+    browseable = No
+    read only = No
+    inherit acls = Yes
+
+[printers]
+    comment = All Printers
+    path = /var/tmp
+    printable = Yes
+    create mask = 0600
+    browseable = No
+
+[print$]
+    comment = Printer Drivers
+    path = /var/lib/samba/drivers
+    write list = @printadmin root
+    force group = @printadmin
+    create mask = 0664
+    directory mask = 0775
+```
+
+**配置解析:**
++ `golbal`: 全局配置
+  + `workgroup`: 设置工作组名称为 SAMBA.
+  + `security`: 采用用户级别的安全性, 即用户需要提供用户名和密码才能访问共享.
+  + `passdb backend`: 用户信息存储方式为 TDBSAM (Trivial Database SAM), 这是一种本地数据库形式用于存储用户信息.
+  + `printing`: 使用 cups 作为打印系统.
+  + `printcap name`: 指定打印功能配置文件的名称为 cups.
+  + `load printers`: 自动加载打印机.
+  + `cups options`: 设置 cups 的选项为 raw, 即原生打印, 不进行格式转换.
+  + `include`: 包含额外的配置文件, 通常用于用户自定义的共享设置.
++ `homes`: 用户主目录
+  + `comment`: 共享的描述.
+  + `valid users`: 设定哪些用户可以访问此共享. %S 是当前用户, %D%w%S 用于 Windows NT 域的设置.
+  + `browseable`: 此共享是否在网络邻居中显示.
+  + `read only`: 指定共享为可读写.
+  + `inherit acls`: 共享将继承访问控制列表 (ACLs), 这决定了文件或目录的权限.
++ `printers`: 打印机共享
+  + `comment`: 共享的描述.
+  + `path`: 设置临时文件存放的路径.
+  + `printable`: 指定这是一个可打印的共享.
+  + `create mask`: 新创建文件的权限.
+  + `browseable`: 此共享是否在网络邻居中显示.
++ `print`: 打印机驱动共享
+  + `comment`: 共享的描述.
+  + `path`: 打印机驱动程序的存放路径.
+  + `write list`: 定义哪些用户或用户组可以写入此共享, 这里是 printadmin 组和 root 用户.
+  + `force group`: 所有创建的文件都将属于 printadmin 组.
+  + `create mask`: 设置文件和目录的默认权限.
+
+
+### 1.1.3 启动服务
+
+```bash
+# 创建用户组
+sudo groupadd samba
+
+# 创建用户
+sudo useradd user1 -d /home/user1 -g samba -s /sbin/nologin
+sudo useradd user2 -d /home/user2 -g samba -s /sbin/nologin
+
+# 设置连接密码
+smbpasswd -a user1
+smbpasswd -a user2
+
+# 启动服务
+systemctl restart smb.service
+
+# 查看服务状态
+systemctl status smb.service
+
+# 启用服务开机启动
+systemctl enable smb.service
+
+# 关闭服务开机启动
+systemctl disable smb.service
+```
+
+
+## 1.2 编译安装部署
+
+编译安装时, 我们的机器环境为 CentOS 8.5.2111, 使用 [Samba 4.22.3](https://github.com/samba-team/samba/tree/samba-4.22.3) 版本编译安装.
+
+### 1.2.1 编译安装
+
+> 注意: 如果不修改. /configure 的配置参数, 则 Samba 的默认安装位置为 /usr/local/samba/.
+
+**相关命令:** (参考文档: https://wiki.samba.org/index.php/Build_Samba_from_Source)
+```bash
+# 安装基础软件
+dnf groupinstall -y "Development Tools"
+dnf install -y gnutls-devel openldap openldap-devel lmdb lmdb-devel gpgme-devel python3-gpg \
+               readline-devel cpanminus jansson-devel libarchive-devel pam-devel dbus-devel \
+               python3-markdown python3-dns popt-devel libcephfs-devel
+cpanm Parse::Yapp
+perl -MParse::Yapp::Driver -e 'print "Parse::Yapp::Driver is installed\n"'
+
+# 开始编译
+git clone https://git.samba.org/samba.git
+cd samba/
+git checkout -f samba-4.22.3
+git branch
+./configure --enable-cephfs
+make
+make install
+```
+
+**相关操作日志:**
+```bash
+[root@host03 samba]# ./configure --enable-cephfs
+...
+Checking if compiler accepts -fstack-clash-protection                                           : yes
+'configure' finished successfully (55.441s)
+
+
+[root@host03 samba]# make
+...
+Waf: Leaving directory '/data/tools/samba/bin/default'
+Build commands will be stored in bin/default/compile_commands.json
+'build' finished successfully (9m37.114s)
+
+
+[root@host03 samba]# make install
+...
++ install /usr/local/samba/share/man/man1/locktest.1 (from bin/default/source4/torture/man/locktest.1)
++ install /usr/local/samba/share/man/man8/samba-gpupdate.8 (from bin/default/source4/scripting/man/samba-gpupdate.8)
+Waf: Leaving directory '/data/tools/samba/bin/default'
+'install' finished successfully (3m49.942s)
+```
+
+### 1.2.2 环境环境配置
+
+**配置文件 /usr/local/samba/etc/smb.conf 内容:** (文件模板为: [examples/smb.conf.default](https://github.com/samba-team/samba/blob/samba-4.22.3/examples/smb.conf.default))
+```conf
+[global]
+    workgroup = SAMBA
+    security = user
+    log file = /usr/local/samba/var/log.%m
+    passdb backend = tdbsam
+    # Install samba-usershares package for support
+    include = /usr/local/samba/etc/usershares.conf
+
+[homes]
+    comment = Home Directories
+    valid users = %S, %D%w%S
+    browseable = No
+    read only = No
+    inherit acls = Yes
+```
+
+**配置文件 /etc/sysconfig/samba 内容:** (文件模板为: [packaging/systemd/samba.sysconfig](https://github.com/samba-team/samba/blob/samba-4.22.3/packaging/systemd/samba.sysconfig))
+```conf
+## Path:           Network/Samba
+## Description:    Samba process options
+## Type:           string
+## Default:        ""
+## ServiceRestart: samba
+SAMBAOPTIONS=""
+## Type:           string
+## Default:        ""
+## ServiceRestart: smb
+SMBDOPTIONS=""
+## Type:           string
+## Default:        ""
+## ServiceRestart: nmb
+NMBDOPTIONS=""
+## Type:           string
+## Default:        ""
+## ServiceRestart: winbind
+WINBINDOPTIONS=""
+```
+
+按照官方文档所描述的, 编译安装的 Samba 并没有 systemd 服务文件, 为了使用 systemctl 工具, 我们需要手动创建 systemd 文件.
+
+**配置文件 /usr/lib/systemd/system/smb.service 内容:** (文件模板为: [packaging/systemd/smb.service.in](https://github.com/samba-team/samba/blob/samba-4.22.3/packaging/systemd/smb.service.in))
+```conf
+[Unit]
+Description=Samba SMB Daemon
+Documentation=man:smbd(8) man:samba(7) man:smb.conf(5)
+Wants=network-online.target
+After=network.target network-online.target nmb.service winbind.service
+
+[Service]
+Type=notify
+PIDFile=/run/smbd.pid
+LimitNOFILE=16384
+EnvironmentFile=-/etc/sysconfig/samba
+ExecStart=/usr/local/samba/sbin/smbd --foreground --no-process-group $SMBDOPTIONS
+ExecReload=/bin/kill -HUP $MAINPID
+LimitCORE=infinity
+Environment=KRB5CCNAME=FILE:/run/samba/krb5cc_samba
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 1.2.3 启动服务
+
+日志文件位于: /usr/local/samba/var/log.smbd
+
+**相关命令:**
+```bash
+# 创建用户组
+sudo groupadd samba
+
+# 创建用户
+sudo useradd user1 -d /home/user1 -g samba -s /sbin/nologin
+sudo useradd user2 -d /home/user2 -g samba -s /sbin/nologin
+
+# 设置连接密码
+/usr/local/samba/bin/smbpasswd -a user1
+/usr/local/samba/bin/smbpasswd -a user2
+
+# 重新加载 systemd 配置
+systemctl daemon-reload
+
+# 启动服务
+systemctl restart smb.service
+
+# 查看服务状态
+systemctl status smb.service
+
+# 启用服务开机启动
+systemctl enable smb.service
+
+# 关闭服务开机启动
+systemctl disable smb.service
+```
+
+
+## 1.3 客户端使用
+
+### 1.3.1 Windows 客户端使用
+
+**操作步骤:**
+1. 打开 `我的电脑`;
+2. 在地址栏输入 `\\10.10.10.1` 后按下 `回车`;
+3. 按照提示输入之前添加的用户 `user1` 或者 `user2` 并输出对应的密码即可访问存储;
+
+
+### 1.3.2 Linux 客户端使用
+
+**相关命令:**
+```bash
+# 安装软件依赖包
+dnf install -y cifs-utils
+
+# 执行挂载操作
+mkdir -p /mnt/samba/cephfs /mnt/samba/user1
+mount -t cifs //10.10.10.3/cephfssamba /mnt/samba/cephfs -o username=user1,password=user1
+mount -t cifs //10.10.10.3/user1 /mnt/samba/user1 -o username=user1,password=user1
+
+# 配置开机自动挂载
+vi /etc/fstab
+//10.10.10.3/cephfssamba /mnt/samba/cephfs cifs user,nofail,username=user1,password=user1 0 0
+//10.10.10.3/user1 /mnt/samba/user1 cifs user,nofail,username=user1,password=user1 0 0
+
+# 取消挂载
+umount /mnt/samba/cephfs
+umount /mnt/samba/user1
+```
+
+# 2. Samba 对接 CephFS
+
+以下在使用 Samba 访问 CephFS 的时候, 基于上面编译安装的 [Samba 4.22.3](https://github.com/samba-team/samba/tree/samba-4.22.3) 版本进行.
+
+## 2.1 通过共享本机目录访问
+
+### 2.1.1 挂载 CephFS
+
+**相关命令:**
+```bash
+# 挂载 cephfs
+mkdir -p /mnt/cephfs
+mount -t ceph 10.10.10.1:6789,10.10.10.2:6789,10.10.10.3:6789:/ /mnt/cephfs -o name=admin,secret=AQAK8pFoqGurARAA2WXBLGUcUSqGDAmgqE+v1Q==
+df -h
+ls -al /mnt/cephfs
+
+# 创建可访问的目录
+mkdir -p /mnt/cephfs/samba
+chmod -R 777 /mnt/cephfs/samba
+```
+
+### 2.1.2 配置并启动 Samba
+
+**配置文件 /usr/local/samba/etc/usershares.conf 内容如下:**
+```conf
+[cephfssamba1]
+    comment = cephfs smaba
+    path = /mnt/cephfs/samba
+    public = yes
+    writable = no
+    browseable = yes
+    printable = no
+    write list = @samba
+```
+
+**配置解析:**
++ `cephfssamba1`: 导出的目录名;
+  + 共享 /mnt/cephfs/samba 目录;
+  + 只有 samba 用户组的用户拥有写权限;
+
+
+**相关命令:**
+```bash
+# 重启服务
+systemctl restart smb.service
+
+# 查看服务状态
+systemctl status smb.service
+systemctl enable smb.service
+```
+
+
+## 2.2 通过 vfs_ceph 模块访问
+
+相关资料: https://www.samba.org/samba/docs/4.22/man-html/vfs_ceph.8.html
+
+### 2.2.1 CephFS 环境初始化
+
+**相关命令:**
+```bash
+# 创建 samba 访问用户
+ceph auth get-or-create client.samba.gw \
+                        mon 'allow r fsname=cephfs' \
+                        osd 'allow rw tag cephfs data=cephfs' \
+                        mds 'allow rw fsname=cephfs'
+```
+
+
+### 2.2.2 配置并启动 Samba
+
+**编辑 ceph 密钥文件 /etc/ceph/ceph.client.samba.gw.keyring:**
+```conf
+[client.samba.gw]
+    key = AQDcIJNokOQiChAANblEAglR+OydKxpqu5P3vQ==
+    caps mds = "allow rw fsname=cephfs"
+    caps mon = "allow r fsname=cephfs"
+    caps osd = "allow rw tag cephfs data=cephfs"
+```
+
+**编辑 samba 配置文件 /usr/local/samba/etc/usershares.conf:**
+```conf
+[cephfssamba1]
+    comment = cephfs smaba
+    path = /mnt/cephfs/samba
+    public = yes
+    writable = no
+    browseable = yes
+    printable = no
+    write list = @samba
+
+[cephfssamba2]
+    vfs objects = ceph
+    path = /
+    ceph:config_file = /etc/ceph/ceph.conf
+    ceph:user_id = samba.gw
+    ceph:filesystem = cephfs
+    kernel share modes = no
+    oplocks = no
+    write list = @samba
+```
+参数解析:
++ `vfs objects`: 使用存储方式为 ceph.
++ `path`: 路径是 Ceph 文件系统中的绝对路径.
++ `ceph:config_file`: 设置使用的 ceph 配置文件.
++ `ceph:user_id`: 设置用于 CephFS 挂载句柄的客户端 ID.
++ `ceph:filesystem`: 设置使用的 CephFS 文件系统.
++ `kernel share modes`: 必需禁用 kernel share modes, 以使文件服务正常工作.
++ `oplocks`: 又称为 SMB2+ 租用, 可通过加速客户端缓存来提升性能, 不过如果将其他 CephFS 客户端 (例如内核 mount.ceph, FUSE 或 NFS Ganesha) 与 Samba 一起部署, 该机制目前并不安全. 如果所有 CephFS 文件系统路径访问都专由 Samba 处理, 则可安全启用 oplocks 参数.
+
+
+**相关命令:**
+```bash
+# 重启服务
+systemctl restart smb.service
+
+# 查看服务状态
+systemctl status smb.service
+systemctl enable smb.service
+```
+
+## 2.3 通过 cephadm 使用
+
+按照官方文档 [cephadm/services/smb](https://docs.ceph.com/en/latest/cephadm/services/smb/) 介绍, 我们可以通过 cephadm 来编排 samba 服务. 但是目前该功能还处于开发状态, 许多功能可能缺失或者不成熟. 其他的相关文档 [latest/mgr/smb](https://docs.ceph.com/en/latest/mgr/smb/).
+
+我们发现 ceph 官方在 2025 年 01 月 28 日 发布了一篇 [SMB Meets Squid: Introducing the New Ceph SMB Manager Module for SMB Service Management in Ceph](https://ceph.io/en/news/blog/2025/smb-manager-module/) 文章, 其中提到了从 Squid 19.2.3 开始, SMB 的部分功能可以使用, 到 Tentacle 20.x.x 版本的时候将会提供完整支持. 并且文章中提到了具体的操作命令, 但是其中的一些命令, 比如 `ceph smb cluster *` 在 Squid 19.2.3 版本中并没有, 只有 Tentacle 20.x.x 版本中才有, 因此为了测试该功能, 我们需要编译构建 [v20.0.0](https://github.com/ceph/ceph/tree/v20.0.0) 版本的安装包进行测试.
+
+
+### 2.3.1 配置 Ceph 环境
+
+按照以上文档中的描述, 为了启用 ceph smb 环境, 我们可以使用两种方法来操作: [命令式方法](https://docs.ceph.com/en/latest/mgr/smb/#mgr-smb-imperative) 和 [声明式方法](https://docs.ceph.com/en/latest/mgr/smb/#mgr-smb-declarative). 在官方 [SMB Meets Squid: Introducing the New Ceph SMB Manager Module for SMB Service Management in Ceph](https://ceph.io/en/news/blog/2025/smb-manager-module/) 文章中也有详细的描述和操作命令.
+
+**相关命令:** (使用命令式方法执行)
+```bash
+# 创建 CephFS 卷/子卷
+ceph fs volume create cephfs
+ceph fs subvolumegroup create cephfs smb
+ceph fs subvolume create cephfs sv1 --group-name=smb --mode=0777
+ceph fs subvolume create cephfs sv2 --group-name=smb --mode=0777
+
+# 启用 SMB 管理模块
+ceph mgr module enable smb --force
+ceph mgr module ls
+
+# 创建 SMB 群集/共享
+ceph smb cluster create smb1 user --define-user-pass=user1%passwd
+ceph smb share create smb1 share1 cephfs / --subvolume=smb/sv1
+```
+
+
+
+## 2.4 通过 Windows 客户端访问
+
+这种方式和 Samba 并没有关系, 但是同样也解决了在 Windows 机器上访问 CephFS 存储的需求,
+
+
+# 3. 参考资料
++ https://www.samba.org/
++ https://www.samba.org/samba/docs/current/man-html/
++ https://blog.csdn.net/vecloud/article/details/121604790
++ https://docs.ceph.com/en/latest/install/windows-install/
++ https://docs.ceph.com/en/latest/mgr/smb/
++ https://docs.ceph.com/en/latest/cephadm/services/smb/
++ https://cloudbase.it/ceph-for-windows/
++ https://www.yisu.com/jc/23823.html
++ https://blog.csdn.net/skdkjzz/article/details/80987382
++ https://documentation.suse.com/zh-cn/ses/7.1/html/ses-all/cha-ses-cifs.html
++ https://knowledgebase.45drives.com/kb/kb450417-creating-smb-shares-in-ceph/
++ https://serverfault.com/questions/1161981/ceph-manager-daemon-smb-module-is-not-available
++ https://www.linux-magazine.com/Issues/2016/191/Clustered-Samba
++ https://chemnitzer.linux-tage.de/2019/media/programm/folien/227.pdf
++ https://www.youtube.com/watch?v=5v8L7FhIyOw&ab_channel=Ceph
++ https://www.reddit.com/r/ceph/comments/10ht3hz/smb_exports_from_ceph/
++ https://www.samba.org/samba/docs/man/
++ https://sambaxp.org/fileadmin/user_upload/sambaXP2018-Slides/disseldorp-ceph-samba.pdf
++ https://www.youtube.com/watch?v=Gel9elLSEsQ&t=704s&ab_channel=45Drives
++ https://www.cnblogs.com/suv789/p/17455160.html

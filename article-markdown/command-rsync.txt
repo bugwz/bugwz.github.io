@@ -1,0 +1,149 @@
+# rsync 指令的使用与算法解析 - 每周指令
+
+[rsync](https://rsync.samba.org/)命令是一个远程数据同步工具, 可通过 `LAN/WAN` 快速同步多台主机间的文件. rsync 使用所谓的 `rsync算法` 来使本地和远程两个主机之间的文件达到同步, 这个算法只传送两个文件的不同部分, 而不是每次都整份传送, 因此速度相当快. `rsync` 是一个功能非常强大的工具, 其命令也有很多功能特色选项, 我们下面就对它的选项一一进行分析说明.
+
+# 1. 参数解析
+
+```bash
+-v, --verbose 详细模式输出.
+-q, --quiet 精简输出模式.
+-c, --checksum 打开校验开关,强制对文件传输进行校验.
+-a, --archive 归档模式,表示以递归方式传输文件,并保持所有文件属性,等于-rlptgoD.
+-r, --recursive 对子目录以递归模式处理.
+-R, --relative 使用相对路径信息.
+-b, --backup 创建备份,也就是对于目的已经存在有同样的文件名时,将老的文件重新命名为~filename.可以使用--suffix选项来指定不同的备份文件前缀.
+--backup-dir 将备份文件(如~filename)存放在在目录下.
+-suffix=SUFFIX 定义备份文件前缀.
+-u, --update 仅仅进行更新,也就是跳过所有已经存在于DST,并且文件时间晚于要备份的文件,不覆盖更新的文件.
+-l, --links 保留软链结.
+-L, --copy-links 想对待常规文件一样处理软链结.
+--copy-unsafe-links 仅仅拷贝指向SRC路径目录树以外的链结.
+--safe-links 忽略指向SRC路径目录树以外的链结.
+-H, --hard-links 保留硬链结.
+-p, --perms 保持文件权限.
+-o, --owner 保持文件属主信息.
+-g, --group 保持文件属组信息.
+-D, --devices 保持设备文件信息.
+-t, --times 保持文件时间信息.
+-S, --sparse 对稀疏文件进行特殊处理以节省DST的空间.
+-n, --dry-run现实哪些文件将被传输.
+-w, --whole-file 拷贝文件,不进行增量检测.
+-x, --one-file-system 不要跨越文件系统边界.
+-B, --block-size=SIZE 检验算法使用的块尺寸,默认是700字节.
+-e, --rsh=command 指定使用rsh,ssh方式进行数据同步.
+--rsync-path=PATH 指定远程服务器上的rsync命令所在路径信息.
+-C, --cvs-exclude 使用和CVS一样的方法自动忽略文件,用来排除那些不希望传输的文件.
+--existing 仅仅更新那些已经存在于DST的文件,而不备份那些新创建的文件.
+--delete 删除那些DST中SRC没有的文件.
+--delete-excluded 同样删除接收端那些被该选项指定排除的文件.
+--delete-after 传输结束以后再删除.
+--ignore-errors 及时出现IO错误也进行删除.
+--max-delete=NUM 最多删除NUM个文件.
+--partial 保留那些因故没有完全传输的文件,以是加快随后的再次传输.
+--force 强制删除目录,即使不为空.
+--numeric-ids 不将数字的用户和组id匹配为用户名和组名.
+--timeout=time ip超时时间,单位为秒.
+-I, --ignore-times 不跳过那些有同样的时间和长度的文件.
+--size-only 当决定是否要备份文件时,仅仅察看文件大小而不考虑文件时间.
+--modify-window=NUM 决定文件是否时间相同时使用的时间戳窗口,默认为0.
+-T --temp-dir=DIR 在DIR中创建临时文件.
+--compare-dest=DIR 同样比较DIR中的文件来决定是否需要备份.
+-P 等同于 --partial.
+--progress 显示备份过程.
+-z, --compress 对备份的文件在传输时进行压缩处理.
+--exclude=PATTERN 指定排除不需要传输的文件模式.
+--include=PATTERN 指定不排除而需要传输的文件模式.
+--exclude-from=FILE 排除FILE中指定模式的文件.
+--include-from=FILE 不排除FILE指定模式匹配的文件.
+--version 打印版本信息.
+--address 绑定到特定的地址.
+--config=FILE 指定其他的配置文件,不使用默认的rsyncd.conf文件.
+--port=PORT 指定其他的rsync服务端口.
+--blocking-io 对远程shell使用阻塞IO.
+-stats 给出某些文件的传输状态.
+--progress 在传输时现实传输过程.
+--log-format=formAT 指定日志文件格式.
+--password-file=FILE 从FILE中得到密码,格式为文件中单行写入密码
+--bwlimit=KBPS 限制I/O带宽,KBytes per second.
+-h, --help 显示帮助信息.
+```
+
+# 2. 工作模式
+
+`rsync` 有 `六种` 不同的工作模式, 详细介绍如下:
+
++ **拷贝本地文件**:
+  + `规则`: 当 `SRC` 和 `DES` 路径信息都不包含有单个冒号 `:` 分隔符时就启动该模式;
+  + `语法`:`rsync [OPTION]... SRC DEST`;
+  + `示例``:` rsync -a /data /backup`;
+
++ **将本地机器的内容拷贝到远程机器**:
+  + `规则`: 当 `DST` 路径地址包含单个冒号 `:` 分隔符时启动该模式;
+  + `语法`:`rsync [OPTION]... SRC [USER@]host:DEST`;
+  + `示例`:`rsync -avz *.c foo:src`
++ **将远程机器的内容拷贝到本地机器**:
+  + `规则`: 当 `SRC` 地址路径包含单个冒号 `:` 分隔符时启动该模式;
+  + `语法`:`rsync [OPTION]... [USER@]HOST:SRC DEST`;
+  + `示例`:`rsync -avz foo:src/bar /data`;
++ **从远程 `rsync` 服务器中拷贝文件到本地机**:
+  + `规则`: 当 `SRC` 路径信息包含 `::` 分隔符时启动该模式;
+  + `语法`:`rsync [OPTION]... [USER@]HOST::SRC DEST`;
+  + `示例`:`rsync -av root@192.168.78.192::www /databack`;
++ **从本地机器拷贝文件到远程 `rsync` 服务器**:
+  + `规则`: 当 `DST` 路径信息包含 `::` 分隔符时启动该模式;
+  + `语法`:`rsync [OPTION]... SRC [USER@]HOST::DEST`;
+  + `示例`:`rsync -av /databack root@192.168.78.192::www`;
++ **列出远程机的文件列表**:
+  + `规则`: 命令中省略掉本地机信息;
+  + `语法`:`rsync [OPTION]... rsync://[USER@]HOST[:PORT]/SRC [DEST]`;
+  + `示例`:`rsync -v rsync://192.168.78.192/www`;
+
+# 3. rsync 的算法解析
+
+## 3.1 分块 checksum 算法
+
+首先, 我们会把 `DST文件 ` 的文件均切分成若干小块, 例如每块大小为 512 个字节 (最后一块会小于这个数), 然后对每块计算两个 `checksum`, 计算 checksum 使用的算法如下:
+
++ `rolling checksum(轮替校验和)`: 这是一种弱 checksum, 会产生 32 位的 checksum, 使用的是 Mark Adler 发明的[adler-32算法](http://en.wikipedia.org/wiki/Adler-32), 用来快速弱检验是否相同;
++ `强checksum`: 会产生 128 位的 checksum, 之前使用的是 md4, 现在使用的 md5 hash 算法, 用来精准校验是否相同;
+
+![checksum校验](/assets/images/posts/command-rsync/rsync-checksum.webp)
+
+## 3.2 传输算法
+
+同步目标端会把 `DST文件` 的的一个 `checksum列表` 传给同步源, 这个列表里包括了三个东西:
+
++ rolling checksum(32bits)
++ md5 checksum(128bits)
++ 文件块编号
+
+## 3.3 checksum 查找算法
+
+同步源端拿到 `DST文件` 的 `checksum数组` 后, 会把这个数据存到一个 `hash table` 中, 用 `rolling checksum` 做 `hash`, 以便获得 `O(1)` 时间复杂度的查找性能,`hash表` 大小为 `16bits` 的, 因此 `hash表` 槽位为 `2的16次方`, 同时使用链表来解决碰撞冲突.
+
+![DST文件块checksum组成的hash表](/assets/images/posts/command-rsync/rsync-dst-checksum-hash-table.webp)
+
+## 3.4 比对算法
+
++ 取 `SRC文件` 的 `第一个` 文件块 (假设文件块大小为 `512`), 也就是从 `SRC文件` 的第 1 个字节到第 512 个字节, 取出来后做 `rolling checksum` 计算, 在 `hash表` 中查找计算好的值:
+  + `找到对应的checksum`:
+    + 由于 `rolling checksum` 是一个弱 checksum, 因为尝试比较 `md5` 的 `checksum`, 经过两次的 `checksum` 比较, 最终仍旧发生冲突的概率为 `1/(2^160)`, 这种冲突概率太小, 忽略不计;
+    + 在比较 `md5` 的 `checksum` 后, 如果可以找到对应的匹配项, 则表示在 `SRC文件` 和 `DST文件` 中有相同的文件块;
+  + `未找到对应的checksum`: 只要 `rolling checksum` 或 `md5 checksum` 其中有一个在 `DST文件` 的 `checksum hash表` 中找不到匹配项, 那么就会触发算法对 `SRC文件` 的 `rolling` 动作, 比对算法会住后移动 `1个字节`, 对 `SRC文件` 的字节位置为 `2-513` 的文件块要做 `checksum`  (需要特别注意:**这里在原有 `checksum` 的基础上进行调整就可以得出新的 `checksum`, 而不必重新计算 `checksum`, 这也是 `rolling` 的精髓**);
+
+![数据比对](/assets/images/posts/command-rsync/rsync-chunk-comparison.webp)
+
+
+
+最终, 在同步源这端, 我们的 rsync 算法可能会得到下面这个样子的一个数据数组, 图中, 红色块表示在目标端已匹配上, 不用传输 (注:**图中存在两块 `Chunk #5` 指的是两个文件块在计算 `checksum` 的时候存在 `hash冲突`, 使用了链表进行解决**), 而白色的地方就是需要传输的内容 (注意: 这些白色的块是不定长的), 这样, 同步源这端把这个数组 (白色的就是实际内容, 红色的就放一个标号) 压缩传到目的端, 在目的端的 rsync 会根据这个表重新生成文件, 这样, 同步完成.
+
+![数据比对后](/assets/images/posts/command-rsync/rsync-after-data-comparison.webp)
+
+## 3.5 补充文档
+
++ [Andrew Tridgell 关于排序和同步算法的博士论文](https://www.samba.org/~tridge/phd_thesis.pdf)
++ [rsync算法官方介绍](https://rsync.samba.org/tech_report/)
+
+
+
+参考文档:https://coolshell.cn/articles/7425.html

@@ -1,0 +1,207 @@
+# 网卡多队列技术学习
+
+# 1. 简介
+
+网卡多队列是一种技术, 最初是用来解决 网络 IO 的 `QoS (Quality Of Service)` 问题. 网卡多队列需要硬件和驱动同时支持. 网卡多队列驱动将各个队列通过将中断绑定到不同的核上, 从而解决网络 I/O 带宽升高时单核 CPU 的处理瓶颈, 提升网络 PPS 和带宽性能. 经测试, 在相同的网络 PPS 和网络带宽的条件下, 与 1 个队列相比, 2 个队列最多可提升性能达 50%到 100%, 4 个队列的性能提升更大.
+
+# 2. 启用网卡多队列
+
+## 2.1 网卡是否支持多队列
+
+### 2.1.1 ethtool 方式验证
+
+安装指令为:`yum -y install ethtool net-tools`
+
+```bash
+[root@bugwz /]# ethtool -l eth0
+Channel parameters for eth0:
+Pre-set maximums:
+RX:		0
+TX:		0
+Other:		1
+Combined:	8     # 最大支持设置的网卡队列数
+Current hardware settings:
+RX:		0
+TX:		0
+Other:		1
+Combined:	8     # 当前eth0启动的网卡队列数
+```
+
+### 2.1.2 lspci 指令验证
+
+查看硬件是否支持网卡多队列, 使用指令 `lspci -vvv` (安装指令为:`yum -y install pciutils`), 查看 `Ethernet controller` 项目信息中是否存在 `MSI-X`,`Enable+` 并且 `Count > 1`, 如果存在的话则该网卡支持网卡多队列;
+
+![Ethernet controller](/assets/images/posts/network-multi-queue/network-queue-ethernet-controller.webp)
+
+## 2.2 是否启用了网卡多队列
+
+### 2.2.1 ethtool 指令验证
+
+使用 `ethtool` 工具查看是否开启了网卡多队列
+
+```bash
+[root@bugwz /]# ethtool -l eth0
+Channel parameters for eth0:
+Pre-set maximums:
+RX:		0
+TX:		0
+Other:		1
+Combined:	8     # 最大支持设置的网卡队列数
+Current hardware settings:
+RX:		0
+TX:		0
+Other:		1
+Combined:	8     # 当前eth0启动的网卡队列数
+```
+
+### 2.2.2 /proc/interrupts 文件验证
+
+使用 `cat /proc/interrupts` 查看当前是否已经开启了网卡多队列, 通过查看网卡的中断集中分布在哪些 CPU 上, 如果分布在多个 CPU 上, 则当前已经开启了网卡多队列.
+
+![/proc/interrupts文件](/assets/images/posts/network-multi-queue/network-queue-proc-interrupts.webp)
+
++ 第一列: IRQ 号;
++ CPU 0~7: 表示对应的 CPU, 下面对应的数值表示某个 CPU 在某一项上被中断的次数;
++ NMI 和 LOC: 系统所使用的驱动, 用户无法访问和配置;
++ ...
+
+## 2.3 开启网卡多队列
+
+### 2.3.1 ethtool 指令开启
+
+使用 `ethtool` 修改启用网卡队列的数量, 修改完成后再次查看如下所示:
+
+```bash
+[root@bugwz /]# ethtool -L eth0 combined 4
+[root@bugwz /]# ethtool -l eth0
+Channel parameters for eth0:
+Pre-set maximums:
+RX:		0
+TX:		0
+Other:		1
+Combined:	8     # 最大支持设置的网卡队列数
+Current hardware settings:
+RX:		0
+TX:		0
+Other:		1
+Combined:	4     # 当前eth0启动的网卡队列数
+```
+
+## 2.4 配置网卡多队列
+
+### 2.4.1 手动配置
+
+#### 2.4.1.1 获取中断号
+
+在启用了网卡多队列之后, 可以通过 `cat /proc/interrupts` 指令查看对应的网卡的中断号信息;
+
+![/proc/interrupt文件](/assets/images/posts/network-multi-queue/network-queue-proc-interrupt-click.webp)
+
+#### 2.4.1.2 设置中断亲和性
+
+文件 `/proc/irq/${IRQ_NUM}/smp_affinity` 为中断号为 `IRQ_NUM` 的中断绑定的 `CPU` 的情况. 文件中的参数以十六进制表示, 将其转换为二进制后的每一位代表一个 CPU, 默认值为 `全f`, 表明将中断发给所有的 CPU 进行处理.
+
+如果要将对应的中断绑定到 `CPU 0~3` 上, 我们可执行如下指令:
+
+```bash
+echo "1" > /proc/irq/31/smp_affinity
+echo "1" > /proc/irq/32/smp_affinity
+echo "2" > /proc/irq/33/smp_affinity
+echo "2" > /proc/irq/34/smp_affinity
+echo "4" > /proc/irq/35/smp_affinity
+echo "4" > /proc/irq/36/smp_affinity
+echo "8" > /proc/irq/37/smp_affinity
+echo "8" > /proc/irq/38/smp_affinity
+```
+
+### 2.4.2 通过 irqbalance 配置
+
+irqbalance 避免所有的 IRQ 请求都由单一的 CPU 负担, 从而将硬件中断分布到多处理器系统的各个处理器以便能够提高性能, 安装方式为:`yum -y install irqbalance`;
+
+**基本原理**: 周期计算各个 CPU 上的中断数量, 发现不均衡时, 动态通过 `/proc` 接口设置指定中断的 CPU 亲和性, 进行绑定. 当只有一个中断时, 无论将这个中断绑定到哪个 CPU, 都会不均衡.
+
+**需要注意**:
+
++ 启动 `irqbalance` 后, 手动绑定将失效;
++ 当 CPU 工作在最高性能模式时,`irqbalance` 会均匀分配中断到其他 CPU, 节能模式时中断会集中分配到 CPU0;
++ irqbalance 进行均衡的粒度为 **不同的中断**, 当系统中有很多不同类型的中断, 基本有用, 如果只有一个中断 (或者少量中断), 此时 irqbalance 无能为力;
+
+# 3. 网卡单队列下的网卡软中断的均衡方案
+
+`RPS/RFS` 来解决在单队列网卡下的 `软中断` 的负载绑定问题, 在 `硬中断` 不均衡情况下, 通过使 `软中断` 均衡, 达到 CPU 占用均衡的目的, 该功能出现在内核版本 `2.6.35` 中, 由 `Google` 的两位工程师提交.
+
+`RPS(Receive Packet Steering)` 主要是把 `软中断` 的负载均衡到各个 `CPU`, 简单来说, 是网卡驱动对每个流 (针对收包过程) 生成一个 `hash标识`, 这个 HASH 值得计算可以通过四元组来计算 (`SIP`,`SPORT`,`DIP`,`DPORT`), 然后由中断处理的地方根据这个 `hash标识` 分配到相应的 `CPU` 上去, 这样就可以比较充分的发挥多核的能力了. 通俗点来说就是在软件层面模拟实现硬件的多队列网卡功能, 如果网卡本身支持多队列功能的话 RPS 就不会有任何的作用. 该功能主要针对单队列网卡多 CPU 环境. 示意图如下所示:
+
+![RPS](/assets/images/posts/network-multi-queue/network-queue-rps.webp)
+
+`RFS(Receive Flow Steering)` 是 RPS 的扩展,`RPS` 只依靠 `hash` 来控制数据包, 提供负载平衡, 但是没有考虑到 `应用程序的位置` (指应用程序所在 CPU).`RFS` 目标是通过指派应用线程正在运行的 CPU 处理中断, 增加数据缓存的命中率. 示意图如下所示:
+
+![RFS](/assets/images/posts/network-multi-queue/network-queue-rfs.webp)
+
+## 3.1 与网卡多队列的区别
+
++ RPS/RFS: 平衡一个 `RX Queue` 的 `软中断` 到不同逻辑 CPU 上;
++ 网卡多队列: RSS(Receive Side Scaling) 是网卡的 `硬件特性` (需要硬件支持), 实现了多队列, 多队列是 `RX/TX多个通路`, 分别负责各种的中断, 可以将不同的流分发到不同的 CPU 上;
+
+## 3.2 开启 RPS 特性脚本
+
+```bash
+#!/bin/bash
+cpu_num=$(grep -c processor /proc/cpuinfo)
+quotient=$((cpu_num/8))
+if [ $quotient -gt 2 ]; then
+quotient=2
+elif [ $quotient -lt 1 ]; then
+quotient=1
+fi
+for i in $(seq $quotient)
+do
+cpuset="${cpuset}f"
+done
+for rps_file in $(ls /sys/class/net/eth*/queues/rx-*/rps_cpus)
+do
+echo $cpuset > $rps_file
+done
+```
+
+# 4. 相关指令
+
+## 4.1 观察中断变化
+
+可以使用 `watch` 指令组合 `/proc/interrupts` 文件查看中断的变化情况:`watch -d -n 1 cat /proc/interrupts`, 参考信息如下所示:
+
+![/proc/interrupts文件变化](/assets/images/posts/network-multi-queue/network-queue-proc-interrupts-change.webp)
+
+## 4.2 分析 CPU 的处理耗时
+
+使用 `mpstat -P ALL 1` 分析 CPU 在处理各种类型上所花费的时间比例, 可用于分析 CPU 是否忙于处理中断 (对应项为:`%irq`), 参考如下图所示;
+
+![mpstat展示](/assets/images/posts/network-multi-queue/network-queue-mpstat.webp)
+
+## 4.3 分析 CPU 的各类利用率
+
+使用 `top` 指令后, 按 `1` 显示各个 CPU 的各项利用率分布详情, 参考如下图所示:
+
+![top展示](/assets/images/posts/network-multi-queue/network-queue-top.webp)
+
+## 4.4 设置进程的 CPU 亲和性
+
+```bash
+# 查看进程的CPU亲和性
+[root@bugwz ~]# taskset -p 13716
+pid 13716's current affinity mask: ffffffff
+
+# 设置进程的CPU亲和性
+[root@bugwz ~]# taskset -p 1 13716
+pid 13716's current affinity mask: ffffffff
+pid 13716's new affinity mask: 1
+
+# 将一个进程绑定到多个CPU上
+[root@bugwz ~]# taskset -p -c 1,3 13716
+pid 13716's current affinity list: 0
+pid 13716's new affinity list: 1,3
+
+[root@bugwz ~]# taskset -p -c 1-7 13716
+pid 13716's current affinity list: 1,3
+pid 13716's new affinity list: 1-7
+```

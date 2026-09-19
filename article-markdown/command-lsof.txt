@@ -1,0 +1,115 @@
+# lsof 指令的使用 - 每周指令
+
+`lsof(list open files)` 是一个列出当前系统打开文件的工具. 在 Linux 环境下, 任何事物都以文件的形式存在, 通过文件不仅仅可以访问常规数据, 还可以访问网络连接和硬件. 所以如传输控制协议 (TCP) 和用户数据报协议 (UDP) 套接字等, 系统在后台都为该应用程序分配了一个文件描述符, 无论这个文件的本质如何, 该文件描述符为应用程序与基础操作系统之间的交互提供了通用接口. 因为应用程序打开文件的描述符列表提供了大量关于这个应用程序本身的信息, 因此通过 lsof 工具能够查看这个列表对系统监测以及排错将是很有帮助的.
+
+# 1. 参数解析
+
+使用的版本为 `4.8.2`
+
+```bash
+-a:列出打开文件存在的进程;
+-c<进程名>:列出指定进程所打开的文件;
+-g:列出GID号进程详情;
+-d<文件号>:列出占用该文件号的进程;
+-n<目录>:列出使用NFS的文件;
+-i<条件>:列出符合条件的进程(4,6,协议,:端口, @ip );
+-p<进程号>:列出指定进程号所打开的文件;
+-R:列出父进程的pid;
+-u:列出UID号进程详情;
+-h:显示帮助信息;
+-v:显示版本信息;
+```
+
+**各列的含义解释:**
+
++ `COMMAND`: 进程的名称;
++ `PID`: 进程标识符;
++ `PPID`: 父进程标识符 (需要指定-R 参数);
++ `PGID`: 进程组的 ID 编号 (需要指定-g 参数);
++ `USER`: 进程所有者; 命令的执行 UID 或系统中登陆的用户名称. 默认显示为用户名, 当使用-l 参数时, 可显示 `UID`.
++ `FD`: 文件描述符, 应用程序通过文件描述符识别该文件;
+  + `cwd`: 表示 current work dirctory, 即应用程序的当前工作目录, 这是该应用程序启动的目录, 除非它本身对这个目录进行更改;
+  + `txt`: 该类型的文件是程序代码, 如应用程序二进制文件本身或共享库, 如上列表中显示的 /sbin/init 程序;
+  + `lnn`: 表示 library references (AIX), 即库引用;
+  + `er`: 表示 FD information error (see NAME column), 即 FD 错误信息;
+  + `ltx`: 表示 shared library text (code and data), 即共享库文本;
+  + `mxx`: 表示 hex memory-mapped type number xx, 即十六进制内存映射类型号 xx;
+  + `m86`: 表示 DOS Merge mapped file, 即 DOS 合并映射文件;
+  + `mem`: 表示 memory-mapped file, 即内存映射文件;
+  + `mmap`: 表示 memory-mapped device, 即内存映射设备;
+  + `pd`: 表示 parent directory, 即父目录;
+  + `rtd`: 表示 root directory, 即根目录;
+  + `v86`: 表示 VP/ix mapped file, 即 VP/ix 映射文件;
+  + `0`: 表示标准输出;
+  + `1`: 表示标准输入;
+  + `2`: 表示标准错误;
+    + **一般在标准输出, 标准错误, 标准输入后还跟着文件状态模式: r, w, u 等:**
+    + `u`: 表示该文件被打开并处于读取/写入模式
+    + `r`: 表示该文件被打开并处于只读模式
+    + `w`: 表示该文件被打开并处于
+    + `空格`: 表示该文件的状态模式为 unknow, 且没有锁定
+    + `-`: 表示该文件的状态模式为 unknow, 且被锁定
+      + **同时在文件状态模式后面, 还跟着相关的锁**
+      + `N`: for a Solaris NFS lock of unknown type(对于未知类型的 Solaris NFS 锁);
+      + `r`: for read lock on part of the file(文件部分的读锁);
+      + `R`: for a read lock on the entire file(整个文件的读锁);
+      + `w`: for a write lock on part of the file(文件的部分写锁);
+      + `W`: for a write lock on the entire file(整个文件的写锁);
+      + `u`: for a read and write lock of any length(对于任何长度的读写锁);
+      + `U`: for a lock of unknown type(对于未知类型的锁);
+      + `x`: for an SCO OpenServer Xenix lock on part of the file(对于部分文件的 SCO OpenServer Xenix 锁);
+      + `X`: for an SCO OpenServer Xenix lock on the entire file(对于整个文件的 SCO OpenServer Xenix 锁);
+      + `space`: if there is no lock(没有锁);
++ `TYPE`:
+  + `CHR`: 字符类型;
+  + `REG`: 文件类型;
+  + `DIR`: 目录;
+  + `BLK`: 块设备类型;
+  + `LINK`: 链接文件;
+  + `FIFO`: 先进先出 (FIFO) 队列;
+  + `IPv4`: IPv4 的包;
+  + `IPv6`: IPv6 的包, 即使地址是 IPv4 的, 也会显示为 IPv6, 而映射到 IPv6 的地址;
+  + `0000`:
+  + `unix`:
++ `DEVICE`: 使用 character special, block special 表示的磁盘名称;
++ `SIZE/OFF`: 文件的大小, 如果不能用大小表示的, 会留空. 使用 `-s` 参数控制;
++ `NODE`: 本地文件的 node 码, 或者协议, 如 TCP 等;
++ `NAME`: 挂载点和文件的全路径 (链接会被解析为实际路径), 或者连接双方的地址和端口, 状态等;
+
+# 2. 使用技巧
+
+## 2.1 恢复已经删除的文件
+
+当进程打开了某个文件时, 只要该进程保持打开该文件, 即使将其删除, 它依然存在于磁盘中. 这意味着, 进程并不知道文件已经被删除, 它仍然可以向打开该文件时提供给它的文件描述符进行读取和写入. 除了该进程之外, 这个文件是不可见的, 因为已经删除了其相应的目录索引节点, 具体恢复步骤如下所示:
+
++ 找到指定的已经被删除的文件:
+
+  ```bash
+  [root@bugwz ~]# lsof -R /data1 | grep deleted
+  test 16578    1 nosql   11r   REG 253,17 2400000683 39846050 /data/test.log (deleted)
+  ```
+
++ 依据进程的 pid(16578) 和文件的 fd 的 id(11) 信息, 找到指定的文件:
+
+  ```bash
+  [root@bugwz ~]# ll /proc/16578/fd/11
+  lr-x------ 1 root root 64 Dec 12 12:20 /proc/16578/fd/11 -> /data/test.log (deleted)
+  ```
+
++ 尝试查看该文件中的信息:
+
+  ```bash
+  [root@bugwz ~]# head -n 1 /proc/16578/fd/11
+  [16578] 12 Dec 12:20:00 * Start test process...
+  ```
+
++ 尝试恢复该文件:
+
+  ```bash
+  [root@bugwz /]# cat /proc/16578/fd/11 > /data/test.log
+  [root@bugwz /]# ll /data/
+  total 2400000683
+  -rw-r--r-- 1 root  root  2400000683 Dec 12 14:17 test.log
+  [root@bugwz /]# head -n 1 /proc/16578/fd/11
+  [16578] 12 Dec 12:20:00 * Start test process...
+  ```

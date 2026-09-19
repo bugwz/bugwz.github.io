@@ -1,0 +1,330 @@
+# Linux 下 Makefile 的生成之路
+
+编译项目的过程中经常会需要执行 make 命令来操作 Makefile 编译命令, 但是在有一些项目中是不存在 Makefile 文件的, 这时候就需要手动先生成 Makefile 文件, 然后在执行编译指令.
+
+# 1. 流程介绍
+
+![Makefile文件的完成流程图 ](/assets/images/posts/makefile/makefile-map.webp)
+
++ `autoscan`: 通过扫描源代码来搜寻普通的可移植性问题, 比如检查编译器, 库, 头文件等, 生成文件 `configure.scan`, 它是 `configure.ac` 的一个雏形;
++ `aclocal`: 根据已经安装的宏, 用户定义宏和 `acinclude.m4` 文件中的宏将 `configure.ac` 文件所需要的宏集中定义到文件 `aclocal.m4` 中,`aclocal` 是一个 `perl` 脚本程序, 完整定义为:`aclocal - create aclocal.m4 by scanning configure.ac`;
++ `automake`: 将 `Makefile.am` 中定义的结构建立 `Makefile.in`;
++ `autoheader`: 生成了 `configure.h.in` (如果 `configure.ac` 中定义了 AC_CONFIG_HEADER, 那么此文件则必须存在);
++ `autoconf`: 将 `configure.ac` 中的宏展开, 生成 `configure` 脚本. 这个过程可能要用到 `aclocal.m4` 中定义的宏;
+
++ `configure脚本`: 将生成的 `Makefile.in` 文件转换为 `Makefile`;
+
+# 2. 流程实战
+
+## 2.1 环境准备
+
+安装依赖的软件包[automake](https://www.gnu.org/software/automake/manual/automake.html)与[autoconf](https://www.gnu.org/savannah-checkouts/gnu/autoconf/manual/autoconf-2.69/index.html);
+
+```bash
+yum -y install automake autoconf
+```
+
++ `automake`: 包括 `aclocal`,`automake` 等;
++ `autoconf`: 包括 `autoscan`,`autoconf` 等
+
+## 2.2 基础文件
+
+文件 `main.c`:
+
+```c
+# include <stdio.h>
+
+int main() {
+  	printf("Hello world!\r\n");
+    return 0;
+}
+```
+
+## 2.3 autoscan
+
+```bash
+[root@bugwz data]# ll
+total 4
+-rw-r--r-- 1 root root 84 Dec 10 15:47 main.c
+[root@bugwz data]# autoscan
+[root@bugwz data]# ll
+total 8
+-rw-r--r-- 1 root root   0 Dec 10 15:48 autoscan.log
+-rw-r--r-- 1 root root 466 Dec 10 15:48 configure.scan
+-rw-r--r-- 1 root root  84 Dec 10 15:47 main.c
+```
+
+## 2.4 aclocal
+
+将 `configure.scan` 文件修改为 `configure.ac` 文件;
+
+```bash
+[root@bugwz data]# mv configure.scan configure.ac
+[root@bugwz data]# ll
+total 8
+-rw-r--r-- 1 root root   0 Dec 10 15:48 autoscan.log
+-rw-r--r-- 1 root root 466 Dec 10 15:48 configure.ac
+-rw-r--r-- 1 root root  84 Dec 10 15:47 main.c
+```
+
+结合实际信息修改 `configure.ac` 文件的内容;
+
+```bash
+#                                               -*- Autoconf -*-
+# Process this file with autoconf to produce a configure script.
+
+AC_PREREQ([2.69])
+AC_INIT([FULL-PACKAGE-NAME], [VERSION], [BUG-REPORT-ADDRESS])
+AC_CONFIG_SRCDIR([main.c])
+AC_CONFIG_HEADERS([config.h])
+
+# Checks for programs.
+AC_PROG_CC
+
+# Checks for libraries.
+
+# Checks for header files.
+
+# Checks for typedefs, structures, and compiler characteristics.
+
+# Checks for library functions.
+
+AC_OUTPUT
+```
+
+具体解释为:
+
++ `AC_PREREQ`: 宏声明本文件要求的 `autoconf` 版本, 本例使用的版本为 2.69;
+  + `AC_INIT`: 宏用来定义软件的名称和版本等信息;
+  + `FULL-PACKAGE-NAME`: 软件包名称;
+  + `VERSION`: 软件版本号;
+  + `BUG-REPORT-ADDRESS`: BUG 报告地址 (一般为软件作者邮件地址);
+
++ `AC_CONFIG_SRCDIR`: 宏用来侦测所指定的源码文件是否存在, 来确定源码目录的有效性. 此处为当前目录下的 main.c;
++ `AC_CONFIG_HEADER`: 宏用于生成 `config.h` 文件, 以便 `autoheader` 使用;
++ `AC_PROG_CC`: 用来指定编译器, 如果不指定, 选用默认 `gcc`;
++ `AC_OUTPUT`: 用来设定 `configure` 所要产生的文件, 如果是 `makefile`,`configure` 会把它检查出来的结果带入 `makefile.in` 文件产生合适的 `makefile`. 使用 `automake` 时, 还需要一些其他的参数, 这些额外的宏用 `aclocal` 工具产生;
+
+修改后的 `configure.ac` 文件内容为:
+
+```bash
+#                                               -*- Autoconf -*-
+# Process this file with autoconf to produce a configure script.
+
+AC_PREREQ([2.69])
+AC_INIT(helloworld, 1.0, admin@bugwz.com)
+AM_INIT_AUTOMAKE(helloworld, 1.0)
+AC_CONFIG_SRCDIR([main.c])
+AC_CONFIG_HEADERS([config.h])
+
+# Checks for programs.
+AC_PROG_CC
+
+# Checks for libraries.
+
+# Checks for header files.
+
+# Checks for typedefs, structures, and compiler characteristics.
+
+# Checks for library functions.
+
+AC_OUTPUT(Makefile)
+```
+
+## 2.5 autoconf
+
+生成 `configure` 文件:
+
+```bash
+[root@bugwz data]# autoconf
+[root@bugwz data]# ll
+total 116
+drwxr-xr-x 2 root root   4096 Dec 10 15:56 autom4te.cache
+-rw-r--r-- 1 root root      0 Dec 10 15:48 autoscan.log
+-rwxr-xr-x 1 root root 104622 Dec 10 15:56 configure
+-rw-r--r-- 1 root root    446 Dec 10 15:55 configure.ac
+-rw-r--r-- 1 root root     84 Dec 10 15:47 main.c
+```
+
+## 2.6 autoheader
+
+使用 `autoheader` 生成 `configure.h.in`, 如果在 `configure.ac` 中定义了 `AC_CONFIG_HEADER`, 那么此文件就必须存在;
+
+```bash
+[root@bugwz data]# autoheader
+[root@bugwz data]# ll
+total 120
+drwxr-xr-x 2 root root   4096 Dec 10 15:56 autom4te.cache
+-rw-r--r-- 1 root root      0 Dec 10 15:48 autoscan.log
+-rw-r--r-- 1 root root    539 Dec 10 15:56 config.h.in
+-rwxr-xr-x 1 root root 104622 Dec 10 15:56 configure
+-rw-r--r-- 1 root root    446 Dec 10 15:55 configure.ac
+-rw-r--r-- 1 root root     84 Dec 10 15:47 main.c
+```
+
+## 2.7 新增 Makefile.am
+
+```bash
+[root@bugwz data]# vi Makefile.am
+[root@bugwz data]# cat Makefile.am
+AUTOMAKE_OPTIONS=foreign
+bin_PROGRAMS=helloworld
+helloworld_SOURCES=main.c
+```
+
++ `AUTOMAKE_OPTIONS`: 设置 `automake` 的选项. 由于 `GNU` 对自己发布的软件有严格的规范, 比如必须附带许可证声明文件 `COPYING` 等, 否则 `automake` 执行时会报错.`automake` 提供了 `3种` 软件等级:`foreign`,`gnu` 和 `gnits`, 默认为 `gnu`. 本例使需用 foreign 等级, 它只检测必须的文件;
++ `bin_PROGRAMS`: 定义要产生的执行文件名. 如果要产生多个执行文件, 每个文件名用空格隔开;
++ `helloworld_SOURCES`: 定义 `helloworld` 这个执行程序所需要的原始文件. 如果 `helloworld` 这个程序是由多个原始文件所产生的, 则必须把它所用到的所有原始文件都列出来, 并用空格隔开. 例如: 若目标体 `helloworld` 需要 `main.c` 一个依赖文件, 则定义 `helloworld_SOURCES=main.c`;
+
+## 2.8 automake
+
+```bash
+[root@bugwz data]# automake --add-missing
+configure.ac:6: warning: AM_INIT_AUTOMAKE: two- and three-arguments forms are deprecated.  For more info, see:
+configure.ac:6: http://www.gnu.org/software/automake/manual/automake.html#Modernize-AM_005fINIT_005fAUTOMAKE-invocation
+configure.ac:6: installing './install-sh'
+configure.ac:6: installing './missing'
+Makefile.am: installing './depcomp'
+
+[root@bugwz data]# ll
+total 224
+-rw-r--r-- 1 root root     77 Dec 10 16:00 Makefile.am
+-rw-r--r-- 1 root root  23322 Dec 10 16:11 Makefile.in
+-rw-r--r-- 1 root root  37794 Dec 10 16:10 aclocal.m4
+drwxr-xr-x 2 root root   4096 Dec 10 16:11 autom4te.cache
+-rw-r--r-- 1 root root      0 Dec 10 15:48 autoscan.log
+-rw-r--r-- 1 root root    625 Dec 10 16:10 config.h.in
+-rwxr-xr-x 1 root root 141852 Dec 10 16:10 configure
+-rw-r--r-- 1 root root    490 Dec 10 16:10 configure.ac
+lrwxrwxrwx 1 root root     32 Dec 10 16:11 depcomp -> /usr/share/automake-1.13/depcomp
+lrwxrwxrwx 1 root root     35 Dec 10 16:11 install-sh -> /usr/share/automake-1.13/install-sh
+-rw-r--r-- 1 root root     84 Dec 10 15:47 main.c
+lrwxrwxrwx 1 root root     32 Dec 10 16:11 missing -> /usr/share/automake-1.13/missing
+```
+
+## 2.9 configure 与 make
+
+```bash
+[root@bugwz data]# ./configure
+checking for a BSD-compatible install... /usr/bin/install -c
+checking whether build environment is sane... yes
+checking for a thread-safe mkdir -p... /usr/bin/mkdir -p
+checking for gawk... gawk
+checking whether make sets $(MAKE)... yes
+checking whether make supports nested variables... yes
+checking for gcc... gcc
+checking whether the C compiler works... yes
+checking for C compiler default output file name... a.out
+checking for suffix of executables...
+checking whether we are cross compiling... no
+checking for suffix of object files... o
+checking whether we are using the GNU C compiler... yes
+checking whether gcc accepts -g... yes
+checking for gcc option to accept ISO C89... none needed
+checking for style of include used by make... GNU
+checking dependency style of gcc... gcc3
+checking that generated files are newer than configure... done
+configure: creating ./config.status
+config.status: creating Makefile
+config.status: creating config.h
+config.status: executing depfiles commands
+
+[root@bugwz data]# make
+make  all-am
+make[1]: Entering directory `/data'
+gcc -DHAVE_CONFIG_H -I.     -g -O2 -MT main.o -MD -MP -MF .deps/main.Tpo -c -o main.o main.c
+mv -f .deps/main.Tpo .deps/main.Po
+gcc  -g -O2   -o helloworld main.o
+make[1]: Leaving directory `/data'
+
+[root@bugwz data]# ll
+total 320
+-rw-r--r-- 1 root root  22880 Dec 10 16:12 Makefile
+-rw-r--r-- 1 root root     77 Dec 10 16:00 Makefile.am
+-rw-r--r-- 1 root root  23322 Dec 10 16:11 Makefile.in
+-rw-r--r-- 1 root root  37794 Dec 10 16:10 aclocal.m4
+drwxr-xr-x 2 root root   4096 Dec 10 16:11 autom4te.cache
+-rw-r--r-- 1 root root      0 Dec 10 15:48 autoscan.log
+-rw-r--r-- 1 root root    781 Dec 10 16:12 config.h
+-rw-r--r-- 1 root root    625 Dec 10 16:10 config.h.in
+-rw-r--r-- 1 root root   8471 Dec 10 16:12 config.log
+-rwxr-xr-x 1 root root  32335 Dec 10 16:12 config.status
+-rwxr-xr-x 1 root root 141852 Dec 10 16:10 configure
+-rw-r--r-- 1 root root    490 Dec 10 16:10 configure.ac
+lrwxrwxrwx 1 root root     32 Dec 10 16:11 depcomp -> /usr/share/automake-1.13/depcomp
+-rwxr-xr-x 1 root root  10808 Dec 10 16:12 helloworld
+lrwxrwxrwx 1 root root     35 Dec 10 16:11 install-sh -> /usr/share/automake-1.13/install-sh
+-rw-r--r-- 1 root root     84 Dec 10 15:47 main.c
+-rw-r--r-- 1 root root   5952 Dec 10 16:12 main.o
+lrwxrwxrwx 1 root root     32 Dec 10 16:11 missing -> /usr/share/automake-1.13/missing
+-rw-r--r-- 1 root root     23 Dec 10 16:12 stamp-h1
+[root@bugwz data]# ./helloworld
+Hello world!
+```
+
+## 2.10 打包
+
+### 2.10.1 执行打包
+
+```bash
+[root@bugwz data]# make dist
+make  dist-gzip am__post_remove_distdir='@:'
+make[1]: Entering directory `/data'
+if test -d "helloworld-1.0"; then find "helloworld-1.0" -type d ! -perm -200 -exec chmod u+w {} ';' && rm -rf "helloworld-1.0" || { sleep 5 && rm -rf "helloworld-1.0"; }; else :; fi
+test -d "helloworld-1.0" || mkdir "helloworld-1.0"
+test -n "" \
+|| find "helloworld-1.0" -type d ! -perm -755 \
+	-exec chmod u+rwx,go+rx {} \; -o \
+  ! -type d ! -perm -444 -links 1 -exec chmod a+r {} \; -o \
+  ! -type d ! -perm -400 -exec chmod a+r {} \; -o \
+  ! -type d ! -perm -444 -exec /bin/sh /data/install-sh -c -m a+r {} {} \; \
+|| chmod -R a+r "helloworld-1.0"
+tardir=helloworld-1.0 && ${TAR-tar} chof - "$tardir" | GZIP=--best gzip -c >helloworld-1.0.tar.gz
+make[1]: Leaving directory `/data'
+if test -d "helloworld-1.0"; then find "helloworld-1.0" -type d ! -perm -200 -exec chmod u+w {} ';' && rm -rf "helloworld-1.0" || { sleep 5 && rm -rf "helloworld-1.0"; }; else :; fi
+
+[root@bugwz data]# ll
+total 392
+-rw-r--r-- 1 root root  22880 Dec 10 16:12 Makefile
+-rw-r--r-- 1 root root     77 Dec 10 16:00 Makefile.am
+-rw-r--r-- 1 root root  23322 Dec 10 16:11 Makefile.in
+-rw-r--r-- 1 root root  37794 Dec 10 16:10 aclocal.m4
+drwxr-xr-x 2 root root   4096 Dec 10 16:11 autom4te.cache
+-rw-r--r-- 1 root root      0 Dec 10 15:48 autoscan.log
+-rw-r--r-- 1 root root    781 Dec 10 16:12 config.h
+-rw-r--r-- 1 root root    625 Dec 10 16:10 config.h.in
+-rw-r--r-- 1 root root   8471 Dec 10 16:12 config.log
+-rwxr-xr-x 1 root root  32335 Dec 10 16:12 config.status
+-rwxr-xr-x 1 root root 141852 Dec 10 16:10 configure
+-rw-r--r-- 1 root root    490 Dec 10 16:10 configure.ac
+lrwxrwxrwx 1 root root     32 Dec 10 16:11 depcomp -> /usr/share/automake-1.13/depcomp
+-rwxr-xr-x 1 root root  10808 Dec 10 16:12 helloworld
+-rw-r--r-- 1 root root  71614 Dec 10 16:13 helloworld-1.0.tar.gz
+lrwxrwxrwx 1 root root     35 Dec 10 16:11 install-sh -> /usr/share/automake-1.13/install-sh
+-rw-r--r-- 1 root root     84 Dec 10 15:47 main.c
+-rw-r--r-- 1 root root   5952 Dec 10 16:12 main.o
+lrwxrwxrwx 1 root root     32 Dec 10 16:11 missing -> /usr/share/automake-1.13/missing
+-rw-r--r-- 1 root root     23 Dec 10 16:12 stamp-h1
+```
+
+### 2.10.2 校验打包
+
+```bash
+[root@bugwz data]# tar -zxvf helloworld-1.0.tar.gz
+[root@bugwz data]# ll helloworld-1.0
+total 268
+-rw-r--r-- 1 root root     77 Dec 10 16:00 Makefile.am
+-rw-r--r-- 1 root root  23322 Dec 10 16:11 Makefile.in
+-rw-r--r-- 1 root root  37794 Dec 10 16:10 aclocal.m4
+-rw-r--r-- 1 root root    625 Dec 10 16:10 config.h.in
+-rwxr-xr-x 1 root root 141852 Dec 10 16:10 configure
+-rw-r--r-- 1 root root    490 Dec 10 16:10 configure.ac
+-rwxr-xr-x 1 root root  23566 Jun 10  2014 depcomp
+-rwxr-xr-x 1 root root  13997 Jun 10  2014 install-sh
+-rw-r--r-- 1 root root     84 Dec 10 15:47 main.c
+-rwxr-xr-x 1 root root   6873 Jun 10  2014 missing
+```
+
+
+
+参考链接:https://www.cnblogs.com/bugutian/p/5560548.html

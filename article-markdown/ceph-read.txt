@@ -1,0 +1,846 @@
+# Ceph 读路径: 从客户端请求到 OSD 返回
+
+一次 Ceph 读请求从发出到返回, 会经过客户端对象映射, 网络传输, OSD 调度, PG 检查和底层存储读取等环节. 文章以传统 OSD, Messenger v2 和 BlueStore 为例, 分析副本池与 EC 池的读取差异, BlueStore 设备 I/O, 完整性校验及结果返回, 同时介绍 RBD, CephFS, RGW 和 librados 如何把上层读取转换为 RADOS 对象读, 并总结缓存层次, 常见故障分支与延迟定位方法.
+
+# 1. 整体执行图
+
+下图只保留主要组件, 具体函数和处理分支在后面的章节展开.
+
+```mermaid
+sequenceDiagram
+    participant A as 应用
+    participant C as 客户端缓存与布局
+    participant O as librados / Objecter
+    participant MON as MON
+    participant MDS as MDS
+    participant MS as Messenger v2
+    participant S as 目标 OSD
+    participant PG as PG primary
+    participant ST as ObjectStore / BlueStore
+    participant SH as 其他 shard OSD
+
+    A->>C: 发起读取
+    alt 客户端缓存未命中
+        opt CephFS 需要更新 layout 或 capability
+            C->>MDS: 获取文件布局和 capability
+            MDS-->>C: 返回控制面信息
+        end
+        C->>O: 转换为 RADOS object read
+        opt OSDMap/CRUSH map 缺失或过期
+            O->>MON: 获取最新 OSDMap/CRUSH map
+            MON-->>O: 返回 map
+        end
+        O->>MS: 发送 MOSDOp
+        MS->>S: 网络传输到目标 OSD
+        S->>PG: 收包,排队并分派到 PG
+        alt replicated pool
+            PG->>ST: 读取一个 acting OSD 的本地副本
+            ST-->>PG: 返回对象数据
+        else EC pool
+            PG->>SH: 发送 MOSDECSubOpRead
+            SH-->>PG: 返回足够的 shard 数据
+            PG->>PG: 解码并还原逻辑数据
+        end
+        PG-->>MS: MOSDOpReply
+        MS-->>O: 返回读取结果
+        O-->>C: 完成 object read
+        C-->>A: 拼装并返回应用数据
+    else 客户端缓存命中
+        C-->>A: 直接返回缓存数据
+    end
+```
+
+图中有几处需要注意:
+
+- 客户端使用本地保存的 OSDMap 和 CRUSH map 计算目标 OSD, 正常读请求不会先发给 MON.
+- 副本池 (replicated pool) 默认只读一个 acting OSD 上的本地副本. 纠删码池 (EC pool) 则由主 OSD (primary) 选择足够的分片 (shard), 从多个 OSD 读取并还原数据.
+- 一次读可能命中客户端或 OSD 的缓存; 如果没有命中, OSD 还可能先查 RocksDB 元数据, 再读 BlueStore 数据盘. EC 读还可能向多个 shard OSD 发起读取, 所以客户端发出一条请求, 并不代表集群内部只做了一次 I/O.
+
+# 2. 客户端: 把应用读取转换成 RADOS 对象读
+
+块存储, 文件存储和对象存储有不同的入口, 但都需要确定要读哪些 RADOS 对象. 如果数据已经在客户端缓存中, 请求就不会继续往下走. 因此, 应用发起一次读取, 并不代表客户端一定会发送 `MOSDOp`.
+
+## 2.1 块存储: RBD
+
+RBD 会把 Ceph 中的镜像 (image) 映射成块设备, 应用或虚拟机可以像访问本地磁盘一样读写. 用户态程序可以直接使用 `librbd`, 也可以通过 `krbd` 把镜像映射成内核块设备. 两条调用路径不同, 最后都要把镜像中的地址换算成 RADOS 对象地址.
+
+应用看到的是 image 的连续块地址, RADOS 保存的却是一组独立对象. librbd 会根据 image 的 layout, 把这段块地址换算成对象名, 对象内偏移和读取长度. 先看最简单的情况: 只按 `object size` 切分时, image 数据会依次落在不同对象中.
+
+例如, object size 为 4 MiB, 应用从 image 偏移 3 MiB 的位置读取 2 MiB. 这次请求会被拆成两段: 第一个对象读取对象内偏移 3 MiB 到 4 MiB 的 1 MiB, 第二个对象读取对象内偏移 0 到 1 MiB 的 1 MiB.librbd 会把这两段分别生成 object extent, RADOS 端只处理对象内的偏移和长度.
+
+启用 striping 后, 映射方式会更细一些. 连续的 image 数据会先按 `stripe_unit` 切成小块, 再轮流放入 `stripe_count` 个对象中. 例如, 设置 `stripe_unit = 4 KiB`, `stripe_count = 2` 时, image 的前几段数据可以理解为: `[0, 4 KiB)` 放到对象 0, `[4 KiB, 8 KiB)` 放到对象 1, `[8 KiB, 12 KiB)` 又回到对象 0, `[12 KiB, 16 KiB)` 放到对象 1. 此时, 一次连续的块读取即使没有跨过 `object size`, 也可能同时访问多个对象. librbd 会为每一段计算对象名, 对象内偏移和长度, 再把它们拆成多个 object extent.
+
+那对象 0 的名字是怎么确定的? 创建 image 时, librbd 会生成一个唯一的 image id, 并据此生成数据对象前缀. 新格式通常是 `rbd_data.<image-id>`; 如果 image 使用独立的数据池, 前缀中还会包含数据池 id. 随后, librbd 给每个对象分配一个从 0 开始的 `object_no`, 再把这个序号格式化到前缀后面. 例如, 前缀为 `rbd_data.abc123` 时, 对象 0 和对象 1 可以表示为 `rbd_data.abc123.0000000000000000` 和 `rbd_data.abc123.0000000000000001`.
+
+因此, 读取 image 时不需要扫描数据池来寻找 "第一个对象". 客户端先从 `rbd_header.<image-id>` 等元数据中取得 image layout 和对象前缀, 再由 `Striper::file_to_extents()` 根据 image 偏移量算出 `object_no`, 对象内偏移和长度, 最后由 `data_object_name()` 生成确定的 RADOS 对象名.
+
+下面先以用户态 `librbd` 的异步读为主线, 入口函数是 `librbd::api::Io::aio_read()`. 后面的步骤描述这条用户态路径; 时序图另外画出内核态 `krbd`, 用于对比两条路径如何汇合到 RADOS/OSD.
+
+1. 请求先经过 librbd 的请求分发层 (image dispatcher), 由这一层检查镜像缓存, PWL 缓存, 预读, QoS 和加密等处理模块.
+2. `ImageReadRequest::send_request()` 根据 image 的对象大小, 条带单元大小和条带数量, 计算对象名, 对象内偏移和长度, 把跨对象的范围拆成多个 object extent.
+3. `ObjectReadRequest` 为每个 object extent 创建一个 RADOS 对象读操作, 再通过 `neorados::ReadOp` 提交给 Objecter.
+4. 各个对象读完成后, 按照 `buffer_extents` 指定的位置拼回镜像缓冲区. 如果当前镜像是克隆镜像, 且当前层没有对应对象, 就继续读取父镜像. 启用 copy-on-read 后, 读到的父镜像数据还可能被复制到当前镜像中 (copyup).
+
+```mermaid
+sequenceDiagram
+    participant A as 应用或虚拟机
+    participant R as librbd / krbd
+    participant C as librbd 缓存,PWL,readahead
+    participant IR as ImageReadRequest
+    participant OR as ObjectReadRequest
+    participant O as RADOS 客户端
+    participant S as RADOS OSD
+
+    Note over A,S: 用户态 librbd 路径
+    A->>R: 发起 image read
+    R->>C: 查询 librbd 缓存
+    alt 缓存命中
+        C-->>R: 返回缓存数据
+        R-->>A: 返回 image 数据
+    else 缓存未命中
+        C-->>R: 没有找到所需数据
+        R->>IR: 计算 image 对应的 object extent
+        IR->>OR: 为每个 extent 创建对象读请求
+        OR->>O: 提交 RADOS read
+        O->>S: 发送 MOSDOp
+        S-->>O: 返回 MOSDOpReply
+        O-->>OR: 返回对象数据
+        OR-->>R: 返回各 object extent
+        R-->>A: 拼回 image buffer 并返回
+    end
+
+    Note over A,S: 内核态 krbd 路径(简化)
+    A->>R: 发起块设备读取
+    alt Linux 页缓存或上层缓存命中
+        R-->>A: 直接返回块数据
+    else 缓存未命中
+        R->>O: 根据 image layout 构造 RADOS read
+        O->>S: 发送 MOSDOp
+        S-->>O: 返回 MOSDOpReply
+        O-->>R: 返回对象数据
+        R-->>A: 拼回块数据并返回
+    end
+```
+
+图中的两种缓存不是同一层: 用户态 `librbd` 可能命中 image cache, PWL 或 readahead; `krbd` 本身没有这套用户态缓存, 但通过文件系统或普通 buffered I/O 访问时, 可能先命中 Linux 页缓存. 两种缓存都未命中时, 请求才会继续进入 RADOS 读路径.
+
+一次 I/O 会访问多少个对象, 取决于它是否跨越条带. 大范围或稀疏区域可能使用 `sparse_read`. RBD 的副本读取策略也可以把纯读发给 acting set 中的某个副本 OSD. 无论选中哪个 OSD, 请求到达后都会经过 PG 和 ObjectStore.
+
+## 2.2 文件存储: CephFS
+
+对应用来说, CephFS 是一个可以按连续字节流访问的文件系统, 但文件内容在底层会拆成多个 RADOS 对象. MDS 负责维护文件系统元数据, 并协调多个客户端之间的缓存访问. 客户端获得相应的文件布局 (layout) 和读 capability 后, 会直接从数据池的 OSD 读取文件内容, MDS 不参与文件数据转发.
+
+文件的 layout 包含数据池, `object_size`, `stripe_unit` 和 `stripe_count` 等信息. 客户端根据这些参数, 把文件偏移换算成对象序号, 对象名, 对象内偏移和读取长度. 对象名通常由 inode 号和对象序号组成, 因此同一个文件的第一个数据对象可以理解为 "这个 inode 的 object 0", 而不是一个固定的全局对象名.
+
+先看不使用复杂 striping 的情况. 假设 `object_size` 为 4 MiB, 应用从文件偏移 3 MiB 的位置读取 2 MiB, 请求会拆成两段: 第一个对象读取对象内偏移 3 MiB 到 4 MiB 的 1 MiB, 第二个对象读取对象内偏移 0 到 1 MiB 的 1 MiB. 启用 striping 后, 客户端还要按照 `stripe_unit` 和 `stripe_count` 把连续文件数据分布到多个对象, 再为每个对象生成对应的读取范围.
+
+下面以用户态 `ceph-fuse/libcephfs` 的 `Client::_read()` 为例. 内核态 CephFS 会先经过 VFS 和页缓存, 但缓存检查, 根据文件 layout 拆分对象范围, 以及后面的 RADOS/OSD 处理, 逻辑上是相同的:
+
+1. 客户端检查文件句柄, 权限, 读 capability, 以及文件是否包含可以直接返回的内联数据.
+2. 如果命中页缓存或 `ObjectCacher`, 直接把缓存中的数据返回给应用.
+3. 缓存未命中或使用 `O_DIRECT` 时, `Striper::file_to_extents()` 根据 inode 的 layout, 把文件范围拆成一个或多个 RADOS object extent. 每个 extent 都包含对象名, 对象内偏移和长度.
+4. 客户端通过 Objecter 读取这些对象, 收到结果后按文件偏移重新拼成应用需要的连续数据.
+
+```mermaid
+sequenceDiagram
+    participant A as 应用
+    participant U as ceph-fuse/libcephfs / 内核态 CephFS
+    participant M as MDS
+    participant K as ObjectCacher / Linux 页缓存
+    participant L as inode layout / Striper
+    participant O as Objecter
+    participant S as data pool primary OSD
+
+    Note over A,S: 用户态 CephFS 路径
+    A->>U: 发起文件读取
+    U->>U: Client::_read()
+    opt 缺少 layout 或读 capability
+        U->>M: 获取文件布局和 capability
+        M-->>U: 返回控制面信息
+    end
+    U->>K: 查询 ObjectCacher
+    alt 缓存命中
+        K-->>U: 返回文件数据
+        U-->>A: 返回读取结果
+    else 缓存未命中或使用 O_DIRECT
+        U->>L: 根据 inode layout 计算 object extent
+        L->>O: 提交一个或多个 RADOS object read
+        O->>S: 发送 MOSDOp
+        S-->>O: 返回 MOSDOpReply
+        O-->>U: 返回对象数据
+        opt 普通缓存读取
+            U->>K: 填充 ObjectCacher
+        end
+        U-->>A: 拼回文件数据并返回
+    end
+
+    Note over A,S: 内核态 CephFS 路径(简化)
+
+    A->>U: 发起文件读取
+    U->>K: 查询 Linux 页缓存
+    alt 缓存命中
+        K-->>U: 返回缓存数据
+        U-->>A: 返回读取结果
+    else 缓存未命中或使用 O_DIRECT
+        U->>L: 根据文件 layout 计算 object extent
+        L->>O: 提交 RADOS object read
+        O->>S: 发送 MOSDOp
+        S-->>O: 返回 MOSDOpReply
+        O-->>U: 返回对象数据
+        U-->>A: 返回文件数据
+    end
+```
+
+## 2.3 对象存储: RGW
+
+RGW 是运行在用户态的网关, 对外提供 S3/Swift HTTP 接口. 应用看到的是 bucket 中的一个对象和它的逻辑字节范围, RGW 负责把这个请求转换成一个或多个 RADOS 对象读. RGW 没有类似 `krbd` 或内核 CephFS 的内核态数据路径, 本节只介绍用户态 RGW.
+
+RGW 保存对象时, 会把对象的元数据, 布局信息和数据分开管理:
+
+- 小对象通常直接放在一个 head object 中.
+- 大对象通常由一个 head object 和多个 tail stripe 组成, manifest 记录每个部分对应的 RADOS 对象, 逻辑偏移和长度.
+- 收到 GET 或 Range 请求后, RGW 根据 manifest 找到覆盖请求范围的对象部分, 再把逻辑范围换算成每个 RADOS 对象内的读取范围.
+
+例如, 假设一个逻辑对象按 4 MiB 的数据段保存, 应用请求 `[3 MiB, 6 MiB)` 这段数据. RGW 会读取第一个对象中 `[3 MiB, 4 MiB)` 的 1 MiB, 再读取下一个对象中 `[0, 2 MiB)` 的 2 MiB, 最后按逻辑偏移把两段数据拼回 HTTP 响应. 实际使用哪些 head/tail object, 以该对象的 manifest 为准.
+
+以用户态 RGW 的 GET 处理为例, 主要过程如下:
+
+1. RGW 接收 HTTP 请求, 完成认证, 权限检查, Range 解析, 以及压缩和加密过滤器的准备.
+2. `RGWRados::Object::Read::iterate()` 读取对象的 manifest, 并由 `iterate_obj()` 把 HTTP 的逻辑范围拆成一个或多个 RADOS object extent.
+3. `get_obj_iterate_cb()` 为这些 extent 创建 `ObjectReadOperation`, 通过 RGW 的异步 I/O 封装提交给 librados/Objecter.
+4. 各个 RADOS 对象读完成后, RGW 按逻辑偏移排序, 把结果拼接起来, 再流式返回给 HTTP 客户端.
+
+```mermaid
+sequenceDiagram
+    participant A as HTTP client
+    participant R as RGW
+    participant C as RGW/D3N cache
+    participant O as librados / Objecter
+    participant S as RADOS OSD
+
+    A->>R: GET object / Range
+    R->>R: 认证,权限,Range,过滤器
+    alt RGW 缓存命中
+        R->>C: 查询对象数据
+        C-->>R: 返回缓存数据
+        R-->>A: 流式返回 HTTP 数据
+    else 缓存未命中
+        R->>R: 读取 manifest,计算 head/tail object extent
+        R->>O: 提交一个或多个 ObjectReadOperation
+        O->>S: 发送 MOSDOp
+        S-->>O: 返回 MOSDOpReply
+        O-->>R: 返回对象数据
+        R->>R: 按逻辑偏移拼接结果
+        R-->>A: 流式返回 HTTP 数据
+    end
+```
+
+## 2.4 直接使用 librados
+
+业务也可以绕过 RBD, CephFS 和 RGW, 直接使用 `librados::IoCtx` 读写 RADOS 对象. 此时, 应用自己提供存储池, 命名空间, 对象名以及对象内的 offset 和 length; librados 不会再替应用做 image layout 或文件 layout 的转换.
+
+例如, 应用要读取对象 `obj-001` 中从 1 MiB 开始的 2 MiB 数据, 客户端会直接构造 "对象名为 `obj-001`, 对象内偏移为 1 MiB, 长度为 2 MiB" 的 RADOS read. 对象名和对象内范围已经由应用确定, Objecter 接下来只负责把这个对象读请求发到正确的 OSD.
+
+用户态 librados 的读请求可以同步提交, 也可以异步提交:
+
+```text
+IoCtxImpl::read()/aio_read()
+  -> ObjectOperation::read
+  -> Objecter::prepare_read_op
+  -> Objecter::op_submit
+  -> MOSDOp
+```
+
+同步 `read()` 和异步 `aio_read()` 走同一条数据路径. 同步接口提交请求后等待完成; 异步接口提交后立即返回, 结果通过 completion 回调通知应用. 一个 `ObjectOperation` 可以同时包含 read, stat, getxattr 或 cls call 等子操作, 因此一条 `MOSDOp` 消息可能携带多个子操作.
+
+下面按一次对象读取说明 librados 和 Objecter 的处理过程:
+
+1. `prepare_read_op()` 根据应用给出的对象名, offset 和 length 创建读操作, 并准备输出 `bufferlist`, flags 和 completion.
+2. `_op_submit_with_budget()` 会限制客户端同时发送的请求数量, 以及已经发出但还没有返回的请求总字节数. 达到限制时, 请求会先在客户端排队, 等已有请求完成后再发送.
+3. `_calc_target()` 根据存储池, 命名空间, 对象名及 locator, 结合本地 OSDMap 和 CRUSH 计算 raw PG, actual PG, acting set 以及目标 OSD.
+4. `_prepare_osd_op()` 把读操作编码成 `MOSDOp`, `_send_op()` 再通过 AsyncMessenger 发送给目标 OSD.
+5. 收到 `MOSDOpReply` 后, Objecter 按 tid 找回原请求, 把返回数据交给同步调用方或异步 completion.
+
+```mermaid
+sequenceDiagram
+    participant A as 应用
+    participant R as librados::IoCtx
+    participant O as Objecter
+    participant M as MON
+    participant S as 目标 OSD
+
+    A->>R: read()/aio_read(object, offset, length)
+    R->>R: 构造 ObjectOperation
+    R->>O: prepare_read_op() / op_submit()
+    opt 客户端预算不足
+        O->>O: 等待请求数或字节数预算
+    end
+    opt OSDMap 缺失或已过期
+        O->>M: 获取最新 OSDMap/CRUSH map
+        M-->>O: 返回 map
+    end
+    O->>O: _calc_target() 计算 PG 和目标 OSD
+    O->>S: 发送 MOSDOp
+    S-->>O: 返回 MOSDOpReply
+    alt 同步 read()
+        O-->>R: 返回 bufferlist 和结果
+        R-->>A: read() 返回
+    else 异步 aio_read()
+        O-->>R: 触发 completion
+        R-->>A: 回调返回 bufferlist 和结果
+    end
+```
+
+默认情况下, 请求发给当前实际负责该 PG 的主 OSD (acting primary). 副本池的纯读可以通过 `rados_replica_read_policy` 或 RBD 的对应配置使用 `balance`/`localize`, 由客户端直接选择一个副本 OSD, 主 OSD 不负责转发. 如果副本发现对象可能还有未同步的写入, 会返回 `-EAGAIN`; Objecter 清除副本读取标志后, 再把请求发给主 OSD.
+
+# 3. 服务端入口: 网卡收包和 OSD 调度
+
+## 3.1 网卡, Messenger 和消息解析
+
+下面以 TCP 上的 Messenger v2 为例, 看看客户端发出的 `MOSDOp` 怎样进入 OSD 进程:
+
+1. 网卡收到数据包后, 通过 DMA 把数据写入主机内存. 内核网络栈随后处理这些数据, 并把它们放入 OSD 连接对应的 socket 接收缓冲区. 实际耗时还取决于数据是否需要额外拷贝, 校验和由 CPU 还是网卡处理, 以及 Messenger 是否启用了加密.
+2. OSD 进程中的 AsyncMessenger 从连接读取 msgr2 协议帧, 处理连接认证和会话状态, 检查消息完整性, 再把协议内容解码成 `MOSDOp`.
+3. 消息解码完成后, OSD 将 `MOSDOp` 交给 `OSD::ms_fast_dispatch()`. 请求从这里进入 OSD 的快速分派流程, 随后才会排入对应的 PG 队列.
+
+所以, 从网卡收到数据到请求进入 OSD 队列, 中间包含网络接收, 内核与用户态之间的数据传递, Messenger 连接处理和消息对象创建. 排查延迟时, 应把这段接收时间与后面的 OSD 调度排队时间分开统计.
+
+## 3.2 OSD 接收消息并分派请求
+
+Messenger 收到 `MOSDOp` 后, 会进入 `src/osd/OSD.cc` 中的 `OSD::ms_fast_dispatch()`. 这个函数主要负责:
+
+- 在 OpTracker 中创建 `OpRequest`, 记录请求到达时间和跟踪信息;
+- 读取消息的 `sent_epoch`, `min_epoch` 和客户端实例信息 (incarnation);
+- 对正常连接调用 `enqueue_op(spg, op, epoch)`;
+- 如果客户端 map 太旧, 目标 PG 还没有创建, 或者会话需要等待 map, 就让请求进入 `waiting_on_map` 等等待队列;
+- 如果请求发到了错误的 OSD, 则通过 map 和请求误投 (misdirection) 处理, 让客户端更新目标后重试.
+
+```mermaid
+sequenceDiagram
+    participant N as NIC/RX queue
+    participant M as AsyncMessenger
+    participant O as OSD::ms_fast_dispatch
+    participant Q as ShardedOpWQ
+    participant W as OSD worker
+    N->>M: 帧 / socket bytes
+    M->>M: msgr2 framing,认证,解码
+    M->>O: MOSDOp
+    O->>O: OpTracker,epoch,trace,session 检查
+    O->>Q: enqueue_op(spg, PGOpItem)
+    Q->>W: scheduler 选出请求
+    W->>W: dequeue_op() 找到 PG
+```
+
+## 3.3 OSD 分片队列, mClock/WPQ 和排队延迟
+
+OSD 会把 PG 分配到多个调度分片 (shard), 由 `ShardedOpWQ` 管理请求队列. 每个分片有自己的调度器和工作线程; 这里的调度分片与 EC 的数据分片是两个概念. 常见的调度器是 mClock, 也可以使用 WPQ. 入队时, `PGOpItem` 会记录请求的开销 (cost), 优先级, 所属客户端, map 版本和接收时间.
+
+请求可能因为这些原因长时间排队:
+
+- 客户端 I/O 与恢复 (recovery), 回填 (backfill), 校验 (scrub) 争用资源;
+- mClock 的资源保留, 权重和上限设置, 或 WPQ 的优先级设置限制了请求的处理速度;
+- 同一个 PG 需要保持操作顺序, 或者还在等待创建, peering, map 更新;
+- 工作线程不足, 设备队列过深, 或者 OSD 的 CPU 负载已经很高.
+
+工作线程取出请求后, `OSD::dequeue_op()` 根据 `spg_t` 找到对应的 PG, 再调用 `pg->do_request(op, handle)`. 请求离开调度队列后才进入 PG 处理, 后面还要经过对象检查和锁等待, 才会调用 BlueStore. 调度排队时间是 `osd.op_r_latency` 和 `osd.op_r_process_latency` 差值的主要来源.
+
+# 4. PG 处理: 检查状态, 定位对象并获取读锁
+
+## 4.1 PG 状态和请求合法性检查
+
+消息进入 PG 后, 从 `PrimaryLogPG::do_request()` 开始处理. PG 会结合当前 OSDMap 和自身状态, 检查请求是否可以执行:
+
+- 当前 map 版本是否满足请求要求, 是否需要等待 map 更新;
+- PG 是否已经创建, 完成 peering 并处于 `active`, 是否要求客户端暂缓请求 (backoff);
+- 客户端会话和 CephX 权限是否允许这次操作, 客户端是否在 blocklist 中, 是否有访问该存储池和命名空间的权限;
+- 消息中的 `hobject_t` 是否确实属于当前 PG;
+- 对象是否缺失, 不可读或处于降级状态, 是否需要等待恢复或回填;
+- 缓存分层 (cache tier), manifest, 重定向或 scrub 是否要求代理读取或暂缓处理.
+
+普通 `CEPH_MSG_OSD_OP` 要等 PG 处于 active 状态后才会进入 `do_op()`. 如果 PG 尚未就绪, 请求可能停在 `waiting for peered`, `waiting for active` 或不可读对象的等待队列中. OSD 不会直接把已知不完整的本地数据返回给客户端.
+
+## 4.2 对象信息, 快照和读锁
+
+`PrimaryLogPG::do_op()` 解析消息中的操作列表, 判断当前 OSD 是否可以执行读取, 并取得或创建对象上下文 `ObjectContext` (OBC):
+
+- OBC 缓存 `object_info_t`, SnapSet, watch 和属性信息, 对象版本, 以及等待请求的状态;
+- `object_info_t` 保存对象逻辑大小, 截断信息, 摘要 (digest) 和 manifest 等 PG 元数据;
+- 快照读取通过 SnapSet, 把快照编号映射到当前对象 (head) 或相应的快照副本 (clone);
+- OBC 上的读写锁负责对冲突请求排序, 普通读一般取得 `RWREAD` 锁.
+
+如果 OBC 缓存未命中, PG 会从 ObjectStore 读取 `OI_ATTR`, 再解码出 `object_info_t`. OBC 和 BlueStore Onode 是两层独立缓存: OBC 保存对象版本, 快照和锁状态等 PG 信息, Onode 保存底层存储需要的对象元数据和数据映射.
+
+## 4.3 执行对象读操作
+
+拿到对象锁并完成权限, 一致性检查后, PG 创建 `OpContext`, 调用顺序可以简化为:
+
+```text
+PrimaryLogPG::do_op
+  -> execute_ctx
+     -> prepare_transaction
+     -> do_osd_ops
+        -> CEPH_OSD_OP_READ / SPARSE_READ
+        -> do_read
+```
+
+普通副本池读不会产生写事务, 也不需要等待写请求的副本复制和提交. 本地存储读完后, 直接进入 `complete_read_ctx()`. EC 读则会把待读范围放进 `pending_async_reads`, 向各个分片 OSD 请求数据后暂时挂起 `OpContext`, 等异步回调完成再继续执行.
+
+
+# 5. PG 按 pool 类型读取数据
+
+PG 完成请求检查并拿到对象读锁后, 会根据 pool 的数据布局选择后端. replicated pool 通常读取一个 acting OSD 上的本地副本; EC pool 则由 primary 组织多个 shard 的读取, 并在收集到足够数据后解码还原对象内容. 下面先介绍 replicated pool, 再介绍 EC pool.
+
+## 5.1 副本池的读取流程
+
+副本池的数据在多个 OSD 上保存完整副本. 普通读通常由 acting primary 处理, 只读取它本地的那份副本; 配置了 `balance` 或 `localize` 时, 客户端也可以把纯读发给其他副本. 下面先看默认的主 OSD 读取, 再说明从其他副本读取时的差异和完整性检查.
+
+### 5.1.1 PG 从主 OSD 读取对象
+
+默认策略下, Objecter 会把 `MOSDOp` 发给 acting primary, 也就是当前负责这个 PG 的主 OSD.PG 先根据 `object_info_t` 确定实际读取范围:
+
+- `length == 0` 表示读到对象当前 EOF;
+- offset 超过对象大小时, 返回空结果;
+- `offset + length` 超过 EOF 时, 把范围截到对象末尾;
+- 根据 truncate sequence/size 处理对象曾经被截断的情况.
+
+范围确定后, PG 通过 `ReplicatedBackend::objects_read_sync()` 调用本机 `ObjectStore::read()`, 最终进入 `BlueStore::read()`. `objects_read_sync()` 会把 PG 使用的 `hobject_t` 转成当前 shard 的 `ghobject_t`, 然后读取本机对象. 它不会向其他副本发送读请求, 也不会等待三个副本都返回. 因此, 三副本池的一次普通读通常只读取一个 OSD 的本地副本, 最后返回一份 `MOSDOpReply`.
+
+```mermaid
+sequenceDiagram
+    participant C as 客户端
+    participant O as acting primary OSD
+    participant P as PG
+    participant S as 本地 ObjectStore
+    participant R as 其他副本 OSD
+
+    C->>O: 发送 MOSDOp
+    O->>P: 收包并分派请求
+    P->>P: 检查 PG 状态,OBC 和读锁
+    P->>S: objects_read_sync() 读取本地对象
+    S-->>P: 返回本地副本数据
+    P-->>O: 构造 MOSDOpReply
+    O-->>C: 返回 MOSDOpReply
+    Note over R: 普通副本池读不会访问其他副本
+```
+
+### 5.1.2 使用 balance/localize 从其他副本读取
+
+副本池的纯读可以选择下面三种目标:
+
+| 策略 | 客户端目标 | 约束与失败处理 |
+|---|---|---|
+| `default` | acting primary | 常规路径, 遇到 map 或连接错误时重试 |
+| `balance` | acting set 中的一个副本 | 仅用于纯读; 副本状态不安全时返回 `-EAGAIN` |
+| `localize` | CRUSH 层级中距离客户端更近的 acting OSD | 同样只适用于纯读 |
+
+目标 OSD 由客户端的 Objecter 选择. Objecter 先用本地 OSDMap 和 CRUSH 算出这个 PG 的 acting set, 再根据读取策略确定目标: `balance` 在 acting set 中随机选择一个 OSD, `localize` 按客户端与 OSD 的 CRUSH 位置选择距离更近的 OSD, 距离相同则优先 primary. `default` 则直接使用 acting primary.
+
+副本收到带 `BALANCE_READS`/`LOCALIZE_READS` 的请求后, `PeeringState::can_serve_replica_read()` 会检查对象在 `pg_committed_to` 之后是否可能还有未同步的写入. 这里的 "未同步写入" 是指主 OSD 已经处理, 但这个副本还没有收到或应用的更新. 如果存在这种风险, 副本返回 `-EAGAIN`. Objecter 清除副本读取标志, 再把请求发给主 OSD. 回退后仍然只从一个 OSD 读取.
+
+```mermaid
+sequenceDiagram
+    participant C as 客户端 Objecter
+    participant R as Objecter 选中的 OSD
+    participant RP as 目标 OSD 上的 PG
+    participant RS as 目标 OSD ObjectStore
+    participant P as acting primary OSD
+    participant PP as primary PG
+    participant PS as primary ObjectStore
+
+    C->>C: 根据本地 OSDMap/CRUSH 和读取策略得到 acting set 与目标 OSD
+    C->>R: 发送带 BALANCE_READS/LOCALIZE_READS 的 MOSDOp
+    R->>RP: 收包并分派请求
+    RP->>RP: 检查本地副本是否可以安全读取
+    alt 本地副本状态安全
+        RP->>RS: 读取本地对象
+        RS-->>RP: 返回对象数据
+        RP-->>R: 返回 MOSDOpReply
+        R-->>C: 返回读取结果
+    else 本地副本可能落后
+        RP-->>R: 返回 -EAGAIN
+        R-->>C: 返回 MOSDOpReply(-EAGAIN)
+        C->>C: 清除副本读取标志
+        C->>P: 重新发送 MOSDOp
+        P->>PP: 分派到 acting primary
+        PP->>PS: 读取主 OSD 的本地副本
+        PS-->>PP: 返回对象数据
+        PP-->>P: 返回 MOSDOpReply
+        P-->>C: 返回读取结果
+    end
+```
+
+### 5.1.3 副本池读取后的完整性检查
+
+无论请求最终发给主 OSD 还是其他副本, 只要 OSD 实际读取了本地对象, 就会经过相同的存储校验. BlueStore 先在 blob 层校验 checksum; 如果读取的是完整对象, PG 还可能根据 `object_info_t` 中的 data digest 检查对象的逻辑内容. 副本如果在读取前发现自己可能落后并返回 `-EAGAIN`, 则不会进入这一步.
+
+这两种校验针对的内容不同:
+
+- blob checksum 验证物理存储块或压缩 blob;
+- object digest 验证完整 RADOS 对象的逻辑内容.
+
+如果本地 read 返回 `-EIO`, 或者完整对象的 digest 不匹配, PG 可以进入 `rep_repair_primary_object()` 等修复流程. 但这不表示所有介质错误都能在当前读请求中自动修复.
+
+## 5.2 EC 池的读取流程
+
+EC 池不保存完整副本, 而是把一个对象编码成多个数据分片和校验分片, 分别放在 PG acting set 中的多个 OSD 上. 客户端请求首先到达这个 PG 的 acting primary. 它和其他 OSD 一样只保存一个 shard, 同时负责根据读取范围和各分片的状态向相关 OSD 请求数据; 收到足够的分片后, 在本地完成解码, 再把完整数据返回客户端. 下面分别介绍异步读取, 分片选择, 向分片 OSD 请求数据, 以及解码和补读.
+
+### 5.2.1 启动异步读取
+
+副本池通常可以在一个 OSD 上同步读完对象; EC 读则需要同时向多个 shard OSD 请求数据, 不能在 `do_read()` 中一次完成. `do_read()` 会先记录这次待读取的范围, `execute_ctx()` 再调用 `OpContext::start_async_reads()` 发起各个分片的读取. 这时还没有足够的数据还原对象, 客户端需要先等待分片读取完成.
+
+当 primary 收集到足够的分片后, 就可以在本地完成解码. `finish_read()` 会接着处理这批已经返回的数据, 最后由 `complete_read_ctx()` 组装结果并返回客户端. 每个分片请求都会记录自己的完成状态, 避免后续继续执行时重复发送.
+
+### 5.2.2 EC 读取范围与分片选择
+
+EC primary 收到读请求后, 不能直接把这段对象范围交给某一个 OSD. 它要先按照 EC 布局, 把请求拆到各个 shard 上, 再判断哪些 shard 能够参与这次读取. `ECBackend::objects_read_async()` 和 `ECCommon::ReadPipeline` 主要完成这项工作:
+
+1. `get_want_to_read_shards()` 根据对象范围和 EC 布局, 算出每个数据 shard 需要读取的范围.
+2. 检查 acting set 中各 shard 的状态, 排除缺失, 无法读取或状态不完整的 shard.
+3. 通过 EC plugin 的 `minimum_to_decode()` 判断至少需要哪些 shard 才能还原请求的数据.
+4. 根据 stripe 对齐要求和 `osd_ec_partial_reads`, 判断是否需要按 stripe 边界多读一部分数据.
+5. 确定每个目标 shard 的读取区间, 并把同一 shard 上相邻的区间合并成一个请求.
+
+在健康的 `k+m` EC pool 中, 通常需要至少 k 个 shard 才能还原数据. 但实际并不是固定读取 "前 k 个完整 shard": 请求范围, 插件能力, subchunk, 缺失 shard 以及 partial-read 设置, 都会影响要读哪些 shard 和每个 shard 的读取量.
+
+### 5.2.3 EC primary 向分片 OSD 读取数据
+
+确定读取范围后, primary 会按 shard 组织请求, 通过 `MOSDECSubOpRead` 向对应的分片 OSD 取数据. 每个分片 OSD 收到请求后, 仍然要经过 Messenger, OSD 调度队列, PG/EC backend 和本地 ObjectStore. 这个消息是 EC 专用的分片读取请求, 与客户端发来的 `MOSDOp` 不同.
+
+```mermaid
+sequenceDiagram
+    participant C as 客户端
+    participant P as EC 主 OSD
+    participant S1 as 分片 OSD 1
+    participant S2 as 分片 OSD 2
+    participant SN as 分片 OSD N
+    C->>P: MOSDOp 对象读取
+    P->>P: 计算读取范围和所需分片
+    par 分片读取
+        P->>S1: MOSDECSubOpRead
+        S1->>S1: ECBackend 读取本地对象
+        S1-->>P: ECSubReadReply
+    and
+        P->>S2: MOSDECSubOpRead
+        S2->>S2: ECBackend 读取本地对象
+        S2-->>P: ECSubReadReply
+    and
+        P->>SN: MOSDECSubOpRead
+        SN->>SN: ECBackend 读取本地对象
+        SN-->>P: ECSubReadReply
+    end
+    P->>P: 汇总分片数据和错误
+    P->>P: 判断是否足够并完成解码
+    P-->>C: 返回完整对象数据
+```
+
+在分片 OSD 上, `ECBackend::handle_sub_read()` 最终使用带 shard id 的 `ghobject_t` 调用本地 `store->read()`. 所以, 一次 EC 读可能同时包含 primary 到多个分片 OSD 的内部网络流量, 各分片的本地磁盘读取, 以及 primary 上的解码 CPU 开销.
+
+### 5.2.4 EC 读取结果的汇总与恢复
+
+primary 收到各个分片的回复后, `handle_sub_read_reply()` 会按请求 tid 汇总数据和错误, 并据此决定是否可以完成读取:
+
+- 如果已有分片足够, primary 调用 EC 插件解码, 生成客户端需要的对象数据.
+- 如果分片还不够, primary 通过 `send_all_remaining_reads()` 向其他可用分片继续读取.
+- 开启 `fast_read` 后, primary 会并发读取额外分片, 以更早收集到足够的数据, 代价是增加设备和网络流量.
+- 某个分片返回 EIO/ENOENT 时, 只要其他分片足够, 默认配置下仍可能完成客户端读; 如果最终拿到的分片仍然不够, 就返回 `-EIO`.
+
+```mermaid
+sequenceDiagram
+    participant C as 客户端
+    participant P as EC 主 OSD
+    participant S1 as 已返回的分片 OSD 1
+    participant S2 as 已返回的分片 OSD 2
+    participant S3 as 其他可用分片 OSD
+
+    S1-->>P: 返回分片数据或错误
+    S2-->>P: 返回分片数据或错误
+    P->>P: handle_sub_read_reply() 汇总结果
+    Note over P,S3: fast_read 开启时,primary 可以在第一轮同时读取额外分片
+    alt 已有足够分片
+        P->>P: 调用 EC 插件解码
+        P-->>C: 返回完整对象数据
+    else 分片数量不足
+        P->>S3: send_all_remaining_reads()
+        S3-->>P: 返回分片数据或错误
+        P->>P: 重新判断是否足够解码
+        alt 足够解码
+            P->>P: 调用 EC 插件解码
+            P-->>C: 返回完整对象数据
+        else 仍然不足
+            P-->>C: 返回 -EIO
+        end
+    end
+```
+
+EC 的 `fast_read` 和副本池的 balance/localize 作用不同. `fast_read` 是 primary 为一次 EC 读取并发访问多个 shard; balance/localize 则是客户端为副本池的纯读选择一个 acting OSD.
+
+# 6. ObjectStore 的对象读取流程
+
+PG 只调用 `ObjectStore::read()`, 不关心后端具体怎样保存数据. 不同后端的实现不同, 生产环境的 OSD 通常使用 BlueStore.
+
+常见后端的读取方式不同, 但它们都实现了 `ObjectStore::read()` 接口. EC 的分片也可以使用这些后端保存:
+
+| 后端 | 读行为概览 |
+|---|---|
+| BlueStore | RocksDB/BlueFS 保存 Onode 和 extent map; 数据可能命中 BufferSpace, 也可能通过 BlockDevice AIO 读取, 之后再做 checksum, 解压和拼装 |
+| KStore | 将对象按 stripe 存在 KeyValueDB 中, 由 `_do_read_stripe()` 读取并拼接 bufferlist |
+| MemStore | `BufferlistObject` 可以共享已有 buffer; `PageSetObject` 可能分配新 buffer, 再通过 `copy_in()` 复制数据 |
+| FileStore | 通过本地文件系统和 page cache 读取; 当前分支通常不会再由工厂创建新的 FileStore OSD |
+| SeaStore/CyanStore | 面向 Crimson/Seastar 的异步存储实现, 线程模型以及 cache/device 路径与传统 OSD 不同 |
+
+下面以生产环境最常见的 BlueStore 为例, 展开对象从元数据到物理设备的读取过程.
+
+## 6.1 读取对象元数据
+
+`BlueStore::read()` 接收 collection, 对象标识和读取范围. collection 是 BlueStore 用来组织一组对象的内部容器, 通常对应某个 PG 在当前 OSD 上保存的对象集合. 后续处理主要分为四步:
+
+1. 确认 collection 存在, 并取得它的共享锁.
+2. 通过 `Collection::get_onode(oid, false)` 查找对象的 Onode.
+3. 把 `(offset=0, length=0)` 解释为读取整个对象.
+4. 调用 `_do_read()`, 按照 extent map 读取请求范围.
+
+Onode 可以看作对象在 BlueStore 中的元数据记录, 里面包含对象是否存在, 对象大小, 属性, 以及 extent map 分片和 blob 的映射关系. 命中 `OnodeSpace` 时不需要查数据库; 没有命中时, BlueStore 会从 RocksDB 的 `PREFIX_OBJ` 读取并解码 Onode, 这些数据通常由 BlueFS 管理. 因此, 一次冷读可能先访问 RocksDB/BlueFS, 再访问数据盘.
+
+## 6.2 逻辑范围到物理位置
+
+大对象的 extent map 可能按分片存在 RocksDB 中. `_do_read()` 调用 `o->extent_map.fault_range(db, offset, length)`, 只加载覆盖目标范围且当前尚未在内存中的映射分片.
+
+对象范围在 BlueStore 中会经过几层映射:
+
+```mermaid
+sequenceDiagram
+    participant B as BlueStore
+    participant E as extent map
+    participant L as lextent
+    participant Bl as blob
+    participant D as 块设备
+
+    B->>E: 查询 RADOS 对象的逻辑范围
+    E-->>B: 返回 lextent(逻辑 offset,length)
+    B->>L: 根据 lextent 定位 blob
+    L-->>B: 返回 blob 内的 offset
+    B->>Bl: 查询 blob 对应的物理 extent
+    Bl-->>B: 返回一个或多个物理 extent
+    B->>D: 转换为块设备上的物理 offset
+```
+
+一个逻辑读可能跨越多个 blob, 一个 blob 也可能由多个不连续的物理 extent 组成. extent-map 分片的命中情况, 可以通过 `bluestore.onode_shard_hits/misses` 等计数器观察.
+
+## 6.3 数据缓存检查
+
+`_read_cache()` 会在 Onode 的 `BufferSpace` 中查找请求范围:
+
+- 如果这段数据刚被写入, 最新内容可能还在 writing/dirty buffer 中, 读取时必须优先使用这部分数据;
+- 如果请求范围已经在 clean buffer 中, BlueStore 可以直接从缓存返回;
+- 如果缓存只覆盖了部分范围, 只有未命中的部分需要访问设备;
+- deep scrub 设置 `BYPASS_CLEAN_CACHE` 后会跳过 clean buffer, 但仍会读取 writing buffer, 因为其中可能包含尚未落盘的最新数据.
+
+`bluestore_default_buffered_read=true` 中的 buffered, 指是否把设备读结果放进 BlueStore 自己的 clean cache, 不是 Linux page cache.BlueStore 的主数据 fd 通常以 `O_DIRECT` 打开, 所以即使启用了 buffered read, 底层仍可能使用 direct AIO, 只是结果会留在用户态 cache 中.
+
+## 6.4 设备 I/O
+
+缓存没有命中时, BlueStore 会把需要访问的数据整理成设备读请求. `_prepare_read_ioc()` 会根据 blob chunk, checksum 和设备的对齐要求调整读取范围; 同一个 blob 中相邻或重叠的读取会尽量合并, 减少设备请求次数.
+
+对于调用方真正需要的逻辑范围, BlueStore 会同时记录对应的截取位置和补齐信息. extent map 中没有分配物理空间的 hole 不需要访问设备, 返回结果时直接补零. 压缩 blob 则必须先读取完整的压缩数据, 完成校验和解压后, 再截取请求的逻辑范围.
+
+`Blob::map()` 把 blob offset 映射成物理 extent, 并对每段调用 `bdev->aio_read()`. 因此, 一个 RADOS object read 可能变成多条 block I/O. 碎片, checksum 对齐, 压缩以及跨 blob 读取, 都会增加实际的设备 I/O.
+
+## 6.5 校验与结果组装
+
+在传统内核块设备路径中, `KernelDevice::aio_read()` 准备对齐 buffer 和 `preadv` AIO, 把请求放进 BlueStore 的 `IOContext`. `bdev->aio_submit()` 提交请求后, `_do_read()` 等待结果. 底层可能使用 io_uring 或 libaio; 如果不满足 direct async 的条件, 也可能退回同步读取. SPDK NVMe 和 PMEM 则有各自的 `BlockDevice` 实现.
+
+设备 I/O 完成后, `_generate_read_result_bl()` 会依次完成:
+
+1. 对 blob read 执行 `_verify_csum()`;
+2. 必要时解压 compressed blob;
+3. 截取调用方请求的逻辑 region;
+4. 根据 buffered policy 写入 BlueStore clean cache;
+5. 按逻辑 offset 拼接 bufferlist, 遇到 hole 就补零.
+
+checksum 出错时, 可以根据 `bluestore_retry_disk_reads` 配置进行有限次数的重读. 重试仍然失败, 就返回 `-EIO`. 这只能应对暂时性的读错误, 不能修复真实的介质损坏.
+
+```mermaid
+sequenceDiagram
+    participant B as BlueStore
+    participant DB as RocksDB / BlueFS
+    participant C as BufferSpace
+    participant D as 数据设备
+    participant R as 结果组装
+
+    B->>B: Collection::get_onode()
+    alt Onode 已在缓存中
+        B-->>B: 直接取得 Onode
+    else Onode 未命中
+        B->>DB: 读取 Onode
+        DB-->>B: 返回 Onode 元数据
+    end
+    B->>B: fault_range() 加载所需 extent map
+    opt extent map 分片未命中
+        B->>DB: 读取 extent-map 分片
+        DB-->>B: 返回映射信息
+    end
+    B->>C: 查询 BufferSpace
+    alt 数据命中缓存
+        C-->>B: 返回可用数据范围
+        B->>R: 拼装缓存数据
+    else 缓存未命中
+        B->>B: 根据 lextent 找到 blob 和物理 extent
+        B->>D: 发起 AIO 读取
+        D-->>B: 返回设备数据
+        B->>B: 校验 checksum
+        opt blob 已压缩
+            B->>B: 解压数据
+        end
+        B->>R: 截取逻辑范围,补 hole 并拼装结果
+    end
+```
+
+# 7. OSD 返回读取结果
+
+## 7.1 组装并发送 OSD 回复
+
+副本池的本地读取或 EC 解码完成后, PG 进入 `complete_read_ctx()`, 完成以下工作:
+
+- 扫描每个 OSD 读操作的 `rval` 和 data;
+- 设置 data offset, 对象 user version, 整体 result 和 bytes_read;
+- 把输出 bufferlist 编码到 `MOSDOpReply`;
+- 设置协议兼容的 `ACK | ONDISK` flags;
+- 通过原来的客户端连接交给 Messenger 发送;
+- 释放对象读锁并销毁 `OpContext`.
+
+读请求中的 `ONDISK` 只是协议兼容标志, 不表示这次读像写请求一样等待多个副本完成持久化提交. 对于 EC 请求, primary 收到足够的分片数据并完成解码后, 才能构造最终回复.
+
+## 7.2 客户端接收并处理回复
+
+```mermaid
+sequenceDiagram
+    participant S as OSD PG/BlueStore
+    participant M as AsyncMessenger
+    participant N as NIC/TX
+    participant C as client Objecter
+    participant U as upper client
+    S->>S: complete_read_ctx()
+    S->>M: MOSDOpReply
+    M->>N: msgr2 encode / send
+    N-->>C: client NIC RX
+    C->>C: handle_osd_op_reply(tid)
+    C->>C: attempt/map/redirect/EAGAIN 检查
+    C->>C: claim bufferlist,释放 budget,触发 completion
+    C-->>U: librados/RBD/CephFS/RGW 结果
+```
+
+`Objecter::handle_osd_op_reply()` 先用 tid 在 session 的 inflight map 中找到原请求, 丢弃旧 attempt 的迟到回复, 然后处理以下情况:
+
+- redirect 或 PG remap: 更新 locator/OSDMap 后重发;
+- 副本读取返回 `-EAGAIN`: 清除 balance/localize flags, 改发主 OSD;
+- 正常回复: 提取 object version 和 reply epoch, 把消息中的 data `claim` 到调用方 bufferlist, 再把每个 OSD 读操作的 `rval`/output 分发出去;
+- 处理完成后释放请求预算, 从 inflight 列表中移除请求, 并在 completion lock 下调用上层回调.
+
+RBD 要等所有对象请求完成后, 按 image extent 拼回结果; CephFS 把数据交给用户 buffer, 或者放入客户端缓存; RGW 则按 manifest 的逻辑偏移量继续向 HTTP 客户端发送数据.
+
+# 8. 故障, 缓存和延迟定位
+
+## 8.1 常见故障分支
+
+| 位置 | 现象 | 典型行为 |
+|---|---|---|
+| Objecter/map | map 过旧, PG 映射变化 | 获取新 map, 重新 `_calc_target()` 并重发 |
+| Messenger/session | OSD down, 连接重置 | 把未完成请求转到新 session 或 acting primary 后重发 |
+| 副本读取 | 副本仍有未同步的写入 | 返回 `-EAGAIN`, 改发主 OSD |
+| OSD queue | mClock/WPQ 或 recovery 争用资源 | 请求长时间排队, 还没有进入 PG |
+| PG state | peering, inactive 或 backoff | 等待 active, peered 或解除 backoff |
+| 对象状态 | missing, unreadable 或 degraded | 等待恢复; 无法恢复时返回错误 |
+| BlueStore 元数据 | Onode 或 extent map 未命中 | 访问 RocksDB/BlueFS |
+| BlueStore 数据 | cache miss 或 checksum 错误 | 发起设备 AIO; 有限重读后可能返回 `-EIO` |
+| EC 分片 | EIO, ENOENT 或某个分片过慢 | 补读或解码; 分片不足时返回 `-EIO` |
+
+读操作通常可以安全重试, 但仍然可能失败. `rados_osd_op_timeout` 默认是 0. 遇到读请求长时间不返回时, 应同时检查连接, map, PG 状态, backoff 和未完成请求.
+
+## 8.2 缓存层次
+
+| 层次 | 缓存内容 | 未命中后访问的位置 |
+|---|---|---|
+| 应用/内核 | page cache, krbd block cache | RBD/CephFS 客户端 |
+| 上层 Ceph client | librbd cache/PWL, CephFS ObjectCacher, RGW D3N | RADOS 对象请求 |
+| PG OBC | `object_info_t`, SnapSet, 锁状态 | ObjectStore 属性 |
+| BlueStore Onode | 属性, 对象大小, extent-map 元信息 | RocksDB/BlueFS |
+| RocksDB cache | Onode, extent-map 分片, omap KV block | DB/BlueFS 设备 |
+| BlueStore BufferSpace | 对象数据的 dirty/clean buffer | 数据 BlockDevice |
+| 设备 cache | 控制器或设备缓存中的数据块 | 物理介质 |
+
+如果观察不到磁盘 I/O, 可能是客户端缓存直接返回了数据, 也可能是 OSD 命中了 Onode, extent map 或 BufferSpace. 反过来, 一次冷读访问磁盘时, 也可能先读取 RocksDB/BlueFS 中的元数据, 再读取数据设备中的对象内容.
+
+## 8.3 延迟分解与计数器
+
+应用看到的读延迟不一定都发生在 OSD. 请求在发出之前, 客户端可能正在检查上层缓存, 等待 Objecter 的请求额度, 拆分 RBD/CephFS/RGW 的逻辑范围, 或者等待更新 OSDMap. 如果 map 过旧, 或者 PG 发生重新映射, 连接被重置, 请求被重定向, Objecter 还会重新计算目标并重发. `tid`, 重试次数 (attempt) 和 map 版本 (epoch) 用于识别并丢弃旧请求的迟到回复.
+
+下面的时序图按一次读取的先后顺序标出各段时间. EC 读取会在 PG 和分片 OSD 之间增加分片读取与解码时间, 副本池没有这段开销.
+
+```mermaid
+sequenceDiagram
+    participant U as 上层应用
+    participant C as 客户端
+    participant N as 网络
+    participant O as OSD
+    participant Q as OSD 调度队列
+    participant P as PG
+    participant B as BlueStore
+
+    U->>C: 拆分请求,检查缓存<br/>T_upper_split_and_cache
+    C->>C: 等待预算,计算 map 和目标<br/>T_client_budget_and_map
+    C->>N: 发送请求<br/>T_request_network
+    N->>O: 收包,解码,准备入队<br/>T_osd_receive_and_prequeue
+    O->>Q: 请求排队<br/>T_osd_scheduler_queue
+    Q->>P: PG 状态,对象和锁检查<br/>T_pg_checks_and_locks
+    P->>B: 读取对象元数据<br/>T_object_metadata
+    B->>B: 命中缓存或访问数据设备<br/>T_data_cache_or_device_io
+    B->>B: checksum,解压和结果处理<br/>T_checksum_decompress
+    opt EC pool
+        P->>P: 读取其他分片并解码<br/>T_ec_subreads_and_decode
+    end
+    P-->>N: 返回 OSD 回复<br/>T_reply_network
+    N-->>C: 客户端收到回复
+    C-->>U: 拼装上层结果<br/>T_upper_reassembly
+```
+
+各段时间的含义如下:
+
+- `T_upper_split_and_cache`: RBD, CephFS 或 RGW 拆分逻辑请求, 检查上层缓存所花的时间. 这里通常没有对应的 OSD 计数器, 需要结合上层客户端的日志或请求统计观察.
+- `T_client_budget_and_map`: Objecter 等待请求额度, 更新 OSDMap, 并计算 PG 和目标 OSD 所花的时间. `objecter.op_latency` 从一次 attempt 发出开始计时, 因此不包含上层拆分和缓存等待.
+- `T_request_network`: 请求从客户端发送到 OSD 主机的网络传输时间, 通常需要结合客户端, Messenger 和主机网络指标判断.
+- `T_osd_receive_and_prequeue`: OSD 收包, Messenger 解码, 以及请求进入调度队列之前的处理时间, 可以参考 `osd.op_before_queue_op_lat`.
+- `T_osd_scheduler_queue`: 请求在 mClock/WPQ 等 OSD 调度队列中等待的时间. `osd.op_r_latency` 通常包含这段等待, 而 `osd.op_r_process_latency` 更接近请求出队后的处理时间, 两者的差值可以用来估算排队时间.
+- `T_pg_checks_and_locks`: PG 检查状态, 对象信息, 权限和对象锁的时间. `osd.op_r_prepare_latency` 对副本池同步读有参考价值, 但 EC 首轮执行可能只是启动异步分片读取, 不能用它代表完整的 EC 延迟.
+- `T_object_metadata`: 读取 Onode, extent map 等对象元数据的时间. 可以结合 `bluestore.read_onode_meta_lat`, `bluestore.onode_hits/misses` 和 `bluestore.onode_shard_hits/misses` 判断元数据缓存是否命中.
+- `T_data_cache_or_device_io`: 命中 BlueStore 缓存, 或从数据设备读取对象内容的时间. `bluestore.read_lat` 反映 BlueStore read 的总时间, `bluestore.read_wait_aio_lat` 更接近等待数据设备的时间.
+- `T_checksum_decompress`: 校验 checksum, 解压数据并整理读取结果的时间, `bluestore.csum_lat` 可以反映 checksum 的 CPU 和数据处理开销. `bluestore.read_eio` 和 `reads_with_retries` 可用于查找设备错误或 checksum 重读.
+- `T_ec_subreads_and_decode`: EC primary 读取分片, 等待回复和解码的时间, 仅 EC 读取包含这一段; `osd.op_r_prepare_latency` 不能单独代表这部分完整耗时.
+- `T_reply_network`: 读取结果从 OSD 返回客户端的网络传输时间. `objecter.op_latency` 会把这段时间和本次 attempt 的客户端, OSD 处理时间一起统计.
+- `T_upper_reassembly`: 客户端把对象结果重新拼成 image, 文件或 HTTP 响应的时间, 通常需要结合 RBD, CephFS 或 RGW 的上层请求统计观察.
+
+
+## 8.4 现场排障命令
+
+先确认对象映射和 acting set:
+
+```bash
+ceph osd map <pool> <object-name>
+```
+
+然后查看 OSD 和客户端当前的未完成请求:
+
+```bash
+ceph daemon osd.<id> dump_ops_in_flight
+ceph daemon osd.<id> dump_historic_ops
+ceph daemon osd.<id> dump_historic_ops_by_duration
+ceph daemon <client-admin-socket> objecter_requests
+```
+
+新版本优先使用 `counter dump`; `perf dump` 主要用于兼容旧接口:
+
+```bash
+ceph daemon osd.<id> counter dump
+ceph daemon osd.<id> perf dump
+```
+
+在短时间的复现窗口内提高 `debug_ms`, `debug_osd`, `debug_objecter`, `debug_bluestore` 和 `debug_bluefs`, 可以把 tid, PG, 目标 OSD, 队列, blob 以及物理 read 串起来. debug level 较高时会影响性能并增加日志写入, 不宜长时间开启.

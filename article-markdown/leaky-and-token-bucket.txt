@@ -1,0 +1,56 @@
+# 漏桶与令牌桶速率限制算法
+
+# 1. 漏桶算法
+
+漏桶算法 (`Leaky Bucket`) 是网络世界中流量整形 (`Traffic Shaping`) 或速率限制 (`Rate Limiting`) 时经常使用的一种算法, 它的主要目的是控制数据注入到网络的速率, 平滑网络上的突发流量. 漏桶算法提供了一种机制, 通过它, 突发流量可以被整形以便为网络提供一个稳定的流量. 示意图如下所示:
+
+![Leaky Bucket](/assets/images/posts/leaky-and-token-bucket/Leaky-Bucket.webp)
+
+
+
+## 1.1 算法过程
+
+- `数据包入队列`: 数据包按照一定的顺序存储入用于临时存储的缓存队列 (数据桶) 中;
+- `数据包等待或溢出`: 数据包在缓存队列 (数据桶) 中等待一段时间, 或者如果此时缓存队列 (数据桶) 已经达到存储的上限, 数据包溢出 (被丢弃);
+- `数据包出队列`: 将缓存队列 (数据桶) 中的数据包按照固定的速率依次出队列并进行处理;
+
+## 1.2 特点
+
++ 优点:
+  + 能够强行限制数据的传输速率;
+  + 保证严格的延迟界限;
++ 缺点:
+  + 对突发性的流量缺乏处理效率;
+
+## 1.3 相关项目
+
++ Nginx 中关于漏桶的设计与实现:`ngx_http_limit_req_module` 模块中的 `ngx_http_limit_req_lookup` 函数 (位于 `./src/http/modules/ngx_http_limit_req_module.c`);
+
+
+
+
+
+# 2. 令牌桶算法
+
+令牌桶算法 (`Token Bucket`) 是网络流量整形 (`Traffic Shaping`) 和速率限制 (`Rate Limiting`) 中最常使用的一种算法. 典型情况下, 令牌桶算法用来控制发送到网络上的数据的数目, 并允许突发数据的发送. 示意图如下所示:
+
+![Token Bucket](/assets/images/posts/leaky-and-token-bucket/Token-Bucket.webp)
+
+## 2.1 算法过程
+
++ `产生令牌`: 周期性的以速率 CIR/EIR 向令牌桶中增加令牌, 桶中的令牌不断增多, 如果桶中令牌数已到达 CBS/EBS, 则丢弃多余令牌;
++ `消耗令牌`: 输入数据包会消耗桶中的令牌, 在网络传输中, 数据包的大小通常不一致, 大的数据包相较于小的数据包消耗的令牌要多;
+
++ `判断是否通过`: 输入数据包经过令牌桶后的结果包括输出的数据包和丢弃的数据包, 当桶中的令牌数量可以满足数据包对令牌的需求, 则将数据包输出, 否则将其丢弃;
+
+## 2.2 特点
+
++ 优点:
+  + 允许一定程度突发流量传输;
+
++ 缺点:
+  + 可能会存在一些误判;
+
+## 2.3 相关项目
+
++ [Guava](https://github.com/google/guava)中的[RateLimiter](https://guava.dev/releases/19.0/api/docs/index.html?com/google/common/util/concurrent/RateLimiter.html);

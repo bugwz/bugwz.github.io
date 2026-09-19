@@ -1,0 +1,514 @@
+# sar 指令的使用与源码解析 - 每周指令
+
+`sar` 的全称是 `System Activity Reporter` (系统活动情况报告) 的缩写.`sar` 工具将对系统当前的状态进行取样, 然后通过计算数据和比例来表达系统的当前运行状态. 它的特点是可以连续对系统取样, 获得大量的取样数据; 取样数据分析的结果都可以存入文件, 所需的负载很小.`sar` 是目前 Linux 上最为全面的系统性能分析工具之一, 可以从 14 个大方面对系统的活动进行报告, 包括文件的读写情况, 系统调用的使用情况, 串口, CPU 效率, 内存使用状况, 进程活动及 IPC 有关的活动等, 使用也是较为复杂.
+
+# 1. 简介
+
+`sar` 是查看操作系统报告指标的各种工具中, 最为普遍和方便的; 它有两种用法;
+
+- 追溯过去的统计数据 (默认)
+- 周期性的查看当前数据
+
+`sar` 只是[sysstat](https://github.com/sysstat/sysstat)(最新版本为[v12.1.6](https://github.com/sysstat/sysstat/tree/v12.1.6)) 软件包中的一个工具,`sar` 相关的工具还包括 `sadc`,`sa1`,`sa2`:
+
+- `sadc`: 系统动态数据收集工具, 收集的数据被写入一个二进制文件中, 它是 `sar` 工具后端;
+- `sa1`: 将每日的系统活动信息以二进制数据的形式写入到文件中, 由 `cron` 调用, 默认的 `cron` 作业位于 `/etc/cron.d/sysstat`;
+- `sa2`: 在 `/var/log/sa` 目录中每日写入一个报告, 由 `cron` 调用, 默认的 `cron` 作业位于 `/etc/cron.d/sysstat`;
+- `sar`: 负责解析 `sadc` 保存的数据, 并显示出来;
+
+# 2. 源码分析
+
+## 2.1 sadc: 系统动态数据采集工具
+
+- 文件:`sadc.c` (`rw_sa_stat_loop()` 函数和 `read_stats()` 函数) 和 `activity.c` (`act[]` 结构体);
+- 功能: 解析参数, 启动一个 interval alarm, rw_sa_stat_loop() 读取数据;
+
+- 核心函数/代码:
+  - `rw_sa_stat_loop()`: 整个 `sadc` 的核心循环, 这里从个 `sysfs` 读取信息, 并提取关键信息, 然后保存;
+  - `read_stats()`: 核心采集数据函数, 核心数据结构式 `act[]`;
+  - `act[]`: 存放了所有统计事件的 `struct activity`;
+- 代码解析:
+
+```c
+// sadc.c
+/*
+ ***************************************************************************
+ * 主循环:从相关来源读取统计数据并显示它们.
+ *
+ * IN:
+ * @count			要显示的统计数据行数.
+ * @rectime		当前日期和时间.
+ * @stdfd			Stdout文件描述符.
+ * @ofd				输出文件描述符.
+ * @ofile			输出文件的名称. 
+ ***************************************************************************
+ */
+void rw_sa_stat_loop(long count, struct tm *rectime, int stdfd, int ofd,
+		     char ofile[])
+{
+	/* 此处省略部分代码 */
+
+	/* 为SIGINT设置处理程序 */
+	memset(&int_act, 0, sizeof(int_act));
+	int_act.sa_handler = (void *) int_handler;
+	sigaction(SIGINT, &int_act, NULL);
+
+	/* 主循环 */
+	do {
+    /* 此处省略部分代码 */
+
+    /* 读取然后写入统计数据 */
+		read_stats();
+
+		/* 此处省略部分代码 */
+
+    /* 如果记录类型为R_LAST_STATS,则在写入之前将其标记为R_STATS */
+		record_hdr.record_type = R_STATS;
+		if (ofile[0]) {
+      // 将结果写到指定文件中
+			write_stats(ofd);
+		}
+
+		/* 此处省略部分代码 */
+		if (count) {
+      // 此处和alarm()配合达到周期性采样的效果
+			pause();
+		}
+
+		/* 必要时旋转活动文件 */
+		if (WANT_SA_ROTAT(flags)) {
+			/* 用户指定' -'作为要使用的文件名 */
+			set_default_file(rectime, new_ofile, 0);
+
+			if (strcmp(ofile, new_ofile)) {
+				do_sa_rotat = TRUE;
+			}
+		}
+	}
+  // 达到总采样数,同样停止采样
+	while (count);
+
+	/* 关闭文件描述符,如果它们实际已被使用 */
+	CLOSE(stdfd);
+	CLOSE(ofd);
+}
+```
+
+```c
+// activity.c
+struct activity *act[NR_ACT] = {
+    &cpu_act,
+    &pcsw_act,
+    &irq_act,
+    &swap_act,
+    &paging_act,
+    &io_act,
+    &memory_act,
+    &huge_act,
+    &ktables_act,
+    &queue_act,
+    &serial_act,
+    &disk_act,
+    /* <network> */
+    &net_dev_act,
+    &net_edev_act,
+    &net_nfs_act,
+    &net_nfsd_act,
+    &net_sock_act,
+    &net_ip_act,
+    &net_eip_act,
+    &net_icmp_act,
+    &net_eicmp_act,
+    &net_tcp_act,
+    &net_etcp_act,
+    &net_udp_act,
+    &net_sock6_act,
+    &net_ip6_act,
+    &net_eip6_act,
+    &net_icmp6_act,
+    &net_eicmp6_act,
+    &net_udp6_act,
+    &fchost_act,
+    &softnet_act,    /* AO_CLOSE_MARKUP */
+    /* </network> */
+    /* <power-management> */
+    &pwr_cpufreq_act,
+    &pwr_fan_act,
+    &pwr_temp_act,
+    &pwr_in_act,
+    &pwr_wghfreq_act,
+    &pwr_usb_act,        /* AO_CLOSE_MARKUP */
+    /* </power-management> */
+    &filesystem_act
+};
+```
+
+## 2.2 sar 显示统计信息
+
+- 文件:`sar.c`
+- 核心函数/代码:
+  - `read_sadc_stat_bunch()`: 读取 `act` 结构体中统计信息;
+  - `write_stats()`: 调用每个 `struct activity` 的 `f_print()` 函数;
+  - `write_stats_avg()`: 调用每个 `struct activity` 的 `f_print_avg()` 函数;
+- 代码解析:
+
+```c
+// sa.h
+__print_funct_t (*f_print) (struct activity *, int, int, unsigned long long);
+__print_funct_t (*f_print_avg) (struct activity *, int, int, unsigned long long);
+```
+
+```c
+// sar.c
+void read_sadc_stat_bunch(int curr)
+{
+	/* 此处省略部分代码 */
+	for (i = 0; i < NR_ACT; i++) {
+		/* 此处省略部分代码 */
+		if (sa_read(act[p]->buf[curr], act[p]->fsize * act[p]->nr * act[p]->nr2)) {
+			print_read_error();
+		}
+	}
+}
+```
+
+```c
+// sar.c
+int write_stats(int curr, int read_from_file, long *cnt, int use_tm_start,
+		int use_tm_end, int reset, unsigned int act_id)
+{
+	/* 此处省略部分代码 */
+	for (i = 0; i < NR_ACT; i++) {
+		if ((act_id != ALL_ACTIVITIES) && (act[i]->id != act_id))
+			continue;
+
+		if (IS_SELECTED(act[i]->options) && (act[i]->nr > 0)) {
+			/* 显示当前活动统计信息 */
+			(*act[i]->f_print)(act[i], !curr, curr,
+					   NEED_GLOBAL_ITV(act[i]->options) ? g_itv : itv);
+		}
+	}
+
+	return 1;
+}
+```
+
+```c
+// sar.c
+void write_stats_avg(int curr, int read_from_file, unsigned int act_id)
+{
+	/* 此处省略部分代码 */
+	for (i = 0; i < NR_ACT; i++) {
+		if ((act_id != ALL_ACTIVITIES) && (act[i]->id != act_id))
+			continue;
+		
+		if (IS_SELECTED(act[i]->options) && (act[i]->nr > 0)) {
+			/* 显示当前平均活动统计信息 */
+			(*act[i]->f_print_avg)(act[i], 2, curr,
+					       NEED_GLOBAL_ITV(act[i]->options) ? g_itv : itv);
+		}
+	}
+	/* 此处省略部分代码 */
+}
+```
+
+# 3. 参数解析
+
+## 3.1 参数列表 (演示版本为 `10.1.5`):
+
+```bash
+[root@bugwz]# sar -V
+sysstat version 10.1.5
+(C) Sebastien Godard (sysstat <at> orange.fr)
+
+[root@bugwz]# sar --help
+Usage: sar [ options ] [ <interval> [ <count> ] ]
+Options are:
+[ -A ] [ -B ] [ -b ] [ -C ] [ -d ] [ -H ] [ -h ] [ -p ] [ -q ] [ -R ]
+[ -r ] [ -S ] [ -t ] [ -u [ ALL ] ] [ -V ] [ -v ] [ -W ] [ -w ] [ -y ]
+[ -I { <int> [,...] | SUM | ALL | XALL } ] [ -P { <cpu> [,...] | ALL } ]
+[ -m { <keyword> [,...] | ALL } ] [ -n { <keyword> [,...] | ALL } ]
+[ -j { ID | LABEL | PATH | UUID | ... } ]
+[ -f [ <filename> ] | -o [ <filename> ] | -[0-9]+ ]
+[ -i <interval> ] [ -s [ <hh:mm:ss> ] ] [ -e [ <hh:mm:ss> ] ]
+```
+
+## 3.2 参数含义解析:
+
+- `sar -c 1 10`: 执行 `sar -c` 指令共 `10次`, 每隔 `1秒` 执行 `1次`;
+
+```bash
+-A :汇总所有的报告
+-B :分页状况
+-b :I/O 和传输速率信息状况
+-C :
+-d :块设备状况
+-H :
+-h :报告关于buffer使用的统计数据
+-p :调页活动的使用情况
+-q :队列长度和平均负载
+-R :内存状况
+-r :内存利用率
+-S :交换空间利用率
+-t :
+-u :CPU的利用率
+-V :版本信息
+-v :Kernel table 状况
+-W :交换信息
+-w :任务创建与系统转换统计信息
+-y :TTY 设备状况
+-I :中断信息状况
+-P :
+-m :电源管理信息状况
+-n :网络统计信息,格式为:{ <keyword> [,...] | ALL },keyword可以是:
+     DEV          网卡
+     EDEV         网卡(错误信息)
+     NFS          NFS客户端
+     NFSD         NFS服务器
+     SOCK         Sockets     (v4)
+     IP           IP流        (v4)
+     EIP          IP流        (v4)(错误信息)
+     ICMP         ICMP流      (v4)
+     EICMP        ICMP流      (v4)(错误信息)
+     TCP          TCP流       (v4)
+     ETCP         TCP流       (v4)(错误信息)
+     UDP          UDP流       (v4)
+     SOCK6        Sockets     (v6)
+     IP6          IP流        (v6)
+     EIP6         IP流        (v6)(错误信息)
+     ICMP6        ICMP流      (v6)
+     EICMP6       ICMP流      (v6)(错误信息)
+     UDP6         UDP流       (v6)
+-j :
+-f :
+-o :
+-i :
+-s :
+-e :
+```
+
+# 4. 详细数据指标解析
+
+## 4.1 查看 CPU 的利用率
+
+指令:`sar -u`, 该参数与 `sar -C`,`sar -p`,`sar` 的输出信息一致.
+
+![sar -u](/assets/images/posts/command-sar/sar-u.webp)
+
+**数据指标解析:**
+
+- `%user`: 用户模式下消耗的 CPU 时间的比例;
+- `%nice`: 通过 nice 改变了进程调度优先级的进程, 在用户模式下消耗的 CPU 时间的比例;
+- `%system`: 系统模式下消耗的 CPU 时间的比例;
+- `%iowait`: CPU 等待磁盘 I/O 导致空闲状态消耗的时间比例;
+- `%steal`: 利用 Xen 等操作系统虚拟化技术, 等待其它虚拟 CPU 计算占用的时间比例;
+- `%idle`: CPU 空闲时间比例;
+
+## 4.2 队列长度和平均负载 (队列信息)
+
+指令:`sar -q`, 查看运行队列中的进程数, 系统上的进程大小, 平均负载等, 与其它命令相比, 它能查看各项指标随时间变化的情况;
+
+![sar -q](/assets/images/posts/command-sar/sar-q.webp)
+
+**数据指标解析:**
+
+- `runq-sz`: 运行队列的长度 (等待运行的进程数);
+- `plist-sz`: 进程列表中进程 (processes) 和线程 (threads) 的数量;
+- `ldavg-1`: 最后 1 分钟的系统平均负载;
+- `ldavg-5`: 过去 5 分钟的系统平均负载;
+- `ldavg-15`: 过去 15 分钟的系统平均负载;
+- `blocked`:
+
+## 4.3 内存利用率
+
+指令:`sar -r`
+
+![sar -r](/assets/images/posts/command-sar/sar-r.webp)
+
+**数据指标解析:**
+
+- `kbmemfree`: 这个值和 free 命令中的 free 值基本一致, 不包括 buffer 和 cache 的空间;
+- `kbmemused`: 这个值和 free 命令中的 used 值基本一致, 包括 buffer 和 cache 的空间;
+- `%memused`: 物理内存使用率, 这个值是 kbmemused 和内存总量 (不包括 swap) 的一个百分比;
+- `kbbuffers`: 对应 free 命令中的 buffer;
+- `kbcached`: 对应 free 命令中的 cache;
+- `kbcommit`: 保证当前系统所需要的内存, 即为了确保不溢出而需要的内存 (RAM+swap);
+- `%commit`: 这个值是 kbcommit 与内存总量 (包括 swap) 的一个百分比;
+- `kbactive`:
+- `kbinact`:
+- `kbdirty`:
+
+## 4.4 页面交换情况
+
+指令:`sar -W`, 页面发生交换时, 服务器的吞吐量会大幅下降; 服务器状况不良时, 如果怀疑因为内存不足而导致了页面交换的发生, 可以使用这个命令来确认是否发生了大量的交换;
+
+![sar -W](/assets/images/posts/command-sar/sar-W.webp)
+
+**数据指标解析:**
+
+- pswpin/s: 每秒系统换入的交换页面 (swap page) 数量;
+- pswpout/s: 每秒系统换出的交换页面 (swap page) 数量;
+
+## 4.5 分页情况
+
+指令:`sar -B`
+
+![sar -B](/assets/images/posts/command-sar/sar-B.webp)
+
+**数据指标解析:**
+
+- pgpgin/s:
+- pgpgout/s:
+- fault/s:
+- majflt/s:
+- pgfree/s:
+- pgscank/s:
+- pgscand/s:
+- pgsteal/s:
+- %vmeff:
+
+## 4.6 I/O 和传输速率信息情况
+
+指令:`sar -b`
+
+![sar -b](/assets/images/posts/command-sar/sar-b-little.webp)
+
+**数据指标解析:**
+
+- `tps`: 每秒钟物理设备的 I/O 传输总量;
+- `rtps`: 每秒钟从物理设备读入的数据总量;
+- `wtps`: 每秒钟向物理设备写入的数据总量;
+- `bread/s`: 每秒钟从物理设备读入的数据量, 单位为 块/s;
+- `bwrtn/s`: 每秒钟向物理设备写入的数据量, 单位为 块/s;
+
+## 4.7 块设备信息
+
+指令:`sar -d`
+
+![sar -d](/assets/images/posts/command-sar/sar-d.webp)
+
+**数据指标解析:**
+
+- `DEV`: 正在监视的块设备;
+- `tps`: 每秒钟物理设备的 I/O 传输总量;
+- `rd_sec/s`: 每秒从设备读取的扇区 (sector) 数量;
+- `wr_sec/s`: 每秒向设备写入的扇区 (sector) 数量;
+- `avgrq-sz`: 发给设备请求的平均扇区数;
+- `avgqu-sz`: 发给设备请求的平均队列长度;
+- `await`: 设备 I/O 请求的平均等待时间 (单位为毫秒);
+- `svctm`: 设备 I/O 请求的平均服务时间 (单位为毫秒);
+- `%util`: 在 I/O 请求发送到设备期间, 占用 CPU 时间的百分比, 用于体现设备的带宽利用率;
+
+## 4.8 大页信息
+
+指令:`sar -H`
+
+![sar -H](/assets/images/posts/command-sar/sar-H.webp)
+
+**数据指标解析:**
+
+- `kbhugfree`:
+- `kbhugused`:
+- `%hugused`:
+
+## 4.9 内存状况
+
+指令:`sar -R`
+
+![sar -R](/assets/images/posts/command-sar/sar-R-big.webp)
+
+**数据指标解析:**
+
+- `frmpg/s`: 每秒系统中空闲的内存页面 (memory page freed) 数量;
+- `bufpg/s`: 每秒系统中用作缓冲区 (buffer) 的附加内存页面 (additional memory page) 数量;
+- `campg/s`: 每秒系统中高速缓存的附加内存页面 (additional memory pages cached) 数量;
+
+## 4.10 交换空间利用信息
+
+指令:`sar -S`
+
+![sar -S](/assets/images/posts/command-sar/sar-S.webp)
+
+**数据指标解析:**
+
+- `kbswpfree`: 可用的空闲交换空间数量, 单位为 KB;
+- `kbswpused`: 已使用的交换空间数量, 单位为 KB;
+- `kbswpcad`: 交换空间的高速缓存使用的内存数量;
+- `%swpcad`:
+
+## 4.11 动态 CPU 信息
+
+指令:`sar -t interval`, 按照给定的 `interval` 的值, 循环打印 CPU 的信息.
+
+![sar -t interval](/assets/images/posts/command-sar/sar-t-interval.webp)
+
+**数据指标解析:**
+
+- `CPU`: all 表示统计信息为所有 CPU 的平均值;
+- `%user`: 显示在用户级别 (application) 运行使用 CPU 总时间的百分比;
+- `%nice`: 显示在用户级别, 用于 nice 操作, 所占用 CPU 总时间的百分比;
+- `%system`: 在核心级别 (kernel) 运行所使用 CPU 总时间的百分比;
+- `%iowait`: 显示用于等待 I/O 操作占用 CPU 总时间的百分比;
+- `%steal`: 管理程序 (hypervisor) 为另一个虚拟进程提供服务而等待虚拟 CPU 的百分比;
+- `%idle`: 显示 CPU 空闲时间占用 CPU 总时间的百分比;
+
+## 4.12 Kernel Table 信息
+
+指令:`sar -v`
+
+![sar -v](/assets/images/posts/command-sar/sar-v.webp)
+
+**数据指标解析:**
+
+- `dentunusd`: 目录高速缓存中未被使用的条目数量;
+- `file-nr`:
+- `inode-nr`:
+- `pty-nr`:
+
+## 4.13 任务创建与系统转换统计信息
+
+指令:`sar -w`
+
+![sar-w](/assets/images/posts/command-sar/sar-w-little.webp)
+
+**数据指标解析:**
+
+- `proc/s`: 每秒钟创建的进程数;
+- `cswch/s`:
+
+## 4.14 TTY 设备信息
+
+指令:`sar -y`
+
+![sar -y](/assets/images/posts/command-sar/sar-Y.webp)
+
+**数据指标解析:**
+
+- `TTY`:
+- `rcvin/s`: 每秒接收的中断数量;
+- `xmtin/s`: 每秒传送的中断数量;
+- `framerr/s`: 每秒发生的帧错误数 (frame error) 量;
+- `prtyerr/s`: 每秒发生的奇偶校验错误 (parity error) 数量;
+- `brk/s`: 每秒发生的暂停 (break) 数量;
+- `ovrun/s`: 每秒发生的溢出错误 (overrun error) 数量;
+
+## 4.15 网络统计信息
+
+指令:`sar -n keyword`, 其中 `keyword` 可选项如参数含义解析中所列.
+
+![sar -n keyword](/assets/images/posts/command-sar/sar-n-keyword.webp)
+
+- `IFACE`:
+- `rxpck/s`:
+- `txpck/s`:
+- `rxKB/s`:
+- `txKB/s`:
+- `rxcmp/s`:
+- `txcmp/s`:
+- `rxmcst/s`:
+
+## 4.16 性能问题排查技巧
+
+- 怀疑 CPU 存在瓶颈: 可用 `sar -u` 和 `sar -q` 等来查看
+- 怀疑内存存在瓶颈: 可用 `sar -B`,`sar -r` 和 `sar -W` 等来查看
+- 怀疑 I/O 存在瓶颈: 可用 `sar -b`,`sar -u` 和 `sar -d` 等来查看

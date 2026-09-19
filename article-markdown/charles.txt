@@ -1,0 +1,83 @@
+# Charles 工具的介绍与使用
+
+[Charles](https://www.charlesproxy.com/) 是 MacOS 上十分好用的一款抓包工具, 它不仅可以抓取明文数据包, 也可以在手机端安装相关 SSL 证书后抓取加密的数据包, 对于分析手机端应用的交互行为十分有帮助, 本文中使用的版本为 [4.2.8](https://www.charlesproxy.com/documentation/version-history/), 这里记录一下如何使用 Charles 在 MacOS 下对于安卓手机进行抓包.
+
+
+# 1. 环境配置与要求
+
+- `环境与软件`: 自行安装, 不做介绍
+  - `环境`: Charles 本身依赖于 Java 环境, 因此需要确保 MacOS 本身已经安装配置完成 Java 的环境;
+  - `软件`: MacOS 端安装成功 Charles , 并且配置完成所需要抓取的网址信息;
+- `设备关联`: 手机和 Mac 处于同一个局域网中, 并且将指定的代理服务器配置为 Charles 实际所监听的 IP 和端口;
+- `证书安装`: 手机安装完成 Charles SSL CA 证书, 证书的获取方式下文会详细介绍 (仅用于抓取 HTTPs 的数据包);
+- `抓包分析`: 开始抓包分析即可;
+
+# 2. MacOS 端软件配置
+
+1. **安装 Charles HTTPS 证书** : 依次点击 `Help` ,`SSL Proxying` ,`Install Charles Root Certificate` ;
+![安装 Charles HTTPS 证书](/assets/images/posts/charles/charles-macos-1.webp)
+
+2. **启用并信任证书** : 点击 `Install Charles Root Ceriticate` 后, 会直接跳到 `钥匙串访问` , 确保在左侧的 `登陆` 和 `系统` 标签页中存在 Charles 的证书, 并将其设置为 `始终信任`, 如果对应标签页中没有 Charles 的证书, 可切换到对应的标签页, 然后重复第 1 步安装证书;
+![启用并信任证书-登录](/assets/images/posts/charles/charles-macos-2.webp)
+![启用并信任证书-系统](/assets/images/posts/charles/charles-macos-3.webp)
+
+3. **配置 HTTPs 抓包** : 依次点击 `Proxy` , `SSL Proxying Settings...` , 之后在开启 `Enable SSL Proxying` 并新增一个 `Include` 配置 `*:443` ; 
+![配置 HTTPs 抓包](/assets/images/posts/charles/charles-macos-4.webp)
+
+4. **配置端口并开启透明代理** : 依次点击 `Proxy` ,`Proxy Settings..` , 配置 `Port` 并启用 `Enable transparent HTTP proxying` ;
+![配置端口并开启透明代理](/assets/images/posts/charles/charles-macos-5.webp)
+
+5. **开启代理** : 点击 `Proxy` , 并开启 `macOS Proxy` ;
+![开启代理](/assets/images/posts/charles/charles-macos-6.webp)
+
+6. **查看本地 IP 信息**(ifconfig):
+![查看本地 IP 信息](/assets/images/posts/charles/charles-macos-7.webp)
+
+# 3. 手机端配置
+
+## 3.1 网络配置
+
+### 3.1.1 安卓端网络配置
+
+- 网络代理信息设置:
+
+![安卓手机端代理配置](/assets/images/posts/charles/phone-network-setting.webp)
+
+### 3.1.2 IOS 端网络配置
+
+- 网络代理信息设置:
+
+  ![IOS手机端代理配置](/assets/images/posts/charles/iosphone-network-setting.webp)
+
+## 3.2 允许网络连接
+
+- `Charles` 中会弹出类似以下弹窗, 请求确认是否允许连接访问 `Charles`, 如果禁止将导致安卓端无法联网, 选择 `Allow` 后连接关系建立;
+
+![Charles的连接通知](/assets/images/posts/charles/allow-connection.webp)
+
+## 3.3 安装证书
+
+### 3.3.1 安卓端证书安装
+
+- `证书下载`: 手机访问:http://chls.pro/ssl , 就会自动下载 Charles 的相关认证证书 (确保此时手机已经与 MacOS 处于同一个局域网, 并且手机端已经配置了代理服务器的信息, 否则将无法下载证书);
+- `证书安装`: 点击下载后的证书, 进行安装;
+  - `证书名称`: 为了明确区分该证书的用途以及来源, 最好名称比较直观, 建议直接使用 `Charles` 即可;
+  - `凭据用途`: 请选择 `WLAN` 即可;
+
+![安卓端证书安装](/assets/images/posts/charles/ca-ssl.webp)
+
+### 3.3.2 IOS 端证书安装
+
+- `证书下载`: 手机访问:http://chls.pro/ssl , 就会提示下载 Charles 的相关认证证书 (确保此时手机已经与 MacOS 处于同一个局域网, 并且手机端已经配置了代理服务器的信息, 否则将无法下载证书), 点击 允许 后开始下载证书;
+- `证书安装`: 下载完成后, 进入设置, 选择下载后的证书, 并点击安装;
+- `启用证书`: 进入设置, 通用, 关于手机, 证书信任设置, 启用刚才安装的证书;
+- 重新启动手机后即可以在电脑端执行抓包;
+
+![IOS端安装证书](/assets/images/posts/charles/ios-install-ca-ssl.webp)
+
+![启用安装的证书](/assets/images/posts/charles/ios-enable-ca-ssl.webp)
+
+
+# 4. 抓包分析
+
+最后即可直接抓包分析即可;

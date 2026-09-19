@@ -1,0 +1,626 @@
+# CephFS 对接 NFS-Ganesha 使用教程
+
+考虑到目前 Ceph 的集群部署主要有两种方式: ceph-ansible 和 cephadm, 因此这里主要会针对这两种方式来详细解释如何使用 CephFS NFS 功能.
+
+# 1. NFS-Ganesha 介绍
+
+## 1.1 NFS 协议介绍
+
+
+关于不同 NFS 版本的关联文档参见: [src/doc/USEFUL-RFCs.txt](https://github.com/nfs-ganesha/nfs-ganesha/blob/next/src/doc/USEFUL-RFCs.txt)
+
+|协议版本|发布时间|相关文档|
+|:--:|:--:|:--:|
+|NFSv2|1989 年|[RFC 1092](https://www.rfc-editor.org/info/rfc1094)|
+|NFSv3|1995 年|[RFC 1813](https://www.rfc-editor.org/info/rfc1813)|
+|NFSv4(NFSv4.0)|2002 年|[RFC 3530](https://www.rfc-editor.org/info/rfc3530), [RFC 7530](https://www.rfc-editor.org/info/rfc7530), [RFC 7531](https://www.rfc-editor.org/info/rfc7531), [RFC 7931](https://datatracker.ietf.org/doc/rfc7931/)|
+|NFSv4(NFSv4.1)|2010 年|[RFC 5661](https://www.rfc-editor.org/info/rfc5661), [RFC 5662](https://www.rfc-editor.org/info/rfc5662), [RFC 5663](https://www.rfc-editor.org/info/rfc5663), [RFC 5664](https://www.rfc-editor.org/info/rfc5664), [RFC 8435](https://datatracker.ietf.org/doc/rfc8435/)|
+|NFSv4(NFSv4.2)|2016 年|[RFC 7862](https://datatracker.ietf.org/doc/rfc7862/), [RFC 7863](https://datatracker.ietf.org/doc/rfc7863/)|
+
+**不同版本的协议特点:**
++ `NFSv2`:
+  + 无状态协议;
+  + 第一个以 RFC 形式发布的版本, 实现了基本的功能;
+  + 每次读写操作中传输数据的最大长度上限值为 8192 字节;
+  + 文件名称长度限制上限为 255 字节;
+  + 文件长度进行了限制, 上限值为 0x7FFFFFFF (即 2147483647, 约 2GB);
+  + 文件句柄长度固定为 32 字节;
+  + 只支持同步写, 如果客户端向服务器端写入数据, 服务器必须将数据写入磁盘中才能发送应答消息;
+  + 无 uid/gid 访问权限前置检查, 直接执行, 如果遇到权限不满足则返回报错;
++ `NFSv3`:
+  + 无状态协议, 需要 NLM(Network Lock Manager) 协助才能实现文件锁功能;
+  + 取消了每次读写操作中传输数据的最大长度限制;
+  + 取消了文件名称长度限制;
+  + 取消了文件长度限制;
+  + 文件句柄长度可变, 上限值是 64 字节;
+  + 支持异步写操作, 服务器只需要将数据写入缓存中就可以发送应答信息了;
+  + 增加了 COMMIT 请求, COMMIT 请求可以将服务器缓存中的数据刷新到磁盘中;
+  + 增加了 ACCESS 请求, ACCESS 用来检查用户的访问权限. 因为服务器端可能进行 uid 映射, 因此客户端的 uid/gid 可能不能正确反映用户的访问权限;
++ `NFSv4(NFSv4.0)`:
+  + 有状态的协议, 自身实现了文件锁功能和获取文件系统根节点功能, 不需要 NLM 和 MOUNT 协议协助;
+  + 增加了安全性, 支持 RPCSEC-GSS 身份认证;
+  + 只提供了两个请求 NULL 和 COMPOUND, 所有的操作都整合进了 COMPOUND 中, 客户端可以根据实际请求将多个操作封装到一个 COMPOUND 请求中, 增加了灵活性;
+  + 服务器端必须设置一个根文件系统 (fsid=0), 其他文件系统挂载在根文件系统上导出;
+  + 支持 delegation;
+  + 修改了文件属性的表示方法, 将文件属性划分成了三类: Mandatory Attributes(文件的基本属性, 所有的操作系统必须支持这些属性), Recommended Attributes(NFS 建议的属性, 如果可能操作系统尽量实现这些属性), Named Attributes(操作系统可以自己实现的一些文件属性);
++ `NFSv4(NFSv4.1)`:
+  + 支持并行存储;
++ `NFSv4(NFSv4.2)`:
+
+
+## 1.2 NFS-Ganesha 软件安装
+
+### 1.2.1 编译安装
+
+测试机器的环境为 CentOS 8.5.2111.
+
+```bash
+# 安装基础软件
+# librgw2-devel 用于生成 FSAL_RGW 模块; libcephfs-devel 用于生成 FSAL_CEPH 模块
+dnf install -y gcc git cmake autoconf libtool bison flex doxygen \
+               openssl-devel gcc-c++ krb5-libs krb5-devel libuuid-devel \
+               nfs-utils librgw2-devel libcephfs-devel userspace-rcu \
+               userspace-rcu-devel
+
+# 拉取代码
+git clone https://github.com/nfs-ganesha/nfs-ganesha.git
+cd ./nfs-ganesha
+git checkout -f V4.1
+git branch
+git submodule update --init --recursive
+
+# 编译
+cd src/
+mkdir build
+cd build/
+# -DUSE_FSAL_RGW=ON 用于生成 FSAL_RGW 模块; -DUSE_FSAL_CEPH=ON 用于生成 FSAL_CEPH 模块
+cmake -DUSE_FSAL_RGW=ON -DUSE_FSAL_CEPH=ON ../
+```
+
+
+### 1.2.2 源仓库安装
+
+**nfs-ganesha 软件版本 v4.x 源配置文件:** (支持的最高版本为 V4.4)
+```bash
+[nfs-ganesha-stable]
+name=nfs-ganesha stable from aliyun
+baseurl=https://mirrors.aliyun.com/centos-vault/8-stream/storage/x86_64/nfsganesha-4
+enabled=1
+gpgcheck=0
+priority=0
+```
+
+**nfs-ganesha 软件版本 v5.x.x 源配置文件:** (支持的最高版本为 V5.7)
+```bash
+[nfs-ganesha-stable]
+name=nfs-ganesha stable from aliyun
+baseurl=https://mirrors.aliyun.com/centos-vault/8-stream/storage/x86_64/nfsganesha-5
+enabled=1
+gpgcheck=0
+priority=0
+```
+
+**安装命令:** (使用 nfs-ganesha 软件版本 v5.x.x 源配置文件进行安装)
+```bash
+# 针对于 cephfs nfs: nfs-ganesha-ceph, nfs-ganesha-rados-grace
+# 针对于 rgw nfs: nfs-ganesha-rgw, nfs-ganesha-rados-grace, nfs-ganesha-rados-urls, ceph-radosgw
+dnf install -y nfs-ganesha nfs-ganesha-ceph nfs-ganesha-rados-grace nfs-ganesha-rgw nfs-ganesha-rados-urls ceph-radosgw nfs-ganesha-utils
+
+# 验证安装
+which ganesha.nfsd
+```
+
+
+## 1.3 配置解析
+
+下面的配置文件为 [V5.7](https://github.com/nfs-ganesha/nfs-ganesha/tree/V5.7) 软件版本中的配置文件, 配置文件位于 /etc/ganesha/ganesha.conf. 完整的配置文件内容如下: (参考: [src/config_samples/ceph.conf](https://github.com/nfs-ganesha/nfs-ganesha/blob/V5.7/src/config_samples/ceph.conf))
+```conf
+NFS_CORE_PARAM
+{
+    Enable_NLM = false;
+    Enable_RQUOTA = false;
+    Protocols = 4;
+}
+
+NFSv4
+{
+    # Delegations = false;
+    RecoveryBackend = rados_ng;
+    Minor_Versions =  1,2;
+}
+
+MDCACHE {
+    Dir_Chunk = 0;
+}
+
+EXPORT
+{
+    Export_ID=100;
+    Protocols = 4;
+    Transports = TCP;
+    Path = /;
+    Pseudo = /cephfs_a/;
+    Access_Type = RW;
+    Attr_Expiration_Time = 0;
+    # Delegations = R;
+    # Squash = root;
+    FSAL {
+        Name = CEPH;
+        # Filesystem = "cephfs_a";
+        # User_Id = "ganesha";
+        # Secret_Access_Key = "YOUR SECRET KEY HERE";
+    }
+}
+
+CEPH
+{
+    # Ceph_Conf = /etc/ceph/ceph.conf;
+    # umask = 0;
+}
+
+RADOS_KV
+{
+    # Ceph_Conf = /etc/ceph/ceph.conf;
+    # UserId = "ganesharecov";
+    # pool = "nfs-ganesha";
+    # nodeid = hostname.example.com
+}
+
+RADOS_URLS
+{
+    # Ceph_Conf = /etc/ceph/ceph.conf;
+    # UserId = "ganeshaurls";
+    # watch_url = "rados://pool/namespace/object";
+}
+```
+
+**配置解析如下:**
++ `NFS_CORE_PARAM`:
+  + `Enable_NLM`: 如果 NLM 被禁用, Ganesha 可以提前结束 NFS 的宽限期.
+  + `Enable_RQUOTA`: CephFS 无法支持基于每个用户 ID 的配额.
+  + `Protocols`: 在此配置中, 我们仅导出 NFSv4. 实际上, 最好使用 NFSv4.1+ 以利用会话功能.
++ `NFSv4`:
+  + `Delegations`: 现代版本的 libcephfs 支持委派, 尽管目前不推荐在集群配置中使用. 默认情况下, 它们是禁用的, 但可以在单例或主动/被动配置中重新启用.
+  + `RecoveryBackend`: 可以使用任何恢复后端, 但能够将其存储在 RADOS 中是一个很好的功能, 使得迁移守护程序到另一个主机变得容易. 对于单节点或主动/被动配置, 推荐使用 rados_ng 驱动. 对于主动/主动集群配置, 可以使用 rados_cluster 后端. 可选值如下:
+    + `fs`: 默认值, 使用文件系统 (File System) 作为恢复后端, 这意味着 NFS-Ganesha 会将必要的状态信息存储在本地文件系统上. 例如, 导出配置, 租约和其他 NFS 相关状态被保存在磁盘上的特定目录下, 以便在服务重启时恢复.
+    + `fs_ng`: 这个是对 fs 后端的一个改进版本, 它提供了更高效和扩展性更好的文件系统持久化方式. 此选项同样利用本地文件系统来存储状态, 但可能包含了针对性能优化和更大规模部署的增强特性.
+    + `rados_kv`: 指定 Ceph RADOS Key-Value 存储作为恢复后端. 在这种模式下, NFS-Ganesha 的状态信息以键值对的形式存储在 Ceph 集群中的一个或多个对象存储池中. 这种方式允许状态信息跨多个节点进行分布, 并提供高可用性和容错能力.
+    + `rados_ng`: 是专门针对 Ceph 的一种更高级别的恢复后端实现, 相较于 rados_kv 可能具有更高的性能和更完善的集成. 它可能使用了 Ceph 提供的更为复杂的数据结构和服务来进行元数据的存储和恢复.
+    + `rados_cluster`:
+  + `Minor_Versions`: NFSv4.0 客户端不发送 RECLAIM_COMPLETE, 因此如果有的话, 我们最终需要等待整个宽限期结束. 避免它们.
++ `MDCACHE`: libcephfs 客户端在可能情况下会积极缓存信息, 因此 ganesha 主动缓存相同的对象几乎没有好处. 这样做还可能损害缓存一致性. 在此, 我们尽可能地禁用属性和目录缓存.
+  + `Dir_Chunk`: 目录缓存块大小默认设为 0, 可能表示不启用目录缓存或缓存策略特殊处理.
++ `EXPORT`:
+  + `Export_ID`: 每个导出项都需要有唯一的 Export_Id.
+  + `Protocols`: 建议为 4.
+  + `Transports`: NFSv4 只允许 TCP 传输.
+  + `Path`: 相关 CephFS 存储池中的导出项路径. 允许从 CephFS 中导出子目录.
+  + `Pseudo`: 伪根路径. 这是导出将在 NFS 伪根命名空间中出现的地方.
+  + `Access_Type`: 读写操作类型.
+  + `Attr_Expiration_Time`: 属性超时时间.
+  + `Delegations`: 是否启动读取委托. libcephfs v13.0.1 及更高版本允许 ceph 客户端设置委托. 虽然可以允许 RW 委托, 但不建议启用它们, 除非 ganesha 获得 CB_GETATTR 支持. 还要注意, 委托在集群配置中可能不安全, 因此最好在解决此问题之前禁用它们.
+  + `Squash`: NFS 服务器通常会将来自 root 用户的传入请求 "压缩" 到 nobody 用户. 可以禁用此功能, 但目前我们将其保持启用状态.
+  + `FSAL`:
+    + `Name`: 定义 NFS Ganesha 使用的后端. 允许的值为 CEPH (表示 CephFS) 或 RGW (表示对象网关). 根据您的选择, 必须在 policy.cfg 中定义 role-mds 或 role-rgw.
+    + `Filesystem`: Ceph 文件系统有一个与之关联的名称字符串, 并且现代版本的 libcephfs 可以根据名称挂载它们. 默认情况下, 挂载集群中的默认文件系统 (通常是第一个创建的).
+    + `User_Id`: 配置了访问 Ceph 集群所需的用户 ID.
+    + `Secret_Access_Key`: 配置了访问 Ceph 集群所需的密钥.
++ `CEPH`:
+  + `Ceph_Conf`: 指定访问 Ceph 集群所需要的配置文件, 主要的是其中 mon host 配置信息.
+  + `umask`: 设置了 CephFS 上新创建文件和目录的默认权限掩码.
++ `RADOS_KV`:
+  + `Ceph_Conf`: 指向 Ceph 配置文件.
+  + `UserId`: 给 Ganesha 使用的 Ceph 用户 ID.
+  + `pool`: 是 Ceph 集群中用于存储 Ganesha 状态数据的池名.
+  + `nodeid`: 设置为特定节点主机名, 可能用于区分不同 Ganesha 实例的状态数据.
++ `RADOS_URLS`:
+  + `Ceph_Conf`: 指向 Ceph 配置文件.
+  + `UserId`: 用于监视 URL 变更的 Ceph 用户 ID.
+  + `watch_url`: 指定了要监视的对象存储位置, 当该位置的内容发生变化时, Ganesha 可以据此自动更新配置或状态.
+
+
+
+# 2. NFS-Ganesha 部署使用
+
+## 2.1 通过手动部署使用
+
+通过手动方式部署 nfs-ganesha 的优点是部署方式独立便捷, 但是缺点是无法通过 ceph dashboard 进行管控, 需要手动管理 ha 和 keepalived 等组件等, 手动维护的成本较高.
+
+### 2.1.1 部署服务
+
+**修改 /etc/ganesha/ganesha.conf 如下:** (配置模板为 [src/config_samples/ceph.conf](https://github.com/nfs-ganesha/nfs-ganesha/blob/V5.7/src/config_samples/ceph.conf))
+```conf
+NFS_CORE_PARAM
+{
+    Enable_NLM = false;
+    Enable_RQUOTA = false;
+    Protocols = 4;
+}
+
+NFSv4
+{
+    RecoveryBackend = rados_ng;
+    Minor_Versions =  1,2;
+}
+
+MDCACHE {
+    Dir_Chunk = 0;
+}
+
+EXPORT
+{
+    Export_ID=100;
+    Protocols = 4;
+    Transports = TCP;
+    Path = /;
+    Pseudo = /cephfs/;
+    Access_Type = RW;
+    Attr_Expiration_Time = 0;
+    Squash = no_root_squash;
+    FSAL {
+        Name = CEPH;
+        Filesystem = "cephfs";
+        User_Id = "admin";
+        Secret_Access_Key = "AQBWaZFodyUoNRAAAtRrRqJZu89Qka+TA1qmmg==";
+    }
+}
+
+CEPH
+{
+    Ceph_Conf = /etc/ceph/ceph.conf;
+}
+
+RADOS_KV
+{
+}
+
+RADOS_URLS
+{
+}
+```
+
+**启动 nfs-ganesha 服务:**
+```bash
+# 初始化运行环境
+mkdir -p /var/run/ganesha
+
+# 前台运行
+ganesha.nfsd -f /etc/ganesha/ganesha.conf -L /var/log/ganesha/ganesha.log -N info -F
+
+# 后台运行
+ganesha.nfsd -f /etc/ganesha/ganesha.conf -L /var/log/ganesha/ganesha.log -N info
+
+# 查看服务是否正在运行
+ps aux | grep ganesha
+
+# 其他操作
+# 启动 nfs-ganesha 依赖的服务
+# systemctl start rpcbind.service
+# systemctl start rpc-statd.service
+
+# 查看依赖服务是否正在启动
+# systemctl status rpcbind.service
+# systemctl status rpc-statd.service
+```
+
+### 2.1.2 挂载客户端
+
+客户端机器挂载通过 nfs 导出的 cephfs 服务:
+```bash
+# 挂载客户端
+# 注意: 这里的 /cephfs 要与 Pseudo 中的配置保持一致
+mkdir -p /mnt/cephfs-nfs
+mount -t nfs4 -o nfsvers=4.1,proto=tcp,rw 10.10.0.1:/cephfs /mnt/cephfs-nfs
+
+# 查看挂载目录的数据
+ls -al /mnt/cephfs-nfs
+
+# 读写测试
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/cephfs-nfs/testfile1 oflag=direct status=progress
+dd if=/mnt/cephfs-nfs/testfile1 bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+
+# 取消挂载
+umount /mnt/cephfs-nfs
+```
+
+
+## 2.2 通过 ceph-ansible 部署使用
+
+除了使用手动的部署方式, 对于之前通过使用 ceph-ansible 方式部署的集群, 我们可以通过 ceph-ansible 来增加 nfs 模块来启用 nfs 服务. 这种方式相比于手动部署的方式, 会自动配置 nfs 相关组件的配置, 并配置开机启动等.
+
+这里使用的 ceph 版本为 v16.2.10, 对应的 ceph-ansible 分支为 [stable-6.0](https://github.com/ceph/ceph-ansible/tree/stable-6.0).
+
+### 2.2.1 部署服务
+
+**修改 group_vars/all.yml 配置文件, 添加如下信息:**
+```yaml
+# nfs-ganesha
+nfs_file_gw: true
+nfs_obj_gw: false
+```
+
+**修改 group_vars/nfss.yml 配置文件, 添加如下信息:**
+```yaml
+---
+dummy:
+
+# nfs-ganesha
+ceph_nfs_enable_service: true
+ceph_nfs_log_file: "/var/log/ganesha/ganesha.log"
+ceph_nfs_rados_backend: true
+ceph_nfs_rados_export_index: "ganesha-export-index"
+ceph_nfs_bind_addr: 0.0.0.0
+ceph_nfs_disable_caching: true
+
+# fsal ceph
+ceph_nfs_ceph_pseudo_path: "/cephfile"
+ceph_nfs_ceph_protocols: "3,4"
+ceph_nfs_ceph_access_type: "RW"
+ceph_nfs_ceph_user: "admin"
+ceph_nfs_ceph_squash: "No_Root_Squash"
+```
+
+**修改 hosts.ini 配置文件, 添加如下信息:**
+```ini
+[nfss]
+host01
+host02
+host03
+```
+
+**部署命令:**
+```bash
+# 新增 nfs 服务
+ansible-playbook -vvvv -i hosts.ini site.yml --limit nfss
+
+
+# 注意: 由于当前的 ansible 脚本在安装依赖软件的时候区分了 cephfs 和 cephrgw,
+#       如果我们只启用 cephfs 时可能会导致缺失部分软件依赖包, 从而导致 nfs-ganesha 服务
+#       启动失败, 为此我们可以稍后手动安装依赖包, 并尝试手动启动 nfs-ganesha 服务.
+# 参见: https://github.com/ceph/ceph-ansible/blob/stable-6.0/roles/ceph-nfs/tasks/pre_requisite_non_container_red_hat.yml#L41
+dnf install -y nfs-ganesha-rados-urls
+systemctl restart nfs-ganesha
+systemctl status nfs-ganesha
+```
+
+**ceph-ansible 部署 nfs 的关键流程:** (以非容器化部署举例, 执行入口位于 [stable-6.0/site.yml.sample](https://github.com/ceph/ceph-ansible/blob/stable-6.0/site.yml.sample#L299) )
+1. 获取节点信息, 初始化基础环境等前置工作.
+2. 配置 yum 源, 安装 nfs-ganesha 相关依赖软件 (只有当 ceph_origin = 'repository' 且 ceph_repository = 'community' 或者 'dev' 时才会配置机器上的源, 如果 ceph_repository = 'custom' 则需要手动配置机器上的 nfs-ganesha 的源).
+3. 创建 nfs-ganesha 相关的配置文件, 运行目录, systemd 启动文件等, 然后启动服务.
+
+
+**部署后其中一个机器节点上的 nfs-ganesha 的格式化后的配置文件如下:**
+```conf
+# Please do not change this file directly since it is managed by Ansible and will be overwritten
+NFS_Core_Param
+{
+    Bind_Addr=0.0.0.0;
+}
+
+EXPORT_DEFAULTS {
+    Attr_Expiration_Time = 0;
+}
+
+CACHEINODE {
+    Dir_Chunk = 0;
+    NParts = 1;
+    Cache_Size = 1;
+}
+
+RADOS_URLS {
+    ceph_conf = '/etc/ceph/ceph.conf';
+    userid = "admin";
+}
+%url rados://cephfs_data/ganesha-export-index
+
+NFSv4 {
+    RecoveryBackend = 'rados_kv';
+    IdmapConf = "/etc/ganesha/idmap.conf";
+}
+RADOS_KV {
+    ceph_conf = '/etc/ceph/ceph.conf';
+    userid = "admin";
+    pool = "cephfs_data";
+}
+
+EXPORT
+{
+    Export_id=20133;
+    Path = "/";
+    Pseudo = /cephfile;
+    Access_Type = RW;
+    Protocols = 3,4;
+    Transports = TCP;
+    SecType = sys,krb5,krb5i,krb5p;
+    Squash = No_Root_Squash;
+    Attr_Expiration_Time = 0;
+    FSAL {
+        Name = CEPH;
+        User_Id = "admin";
+    }
+}
+
+LOG {
+    Facility {
+        name = FILE;
+        destination = "/var/log/ganesha/ganesha.log";
+        enable = active;
+    }
+}
+```
+
+### 2.2.2 挂载客户端
+
+```bash
+# 挂载客户端
+# 注意: 这里的 /cephfile 要与 ceph_nfs_ceph_pseudo_path 中的配置保持一致
+mkdir -p /mnt/cephfs-nfs
+mount -t nfs4 -o nfsvers=4.1,proto=tcp,rw 10.10.0.1:/cephfile /mnt/cephfs-nfs
+
+# 查看挂载目录的数据
+ls -al /mnt/cephfs-nfs
+
+# 读写测试
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/cephfs-nfs/testfile2 oflag=direct status=progress
+dd if=/mnt/cephfs-nfs/testfile2 bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+
+# 取消挂载
+umount /mnt/cephfs-nfs
+```
+
+
+## 2.3 通过 cephadm 部署使用
+
+无论是通过手动部署还是通过 ceph-ansible 进行部署, 最终都是部署了独立的 nfs-ganesha 服务, 并没有与 ceph dashboard 联动起来, 如果需要变更配置等操作只能从终端管理 nfs-ganesha, 但是 cephadm 的部署方式可以实现了界面化的配置管理, 更便捷, 更直观.
+
+这里使用 ceph v19.2.3 版本通过 cephadm 部署集群进行测试.
+
+
+### 2.3.1 部署服务
+
+建议直接 dashboard 按步骤来部署服务, 同时下面也列出了一些相关的命令.
+
+
+**相关命令:**
+```bash
+# 添加 MDS 组件并创建文件系统
+ceph fs volume create cephfs
+
+# 创建 cephfs subvolume
+ceph fs subvolume create cephfs subvolume02
+
+# 查看 cephfs subvolume 信息
+ceph fs subvolume info cephfs subvolume02
+
+# 创建 nfs 服务集群
+# 如果不指定端口, 则默认为 2049, 这会导致同一机器上无法部署多个 nfs 服务
+ceph nfs cluster create service02 host02 --port 2052
+
+# 创建 nfs export
+ceph nfs export create cephfs service02 /cephfs02 cephfs /volumes/_nogroup/subvolume02/caa3eab9-cadf-42d5-91d4-85d710b19f47 --squash no_root_squash
+
+# 查看 nfs 服务集群列表
+ceph nfs cluster ls
+
+# 查看 nfs 服务集群配置
+ceph nfs cluster info service02
+
+# 查看 nfs export 列表
+ceph nfs export ls service02
+
+# 查看 nfs export 详细信息
+ceph nfs export info service02 /cephfs02
+
+# 移除 nfs 服务集群
+ceph nfs cluster delete service02
+```
+
+**其中一个 nfs 容器内部的配置文件如下:**
+```conf
+# This file is generated by cephadm.
+NFS_CORE_PARAM {
+    Enable_NLM = false;
+    Enable_RQUOTA = false;
+    Protocols = 4;
+    NFS_Port = 2049;
+}
+
+NFSv4 {
+    Delegations = false;
+    RecoveryBackend = 'rados_cluster';
+    Minor_Versions = 1, 2;
+    IdmapConf = "/etc/ganesha/idmap.conf";
+}
+
+RADOS_KV {
+    UserId = "nfs.service01.1.0.host01.fnrbmo";
+    nodeid = "nfs.service01.1";
+    pool = ".nfs";
+    namespace = "service01";
+}
+
+RADOS_URLS {
+    UserId = "nfs.service01.1.0.host01.fnrbmo";
+    watch_url = "rados://.nfs/service01/conf-nfs.service01";
+}
+
+RGW {
+    cluster = "ceph";
+    name = "client.nfs.service01.1.0.host01.fnrbmo-rgw";
+}
+
+%url    rados://.nfs/service01/conf-nfs.service01
+```
+
+**从上面的配置文件中可以看出, 具体的导出配置应该存储于对应的对象中, 尝试查看对应的对象内容如下:**
+```bash
+[root@host01 yum.repos.d]# rados --pool .nfs --namespace service01 ls
+grace
+rec-0000000000000004:nfs.service01.2
+export-1
+conf-nfs.service01
+rec-0000000000000004:nfs.service01.1
+rec-0000000000000004:nfs.service01.0
+
+[root@host01 yum.repos.d]# rados --pool .nfs --namespace service01 get conf-nfs.service01 -
+%url "rados://.nfs/service01/export-1"
+
+[root@host01 yum.repos.d]# rados --pool .nfs --namespace service01 get export-1 -
+EXPORT {
+    FSAL {
+        name = "CEPH";
+        user_id = "nfs.service01.cephfs.e2862403";
+        filesystem = "cephfs";
+        secret_access_key = "AQAAyZFoEXzfFxAAuJYXQhk7pngckw/I6AK2cw==";
+        cmount_path = "/";
+    }
+    export_id = 1;
+    path = "/volumes/_nogroup/subvolume01/e61f84b7-b1ca-493b-8d64-cf5a84dd2377";
+    pseudo = "/cephfs01";
+    access_type = "RW";
+    squash = "no_root_squash";
+    attr_expiration_time = 0;
+    security_label = false;
+    protocols = 3, 4;
+    transports = "TCP", "UDP";
+}
+```
+
+
+### 2.3.2 挂载客户端
+
+```bash
+# 挂载客户端
+# 注意: 这里的 /cephfs01 要与配置的 pseudo 保持一致
+mkdir -p /mnt/cephfs-nfs
+mount -t nfs4 -o nfsvers=4.1,proto=tcp,rw 10.10.0.1:/cephfs01 /mnt/cephfs-nfs
+
+# 查看挂载目录的数据
+ls -al /mnt/cephfs-nfs
+
+# 读写测试
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/cephfs-nfs/testfile3 oflag=direct status=progress
+dd if=/mnt/cephfs-nfs/testfile3 bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+
+# 取消挂载
+umount /mnt/cephfs-nfs
+```
+
+# 3. 参考资料
++ https://ceph.io/en/news/blog/2021/managing-nfs-exports-with-dashboard
++ https://docs.ceph.com/en/pacific/cephfs/nfs
++ https://docs.ceph.com/en/latest/cephfs/nfs
++ https://docs.ceph.com/en/pacific/mgr/nfs
++ https://docs.ceph.com/en/latest/mgr/nfs
++ https://github.com/nfs-ganesha/nfs-ganesha
++ https://github.com/nfs-ganesha/nfs-ganesha/blob/next/src/config_samples/export.txt
++ https://www.ibm.com/docs/zh/storage-ceph/6.1.0?topic=preview-implementing-ha-cephfsnfs-service-technology
++ https://www.cnblogs.com/flytor/p/11430490.html
++ https://blog.csdn.net/qq_20332637/article/details/107796651
++ https://blog.csdn.net/weixin_42071407/article/details/125447826
++ https://blog.csdn.net/younger_china/article/details/73412191
++ https://blog.csdn.net/u012720518/article/details/125760224
++ https://blog.csdn.net/eagle89/article/details/111661142
++ https://cloud.tencent.com/developer/news/841204
++ https://blog.csdn.net/ycnian/article/details/8515517
++ https://github.com/nfs-ganesha/nfs-ganesha/blob/next/src/doc/USEFUL-RFCs.txt

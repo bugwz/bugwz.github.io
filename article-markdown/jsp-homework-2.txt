@@ -1,0 +1,169 @@
+# 利用 Servlet 完成表单提交验证-JSP 作业-2
+
+# 1. 环境
+
+1. Eclipse Java EE IDE for Web Developers. 
+  Version: Neon.1a Release (4.6.1)
+2. Apache Tomcat version: 8.0.39
+
+# 2. 作业内容:
+
+利用三个 servlet, 实现表单页面的输出, 表单提交的信息的验证以及验证信息后的跳转页面.
+
+# 3. 开始
+
+我们一共需要建立三个 servlet 类, 他们分别是: Login.java, LoginContral.java 和 Welcome.java, 他们的具体代码如下所示:
+
+>1.Login() 类代码如下:
+```java
+@WebServlet("/Login")
+public class Login extends HttpServlet {
+	private static final long serialVersionUID = 1L;
+    /**
+     * @see HttpServlet#HttpServlet()
+     */
+    public Login() {
+        super();
+        // TODO Auto-generated constructor stub
+    }
+	@Override
+	protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+		// TODO 自动生成的方法存根
+		//super.doGet(req, resp);
+		try {
+			// 解决页面显示的中文乱码问题
+			resp.setContentType("text/html;charset=UTF-8");
+			//解决中文在传输过程中的乱码问题
+			req.setCharacterEncoding("UTF-8");
+			PrintWriter out = resp.getWriter();
+			out.println("<html>");
+			out.println("<head><title>登陆页面</title></head>");
+			out.println("<body>");
+			out.println("<h1>登陆页面</h1>");
+			out.println("<form action='LoginControl'>");
+			out.println("用户名:<input type='text' name='username' /><br>");
+			out.println("密码:<input type='password' name='password' /><br>");
+			// 添加隐藏input元素(这种类型元素在页面上不显示,但是可以传递到其他的页面)
+			out.println("<input type='hidden' name='sex' value='man' />");
+			out.println("<input type='submit' value='登陆'>");
+			out.println("</form>");
+			out.println("</body>");
+			out.println("</html>");
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+}
+```
+>2.LoginControl() 类代码如下:
+```java
+@WebServlet("/LoginControl")
+public class LoginControl extends HttpServlet {
+	private static final long serialVersionUID = 1L;
+    /**
+     * @see HttpServlet#HttpServlet()
+     */
+    public LoginControl() {
+        super();
+        // TODO Auto-generated constructor stub
+    }
+	@Override
+	protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+		// TODO 自动生成的方法存根
+		// super.doGet(req, resp);
+		// 获取请求的信息(方法的参数需要与input元素中name属性值相同,否则取不到值)
+		// 解决页面显示的中文乱码问题
+		resp.setContentType("text/html;charset=UTF-8");
+		//解决中文在传输过程中的乱码问题
+		req.setCharacterEncoding("UTF-8");
+		String username = req.getParameter("username");
+		String password = req.getParameter("password");
+		String sex = req.getParameter("sex");
+		try {
+			if (username.equals("admin") && password.equals("123")) {// 合法
+				// 页面的跳转(注意:这个方法的参数是url-pattern里面配置的)
+				// 当用户合法后,把用户名和密码写到cookie,供welcome页面取出并显示
+				// a.用cookie实现不同页面之间数据的共享
+				// 1.创建cookie
+				/*
+				 * Cookie c1 = new Cookie("username",username); Cookie c2 = new
+				 * Cookie("password",password);
+				 * //设定cookie在客户端存在的时间,单位为s(如果没有设定的话,当关闭浏览器时,cookie消失或者过期)
+				 * c1.setMaxAge(10); c2.setMaxAge(10); //2.向客户端写cookie
+				 * response.addCookie(c1); response.addCookie(c2);
+				 */
+				// c.利用session阻止用户的非法登录
+				// 如果用户名合法,则把用户名放到session里面
+				HttpSession hs = req.getSession();
+				// 设置session的生命时间(单位s)
+				hs.setMaxInactiveInterval(30);
+				// 向session中放置属性
+				hs.setAttribute("username", username);
+				hs.setAttribute("password", password);
+				// b.通过sendRedirect实现不同页面之间数据的共享
+				resp.sendRedirect("Welcome?username=" + username + "&password=" + password + "&sex=" + sex);
+			} else {
+				// 不合法
+				// 这个方法的参数是url-pattern里面配置的
+				resp.sendRedirect("Login");
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+}
+```
+>3.LoginControl() 类代码如下:
+```java
+@WebServlet("/Welcome")
+public class Welcome extends HttpServlet {
+	private static final long serialVersionUID = 1L;
+    /**
+     * @see HttpServlet#HttpServlet()
+     */
+    public Welcome() {
+        super();
+        // TODO Auto-generated constructor stub
+    }
+	@Override
+	protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+		// TODO 自动生成的方法存根
+		// super.doGet(req, resp);
+		try {
+			// 解决页面显示的中文乱码问题
+			resp.setContentType("text/html;charset=UTF-8");
+			//解决中文在传输过程中的乱码问题
+			req.setCharacterEncoding("UTF-8");
+			PrintWriter out = resp.getWriter();
+			// a.通过cookie来获取共享信息;
+			/*
+			 * //3.获取cookie Cookie[] cs=request.getCookies();
+			 * 
+			 * if(cs!=null){ for(int i=0;i<cs.length;i++){ Cookie temp = cs[i];
+			 * out.println(temp.getName()+":"+temp.getValue()); } }else{
+			 * out.println("cookie不存在或者已过期!"); }
+			 */
+			// b.通过sendRedirect来获取共享信息
+			// String username = request.getParameter("username");
+			// String password = request.getParameter("password");
+			// String sex = request.getParameter("sex");
+			// out.println("username=="+username+" password=="+password+"
+			// sex=="+sex);
+			// c.通过session 阻止非法用户登录网站内部
+			// 获取session
+			HttpSession hs = req.getSession();
+			// 根据session中的属性名获取相应的属性值
+			String usernameSession = (String) hs.getAttribute("username");
+			String passwordSession = (String) hs.getAttribute("password");
+			if (usernameSession != null) {
+				// 如果从session当中能够获取用户名,则可以进入我的网站
+				out.println("欢迎登陆我们的网站!用户名:" + usernameSession + " 密码:"+ passwordSession);
+			} else {
+				// 否则显示空白页面
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+}
+```

@@ -1,0 +1,89 @@
+# Keepalived 的高可用基石 - VRRP 协议
+
+# 1. 背景
+
+路由实现了不同子网之间的数据通信, 目前比较常用的路由配置方法大概分为两种:`动态路由` (利用 RIP, OSPF 进行动态学习) 和 `静态路由` (对终端设备静态配置路由). 动态路由可以通过学习的方式获取路由表, 避免了静态路由需要手动配置以及后续变更的繁琐, 但同时需要额外的占用线路带宽和 CPU 的处理时间. VRRP 技术是在静态路由上用于在目标机器不可达之后的路由能够自动变更的一种实现手段.
+
+# 2. VRRP
+
+## 2.1 简介
+
+VRRP(Virtual Router Redundancy Protocol), 即虚拟路由冗余协议, 它是为了避免路由器出现单点故障的一种容错协议. VRRP 协议的实现有 `VRRPv2` 和 `VRRPv3` 两个版本,`VRRPv2` 基于 `IPv4`,`VRRPv3` 基于 `IPv6`. 相关 RFC 文件为:[RFC2338 - Virtual Router Redundancy Protocol](https://tools.ietf.org/html/rfc2338), [RFC3768 - Virtual Router Redundancy Protocol (VRRP)](https://tools.ietf.org/html/rfc3768), [RFC5798 - Virtual Router Redundancy Protocol (VRRP) Version 3 for IPv4 and IPv6](https://tools.ietf.org/html/rfc5798).
+
+## 2.2 基础概念
+
++ `VIP`: Virtual IP, 即虚拟 IP, 是一个不与特定计算机或网络接口卡 (NIC) 相连的 IP 地址;
++ `VRRP路由器`: 运行 VRRP 协议的路由器 (或设备), 它可能属于一个或多个虚拟路由器;
++ `Master路由器`: 承担转发报文任务的 VRRP 设备;
++ `Backup路由器`: 一组没有担转发任务的 VRRP 设备, 当 Master 设备出现故障时, 它们将通过竞选成为新的 Master 设备;
++ `虚拟路由器`: 由一组 `VRRP路由器` 组成, 抽象成一个虚拟的路由器. 它拥有一个 `虚拟路由器标识符(VRID)` 和一个 (或多个)`VIP`;
++ `虚拟MAC地址`: 即虚拟路由器根据 VRID 生成的 MAC 地址, 一个虚拟路由器拥有一个虚拟 MAC 地址, 当虚拟路由器回应 ARP 请求时, 回复虚拟 MAC 地址, 而不是接口的真实 MAC 地址, 格式为:`00-00-5E-00-01-{VRID}(VRRP for IPv4)`,`00-00-5E-00-02-{VRID}(VRRP for IPv6)`,**从 VRID 的用途可以看出 VRID 的取值范围是 0~255**;
++ `IP地址拥有者(IP Address Owner)`: 如果一个 `VRRP路由器` 将 `VIP` 作为真实的接口地址, 则该设备是 IP 地址拥有者, 当这台设备正常工作时, 它会响应 `目的地址` 是 VIP 的报文, 如 ping, TCP 连接等;
++ `优先级(Priority)`: 用来标识虚拟路由器中各成员路由器的优先级,`虚拟路由器` 根据优先级选举出 `Master` 和 `Backup`;
+
+## 2.3 报文
+
+VRRP 协议报文用来将 `Master设备` 的 `优先级` 和 `状态` 通告给同一备份组的所有 `Backup设备`. VRRP 协议报文封装在 IP 报文中, 发送到分配给 VRRP 的 IP 组播地址.
+
++ IP 报文头中, 源地址为发送报文接口的主 IP 地址 (不是虚拟 IP 地址), 目的地址是 224.0.0.18, TTL 是 255, 协议号是 112;
++ IP 报文头中, TTL 必须为 255, 当 VRRP 路由器收到 TTL 不等于 255 的 VRRP 协议报文后, 必须丢弃;
+
+### 2.3.1 VRRPv2 报文
+
++ 仅适用于 IPv4 网络;
++ 为了兼容早期版本 (RFC2338), VRRPv2 版本保留报文的认证字段, 但是 VRRP 认证并不能提高安全性;
++ 秒级的通告报文的发送时间间隔;
+
+![VRRPv2](/assets/images/posts/keepalived-vrrp/vrrpv2.webp)
+
+### 2.3.2 VRRPv3 报文
+
++ 适用于 IPv4 和 IPv6 两种网络;
++ 不支持认证功能;
++ 厘秒级 (100 分之 1 秒) 的通告报文的发送时间间隔;
+
+![VRRPv3](/assets/images/posts/keepalived-vrrp/vrrpv3.webp)
+
+### 2.3.3 报文字段含义
+
++ `Version`: 长度 **4 比特**, 指 VRRP 协议版本, VRRPv2 此字段为 2, VRRPv3 此字段为 3;
++ `Type`: 长度 **4 比特**, 定义了 VRRP 报文的类型, 本版本的协议仅定义了一个报文类型:
+  + `1`: Advertisement 带有未知类型的报文必须被丢弃;
++ `Virtual Rtr ID8`: 长度 **8 比特**, 虚拟路由器标识 (VRID) 字段标识了此报文所报告状态的虚拟路由器. 可配置的范围是 1-255. 没有缺省值;
++ `Priority`: 长度 **8 比特**, 申明了发送此报文的 VRRP 路由器的优先级. 值越高优先级越高. 如果 VRRP 路由器是虚拟路由器地址的 IP 地址所有者, 那么其优先级必须为 255. 备用作用的 VRRP 路由器的优先级必须在 1-254 之间. 缺省的 VRRP 路由器优先级为 100. 优先级值 0 用于指示当前虚拟路由器的主路由器停止参与 VRRP 组. 主要用于触发备用路由器快速地迁移到主路由器, 而不用等待当前主路由器超时;
++ `Count IP Addrs`: 长度 **8 比特**. 在此 VRRP 通告中包含的 IP 地址的数量;
++ `Auth Type`: 长度 **8 比特**, 用于标识要用到的认证方法. 在一个虚拟路由器组内认证类型是唯一的. 如果报文携带未知的认证类型或者该认证类型和本地配置的认证方法不匹配, 那么该报文必须被丢弃. 目前定义的认证方法有:
+  + `0(No Authentication)` : 表明 VRRP 协议报文的交换不需要认证. 在发送 VRRP 协议报文时,`Authentication Data` 字段将被置为 `0`, 而在接收协议报文时,`Authentication Data` 字段被忽略;
+  + `1(Simple Text Password)`: 表示明文认证方式.
+  + `2(IP Authentication Header)`: 表示 MD5 认证方式;
++ `Adver Int`: 长度 **8 比特**, VRRP 通告间隔时间, 单位为秒 (默认为 1 秒), 这个字段主要用于错误配置路由器时的故障定位和解决;
++ `Checksum`: 长度 **16 比特**, 16 位校验和, 用于检测 VRRP 报文中的数据破坏情况;
++ `IP Address`: 长度 **32 比特**, VRRP 备份组的虚拟 IPv4 地址或者虚拟 IPv6 地址;
++ `Authentication Data`: 长度 **32 比特**, VRRP 报文的认证字, 目前只有明文认证和 MD5 认证才用到该部分, 对于其它认证方式, 一律填 0;
+
+## 2.4 工作原理
+
+### 2.4.1 状态机
+
++ `初始状态(Initialize)`: 该状态下 VRRP 处于 `不可用` 的状态, 在此状态下设备不会对 VRRP 报文做任何处理, 通常刚配置 VRRP 时或设备检测到故障时会进入该状态. 收到接口 startup(启动) 的状态, 如果设备的优先级为 `255` (表示该设备为虚拟路由器 IP 地址拥有者), 则直接成为 Master 设备. 如果设备的优先级小于 255, 则会先切换到 `Backup状态`.
++ `活动状态(Master)`: 处于该状态下的设备为 Master 设备, Master 设备会做如下工作:
+  + 定时发送 VRRP 通告报文, 时间间隔为 `Advertisement_Interval`;
+  + 以虚拟 MAC 地址相应对虚拟 IP 地址的 ARP 请求;
+  + 转发目的 MAC 地址为虚拟 MAC 地址的 IP 报文;
+  + 抢占模式下, 如果收到比自己优先级大的 VRRP 报文, 或者跟自己优先级相等, 且本地接口 IP 地址小于源端接口 IP 地址时, 则转变为 Backup 状态;
+  + 收到 Shutdown(关闭) 消息后, 则立即转变为 `初始状态(Initialize)`;
++ `备份状态(Backup)`: 处于该状态下的设备接收 Master 发送的 VRRP 通告报文, 判断 Master 是否正常. 如果一定时间间隔没有收到 VRRP 通告报文, 即 `Master_Down_Interval(Master_Down_Interval = 3 * Advertisement_Interval + Skew_time` 超时, 则判断为 Master 故障.
+  + 接收 Master 发送的 `VRRP通告报文`, 判断 Master 是否正常;
+  + 对虚拟 IP 的 ARP 请求不做响应;
+  + 丢弃目的 MAC 地址为虚拟路由器 MAC 地址的 IP 报文;
+  + 丢弃目的 IP 地址为虚拟路由器 IP 地址的 IP 报文;
+  + 如果收到优先级比自己高, 或与自己相等的 VRRP 报文, 则重置 `Master_Down_Interval定时器` (不进一步比较 IP 地址);
+  + 如果收到优先级比自己小的 VPPR 报文, 且优先级为 0 时, (表示原 Master 设备声明不参与该 VRRP 组了), 定时器时间设置为 Skew_time(偏移时间,`Skew_time= (256 - priority)/256)`;
+  + 如果收到优先级比自己小的 VPPR 报文, 且优先级不为 0 时, 丢弃该报文, 立即转变为 Master 状态;
+  + `Master_Down_Interval定时器` 超时, 立即转变为 Master 状态;
+  + 收到 Shutdown(关闭) 消息后, 则立即转变为 `初始状态(Initialize)`;
+
+# 3. 参考地址
+
++ https://www.cnblogs.com/clsn/p/8052649.html
++ [https://cshihong.github.io/2017/12/18/%E8%99%9A%E6%8B%9F%E8%B7%AF%E7%94%B1%E5%86%97%E4%BD%99%E5%8D%8F%E8%AE%AE-VRRP/](https://cshihong.github.io/2017/12/18/虚拟路由冗余协议-VRRP/)

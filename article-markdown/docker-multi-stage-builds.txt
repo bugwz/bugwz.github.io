@@ -1,0 +1,130 @@
+# Docker 多阶段构建的理解与使用
+
+在构建镜像的过程中可能会区分为编译镜像以及运行镜像, 我们在编译环境中进行二进制运行文件的构建编译工作, 然后将运行文件放置在运行环境中构建体积较小的运行镜像, 在这个过程中, 我们可能会使用到多阶段构建.
+
+# 1. 简介
+
+在 `Docker` 的 `17.05` 及更高的版本中支持了多阶段构建的方式, 多阶段构建的方式极大的减小了需要阶段性构建的复杂度.[官方介绍 - multistage-build](https://docs.docker.com/develop/develop-images/multistage-build/)
+
+# 2. 多阶段构建的前后对比
+
+## 2.1 使用多阶段构建之前
+
+构建 Docker 镜像的过程中, 最具挑战性的事情就是如何保证 Docker 镜像的尺寸能够尽可能的小. 但是在编译的过程中, 我们可能会产生一些多余的中间件, 但是很多情况下我们可能只需要最终的可运行的二进制文件, 并不需要编译环境中的多余组件.
+
+实际上, 通常只有一个 `Dockerfile` 用于开发 (包含构建应用程序所需的一切), 而精简的 `Dockerfile` 用于生产时, 它仅包含您的应用程序以及运行它所需的内容. 这被称为 "构建者模式". 维护两个 `Dockerfile` 是不理想的, 并且也会十分复杂.
+
+- `Dockerfile.build`: 用于开发构建的 `Dockerfile`;
+- `Dockerfile`: 用于生产环境的 `Dockerfile`;
+- `build.sh`: 构建第一个镜像并从中创建一个容器以复制出最终的二进制运行文件, 然后构建第二个镜像;
+
+### 2.1.1 Dockerfile.build
+
+```dockerfile
+FROM golang:1.7.3
+WORKDIR /go/src/github.com/alexellis/href-counter/
+COPY app.go .
+RUN go get -d -v golang.org/x/net/html \
+  && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
+```
+
+### 2.1.2 Dockerfile
+
+```dockerfile
+FROM alpine:latest  
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY app .
+CMD ["./app"]
+```
+
+### 2.1.3 build.sh
+
+```dockerfile
+#!/bin/sh
+echo Building alexellis2/href-counter:build
+
+docker build --build-arg https_proxy=$https_proxy --build-arg http_proxy=$http_proxy \  
+    -t alexellis2/href-counter:build . -f Dockerfile.build
+
+docker container create --name extract alexellis2/href-counter:build  
+docker container cp extract:/go/src/github.com/alexellis/href-counter/app ./app  
+docker container rm -f extract
+
+echo Building alexellis2/href-counter:latest
+
+docker build --no-cache -t alexellis2/href-counter:latest .
+rm ./app
+```
+
+## 2.2 使用多阶段构建
+
+极大的降低了复杂度, 第二 `FROM` 条指令以 `alpine:latest` 图像为基础开始新的构建阶段. 该 `COPY --from=0` 行仅将先前阶段中构建产生的文件复制到当前的构建阶段中, Go 相关的 SDK 和任何中间工件都没有保存在最终景象中;
+
+```dockerfile
+FROM golang:1.7.3
+WORKDIR /go/src/github.com/alexellis/href-counter/
+RUN go get -d -v golang.org/x/net/html  
+COPY app.go .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=0 /go/src/github.com/alexellis/href-counter/app .
+CMD ["./app"]
+```
+
+# 3. 多阶段构建的使用姿势
+
+## 3.1 阶段的命名
+
+- `整数编号`: 默认情况下, 构建阶段未命名, 但是我们可以使用整数编号来进行引用, 起始编号为 `0`;
+- `AS <NAME>` 命名: 在使用 `FROM` 指令中同时使用 `AS [NAME] ` 来进行阶段的命名操作;
+
+## 3.2 特定的构建阶段停止
+
+示例 Dockerfile:
+
+```dockerfile
+FROM golang:1.7.3 AS builder
+WORKDIR /go/src/github.com/alexellis/href-counter/
+RUN go get -d -v golang.org/x/net/html  
+COPY app.go    .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
+
+FROM alpine:latest  
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=builder /go/src/github.com/alexellis/href-counter/app .
+CMD ["./app"]
+```
+
+构建镜像时, 不一定需要构建包括每个阶段的整个 Dockerfile. 您可以指定目标构建阶段, 以下命令含义为 `builder` 的阶段构建停止:
+
+```bash
+docker build --target builder -t alexellis2/href-counter:latest .
+```
+
+## 3.3 将外部镜像作为阶段使用
+
+使用多阶段构建时, 您不仅限于从之前在 `Dockerfile` 中创建的阶段进行复制. 您可以使用 `COPY --from` 指令从单独的映像进行复制, 方法是使用本地映像名称, 本地或 `Docker` 注册表上可用的标签或标签 ID.Docker 客户端在必要时提取映像并从那里复制工件. 语法为:
+
+```dockerfile
+COPY --from=nginx:latest /etc/nginx/nginx.conf /nginx.conf
+```
+
+# 4. 多阶段构建的理解
+
+## 4.1 docker 的层级概念
+
+- `文件层级`:`Docker` 镜像可以理解为由多层的文件构成, 当进行镜像的构建过程中, 每执行一次 `RUN` 指令, 镜像中就会增加一层;
+- `起始层(根镜像)`: 构建镜像的时候需要使用 `FROM` 指令选择一个基础镜像, 即根镜像, 后续所有的操作都会基于这个根镜像进行,`Docker` 镜像只允许有一个根镜像, 在多阶段构建中虽然使用了多个 `FROM` 指令, 但是只有最后一个才是最终构建的根镜像;
+- `层共享`: 当我们的操作系统中只存在一个镜像, 且该镜像的层数为 `5`, 当我们基于这个镜像构建新的镜像 (新镜像比之前的镜像多出 `2层`) 进行构建的时候, 最终在系统一共保存了 `7层`, 而不是 `5+7=12层`, 这就是 `Docker` 镜像的层共享;
+- `联合挂载`: 由于 `Docker` 的每一层只记录文件变更, 因此在新启动一个容器的时候会计算当时使用镜像的每一层的信息, 最终生成一个文件系统, 这就是联合挂载的含义;
+
+## 4.2 多个 FROM 的理解
+
+- `中间产物`: 在执行多个 `FROM` 之后, 系统内会存在多个没有名称和 `TAG` 的无名镜像, 这些镜像就是在多阶段构建中产生的中间镜像;
+
+- `最终依赖`: 多阶段构建中的多个 `FROM` 中只有最后一个 `FROM` 的镜像才是最终镜像的根镜像, 在构建才是最终构建的根镜像;

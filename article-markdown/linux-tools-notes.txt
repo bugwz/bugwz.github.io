@@ -1,0 +1,177 @@
+# Linux 操作系统知识点整理
+
+# 1. 系统工具相关
+
+## 1.1 CPU 性能工具:
+
+- 平均负载:
+  - `uptime`: 最简单;
+  - `top`: 提供了最全的指标;
+  - `/proc/loadavg`: 常用于监控系统;
+- 系统 CPU 使用率:
+  - `vmstat`: 只可以动态查看;
+  - `mpstat`: 只可以动态查看;
+  - `top`: 只可以动态查看;
+  - `sar`: 不仅可以动态查看, 还可以记录历史数据;
+  - `/proc/stat`: 是其他性能工具的数据来源, 也可用于监控;
+- 进程 CPU 使用率:
+  - `top`: 可以按照 CPU 使用率给进程排序;
+  - `ps`: 可以按照 CPU 使用率给进程排序;
+  - `pidstat`: 只显示实际用了 CPU 的进程;
+  - `htop`: 可以以不同的颜色显示, 更加直观;
+  - `atop`: 可以以不同的颜色显示, 更加直观;
+- 系统上下文切换:
+  - `vmstat`: 除了上下文切换的次数, 还提供运行状态和不可中断状态进程的数量;
+- 进程上下文切换:
+  - `pidstat`: 注意加上-w 选项;
+- 软中断:
+  - `top`: 提供软中断 CPU 的使用率;
+  - `mpstat`: 提供了各种软中断在每个 CPU 上的运行次数;
+  - `/proc/softirps`: 提供了各种软中断在每个 CPU 上的运行次数;
+- 硬中断:
+  - `vmstat`: 提供总的中断次数;
+  - `/proc/interrupts`: 提供各种中断在每个 CPU 上的运行的累积次数;
+- 网络:
+  - `dstat`: 提供总的网络接收和发送情况;
+  - `sar`: 提供总的网络接收和发送情况;
+  - `tcpdump`: 动态的抓取正在运行的网络通讯;
+- IO:
+  - `dstat`: 提供了 I/O 的整体情况;
+  - `sar`: 提供了 I/O 的整体情况;
+- CPU 缓存:
+  - `perf`: 使用 perf stat 的子命令;
+- CPU 数:
+  - `lscpu`: lscpu 更加直观;
+  - `/proc/cpuinfo`:
+- 事件刨析:
+  - `perf`: 用来分析热点函数以及调用栈;
+  - `火焰图`: 用来分析热点函数以及调用栈;
+  - `execsnoop`: 用来监测短时进程;
+- 动态追踪:
+  - `ftrace`: 用来追踪内核函数的调用栈;
+  - `bcc`: 用于跟踪内核或应用程序的执行过程, 要求内核版本>=4.1
+  - `systemtab`: 用于跟踪内核或应用程序的执行过程
+
+### 1.1.1 内存性能工具:
+
+- 系统已用/可用/剩余内存:
+  - `free`: 最为简单;
+  - `vmstat`: 更为全面;
+  - `sar`: 更为全面;
+  - `/proc/meminfo`: 其他工具的数据来源, 也常用于监控系统中;
+- 进程虚拟/常驻/共享内存:
+  - `ps`: 最为简单;
+  - `top`: 最为简单;
+  - `pidstat`: 需要加上-r 选项;
+  - `/proc/pid/stat`: 是其他工具的数据来源, 也常用于监控系统中;
+  - `/proc/pid/status`: 是其他工具的数据来源, 也常用于监控系统中;
+- 进程内存分布:
+  - `pmap`:
+  - `/proc/pid/maps`: 是 pmap 的数据来源;
+- 进程 Swap 换出内存:
+  - `top`:
+  - `/proc/pid/status`: 是 top 的数据来源;
+- 进程缺页异常:
+  - `ps`:
+  - `top`:
+  - `pidstat`: 注意给 pidstat 加上-r 选项;
+- 系统换页情况:
+  - `sar`: 注意加上-B 选项;
+- 缓存/缓冲区用量:
+  - `free`:
+  - `vmstat`: 最为常用;
+  - `sar`:
+  - `cachestat`: 需要安装 bcc;
+- 缓存/缓冲区命中率:
+  - `cachetop`: 需要安装 bcc;
+- Swap 已用空间和剩余空间:
+  - `free`: 最为简单;
+  - `sar`: 还可以记录历史;
+- Swap 换入换出:
+  - `vmstat`: 最为简单;
+  - `sar`: 还可以记录历史;
+- 内存泄漏监测:
+  - `memleak`: 需要安装 bcc;
+  - `valgrind`: 还可以在旧版本 (如 3.x) 内核中使用;
+- 指定文件的缓存大小:
+  - `pcstat`: 需要从源码下载安装;
+
+### 1.1.2 文件系统和磁盘 I/O 性能工具
+
+- 文件系统空闲容量, 使用量以及剩余空间:
+  - `df`: 详细文档可以执行 info coreutils 'df invocation' 命令进程查询;
+- 索引节点容量, 使用量以及剩余量:
+  - `df`: 注意加上 -i 选项;
+- 叶缓存和可回收 Slab 缓存:
+  - `/proc/meminfo`: 是其他工具的数据来源, 也常用于监控;
+  - `sar`: 注意加上 -r 选项;
+  - `vmstat`:
+- 缓冲区:
+  - `/proc/meminfo`: 是其他工具的数据来源, 也常用于监控;
+  - `sar`: 注意加上 -r 选项;
+  - `vmstat`:
+- 目录页, 索引节点以及文件系统的缓存:
+  - `/proc/slabinfo`: 常用于监控;
+  - `slabtop`: slabtop 更加直观;
+- 磁盘 I/O 使用率, IOPS, 吞吐量, 响应时间, I/O 平均大小以及等待队列长度:
+  - `iostat`: 最为常用, 注意使用 iostat -d -x 选项;
+  - `sar`: 注意使用 sar -d 选项;
+  - `dstat`:
+  - `/proc/diskstats`: 是其他工具的数据来源, 也常用于监控;
+- 进程 I/O 大小以及 I/O 延迟:
+  - `pidstat`: 注意使用 pidstat -d 选项;
+  - `iotop`:
+- 块设备 I/O 事件追踪:
+  - `blktrace`: 需要跟 blkparse 配合使用, 比如 blktrace -d /dev/sda -o | blkparse -i
+- 进程 I/O 系统调用跟踪:
+  - `strace`: 只可以跟踪单个进程;
+  - `perf trace`: 可以跟踪所有进程的系统调用;
+- 进程块设备 I/O 大小跟踪:
+  - `biosnoop`: 需要安装 bcc;
+  - `biotop`: 需要安装 bcc;
+- 动态追踪:
+  - `ftrace`: 用于跟踪内核函数调用栈;
+  - `bcc`: 用于跟踪内核或应用程序的执行过程 (要求内核版本>=4.1);
+  - `systemtab`: 用于跟踪内核或应用程序的执行过程;
+
+### 1.1.3 网络性能工具
+
+- 吞吐量 (BPS):
+  - `sar`: 可以查看网络接口的网络吞吐量;
+  - `nethogs`: 可以查看进程的网络吞吐量;
+  - `iftop`: 可以查看 IP 地址的网络吞吐量;
+  - `/proc/net/dev`: 常用于监控;
+- 吞吐量 (PPS):
+  - `sar`: 注意使用 sar -n DEV 选项;
+  - `/proc/net/dev`:
+- 网络连接数:
+  - `netstat`:
+  - `ss`: 速度更快;
+- 网络错误数:
+  - `netstat`: 注意使用 netstat -s 选项;
+  - `sar`: 注意使用 sar -n EDEV/EIP 选项;
+- 网络延迟:
+  - `ping`: 基于 ICMP;
+  - `hping3`: 基于 TCP 协议;
+- 连接跟踪数:
+  - `conntrack`: 可用于查看所有连接跟踪数的详细信息;
+  - `/proc/sys/net/netfilter/nf_conntrack_count`: 显示连接跟踪的数量;
+  - `/proc/sys/net/netfilter/nf_conntrack_max`: 限制总的连接跟踪的数量;
+- 路由:
+  - `mtr`: 用于排查和定位网络链路中的路由问题;
+  - `traceroute`: 用于排查和定位网络链路中的路由问题;
+  - `route`: 用于查询路由表;
+- DNS:
+  - `dig`: 用于排查 DNS 的解析问题;
+  - `nslookup`: 用于排查 DNS 的解析问题;
+- 防火墙和 NAT:
+  - `iptables`: 用于排查防火墙及 NAT 的问题;
+- 网卡选项:
+  - `ethtool`: 用于查看和配置网络接口的功能选项;
+- 网络抓包:
+  - `tcpdump`: 服务中使用 tcpdump 抓包;
+  - `wireshark`: 图形界面分析抓包的数据;
+- 动态追踪:
+  - `ftrace`: 用于跟踪内核函数的调用栈;
+  - `bcc`: 用于跟踪内核或应用程序的执行过程 (要求内核版本>=4.1);
+  - `systemtap`: 用于跟踪内核或应用程序的执行过程;

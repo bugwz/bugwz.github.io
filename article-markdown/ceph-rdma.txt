@@ -1,0 +1,697 @@
+# Ceph RDMA 集群部署教程
+
+# 1. Ceph RDMA 介绍
+
+RDMA (Remote Direct Memory Access) 是一种远程直接内存访问技术, 它允许客户端系统将数据从存储服务器的内存直接复制到该客户端自己的内存中. 这种内存直通技术可以提升存储带宽, 降低访问时延, 同时还可以减少客户端和存储的 CPU 负载.
+
+按照 Ceph 文档给出的介绍, 目前虽然 Ceph 已经支持 RDMA 功能, 但是除了其功能可能处于实验阶段, 并且支持的能力可能受限, [参考文档](https://docs.ceph.com/en/latest/rados/configuration/network-config-ref/#confval-ms_type). 所以我的意见是并不建议在生产环境中使用.
+
+## 1.1 RDMA 环境初始化
+
+以下测试工具均基于 CentOS 8.5.2111 进行测试, 不同系统类型版本对应的软件包及命令可能存在差异.
+
+**查看 RDMA 硬件及驱动信息:**
+```bash
+# RDMA 相关软件
+dnf install -y infiniband-diags rdma-core rdma-core-devel perftest \
+               librdmacm librdmacm-utils libibverbs libibverbs-utils iproute
+
+# 查看 ib 网卡信息
+# 来自软件包 infiniband-diags
+ibstatus
+ibstat
+
+# 查看本机 ib 设备
+# 来自软件包 libibverbs-utils
+ibv_devices
+ibv_devinfo
+
+# 查看网卡信息
+lspci | grep Mellanox
+
+# 查询 ib 网络设备 GID, Port 等信息
+# 来自 Mellanox 网卡驱动软件包 MLNX_OFED
+show_gids
+
+# 查看 rdma 内核模块的状态
+# 来自 Mellanox 网卡驱动软件包 MLNX_OFED
+/etc/init.d/openibd status
+```
+
+**测试 RDMA 网络:**
+```bash
+# 带宽测试, 工具来自于 perftest
+# 服务器
+ib_send_bw -a -n 1000000 -c RC -d mlx5_bond_0 -q 10 -i 1
+# 客户端
+ib_send_bw -a -n 1000000 -c RC -d mlx5_bond_0 -q 10 -i 1 10.10.10.1
+
+
+# 延迟测试, 工具来自于 perftest
+# 服务器
+ib_send_lat -a -d mlx5_bond_0 -F -n 1000 -p 18515
+# 客户端
+ib_send_lat -a -d mlx5_bond_0 10.10.10.1 -F -n 1000 -p 18515
+```
+
+**RDMA 流量带宽监测脚本:**
+```bash
+#!/bin/bash
+DEVICE="mlx5_bond_0"   # 替换为你的 RDMA 设备名 (通过 `ibstat` 查看)
+PORT=1                 # 替换为端口号 (通过 `show_gids` 查看)
+INTERVAL=1             # 刷新间隔 (秒)
+
+# 初始化计数器
+prev_rcv=$(cat /sys/class/infiniband/$DEVICE/ports/$PORT/counters/port_rcv_data)
+prev_xmit=$(cat /sys/class/infiniband/$DEVICE/ports/$PORT/counters/port_xmit_data)
+
+while true; do
+  sleep $INTERVAL
+  # 读取当前计数器
+  curr_rcv=$(cat /sys/class/infiniband/$DEVICE/ports/$PORT/counters/port_rcv_data)
+  curr_xmit=$(cat /sys/class/infiniband/$DEVICE/ports/$PORT/counters/port_xmit_data)
+
+  # 计算差值并转换为速率 (单位: MB/s)
+  # RDMA 计数器单位为 4 字节
+  rcv_bytes=$(( (curr_rcv - prev_rcv) * 4 ))
+  xmit_bytes=$(( (curr_xmit - prev_xmit) * 4 ))
+  # 转换为 MB/s
+  rcv_rate=$(echo "scale=2; $rcv_bytes / $INTERVAL / 1000000" | bc)
+  xmit_rate=$(echo "scale=2; $xmit_bytes / $INTERVAL / 1000000" | bc)
+
+  # 输出结果
+  echo -e "RX: ${rcv_rate} MB/s \t TX: ${xmit_rate} MB/s"
+
+  # 更新计数器
+  prev_rcv=$curr_rcv
+  prev_xmit=$curr_xmit
+done
+
+
+
+```
+
+# 2. 使用 ceph-ansible 部署
+
+> **注意:** 本次部署出现了很多问题, 最终并没有成功部署至可使用的状态. 但是本文总结了一些部署过程及过程中需要注释的事项, 供读者参考.
+
+本次测试环境的机器系统为 CentOS 8.5.2111, 使用 [ceph-ansible/stable-6.0](https://github.com/ceph/ceph-ansible/tree/stable-6.0) 来部署 [Ceph v16.2.15](https://github.com/ceph/ceph/tree/v16.2.15) 版本进行测试.
+
+
+
+**在执行实际的部署安装前, 我们可以使用下面的命令来查看对应的 ceph 软件包是否支持 rdma.**
+```bash
+# 验证 ceph bin 是否链接了 rdma 动态库
+ldd /bin/ceph-osd | egrep "rdma|verbs"
+ldd /bin/ceph-mon | egrep "rdma|verbs"
+ldd /bin/ceph-mgr | egrep "rdma|verbs"
+ldd /bin/ceph-mds | egrep "rdma|verbs"
+
+# 验证 ceph bin 是否包含 rdma 的符号
+strings /bin/ceph-osd | grep -i rdma
+strings /bin/ceph-mon | grep -i rdma
+strings /bin/ceph-mgr | grep -i rdma
+strings /bin/ceph-mds | grep -i rdma
+```
+
+## 2.1 配置初始化
+
+### 2.1.1 部署配置初始化
+
+> **注意:** 我们在部署 [Ceph v16.2.15](https://github.com/ceph/ceph/tree/v16.2.15) 版本的时候, 将 `ms_public_type` 设置为 `async+posix`, 但是发现 `ceph-mgr` 在这种配置下会频繁报错: `Infiniband to_dead failed to send a beacon: (115) Operation now in progress`. 修改配置 `debug ms = 20/20` 分析发现 `Infiniband recv_cm_meta got bad length (26)` 相关报错信息. 该错误后续有详细日志介绍, 本文仍未解决该问题.
+
+**修改 ceph-ansible 中的. /group_vars/all.yml 文件:**
+```yml
+# ceph repo
+ceph_origin: repository
+ceph_repository: custom
+ceph_custom_repo: http://xxxxxxxxxxx/ceph-v16.2.15.repo
+
+# conf
+ceph_conf_overrides:
+  global:
+    ms_type: async+rdma
+    ms_cluster_type: async+rdma
+    ms_public_type: async+posix
+    ms_async_rdma_cm: false
+    ms_bind_ipv4: true
+    ms_bind_ipv6: false
+    ms_async_rdma_type: ib
+    ms_async_rdma_device_name: mlx5_bond_0
+    ms_async_rdma_port_num: 1
+    ms_async_rdma_gid_idx: 3
+```
+
+**使用 aliyun ceph 源的配置文件 ceph-v16.2.15.repo:** (需要将该文件上传到一个 http 服务中供 ceph-ansible 下载)
+```conf
+[ceph]
+name=ceph
+baseurl=https://mirrors.aliyun.com/ceph/rpm-16.2.15/el8/x86_64
+enabled=1
+gpgcheck=0
+
+[ceph-noarch]
+name=ceph noarch
+baseurl=https://mirrors.aliyun.com/ceph/rpm-16.2.15/el8/noarch
+enabled=1
+gpgcheck=0
+
+[ceph-source]
+name=ceph source
+baseurl=https://mirrors.aliyun.com/ceph/rpm-16.2.15/el8/SRPMS
+enabled=1
+gpgcheck=0
+```
+
+> 注意: 本次是采用非容器化的部署方式. 安装 ceph 软件后, 对应的 systemd 的配置文件位于 `/usr/lib/systemd/system/` 目录中. 如果我们在部署时配置了 `ceph_<service_name>_systemd_overrides` 参数, 那么 ceph-ansible 在部署集群时会在部署节点的 `/etc/systemd/system/` 目录中创建对应服务的配置目录 (`/etc/systemd/system/ceph-<service_name>@.service.d/`) 及对应的配置文件 (`ceph-<service_name>-systemd-overrides.conf`), 用来覆盖一些特定的参数.
+
+
+**修改 ceph-ansible 中各 ceph 服务的配置:**
+```bash
+# 修改 mon systemd 配置文件模板
+vi ./group_vars/mons.yml
+ceph_mon_systemd_overrides:
+  Service:
+    LimitMEMLOCK: infinity
+    PrivateDevices: no
+
+# 修改 mgr systemd 配置文件模板
+vi ./group_vars/mgrs.yml
+ceph_mgr_systemd_overrides:
+  Service:
+    LimitMEMLOCK: infinity
+    PrivateDevices: no
+
+# 修改 osd systemd 配置文件模板
+vi ./group_vars/osds.yml
+ceph_osd_systemd_overrides:
+  Service:
+    LimitMEMLOCK: infinity
+    PrivateDevices: no
+
+# 修改 mds systemd 配置文件模板
+vi ./group_vars/mdss.yml
+ceph_mds_systemd_overrides:
+  Service:
+    LimitMEMLOCK: infinity
+    PrivateDevices: no
+```
+
+
+### 2.1.2 配置部署节点环境
+
+由于 RDMA 通信要求固定计算机的物理内存 (也就是说, 当整个计算机在可用内存上启动不足时, 内核不允许将该内存交换到分页文件). 固定内存通常是非常特权的操作. 为了允许 root 之外的用户运行大型 RDMA 应用程序, 可能需要增加非 root 用户在系统中被允许的内存量. 这可以通过在 `/etc/security/limits.d/` 目录中添加一个自定义配置文件来实现. 参考配置文件内容: [Bring Up Ceph RDMA - Developer's Guide](https://enterprise-support.nvidia.com/s/article/bring-up-ceph-rdma---developer-s-guide)
+
+**修改 Ceph 部署机器上的 /etc/security/limits.d/rdma.conf 配置:**
+```bash
+cat /etc/security/limits.d/rdma.conf
+# configuration for rdma tuning
+*       soft    memlock         unlimited
+*       hard    memlock         unlimited
+# rdma tuning end
+```
+
+
+## 2.2 部署集群
+
+**相关命令:**
+```bash
+# 探测节点
+ansible -i hosts.ini -m ping all
+
+# 部署集群
+ansible-playbook -vvvv -i hosts.ini site.yml
+
+# 销毁集群
+ansible-playbook -vvvv -i hosts.ini infrastructure-playbooks/purge-cluster.yml
+
+# 查看进程
+watch -n 1 "ps xau | grep ceph; podman ps"
+
+# 查看进程和 ceph 状态
+watch -n 1 "ps xau | grep ceph; podman ps; ceph -s"
+```
+
+
+## 2.3 客户端挂载使用
+
+```bash
+# 挂载 cephfs
+mkdir -p /mnt/cephfs
+mount -t ceph 10.10.10.1:6789,10.10.10.1:6789,10.10.10.1:6789:/ /mnt/cephfs -o name=admin,secret=AQANl5VobL1iKxAAF49gUb79LeHCnsftT2rV+g==
+ls -al /mnt/cephfs/
+
+# 读写测试
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/cephfs/testfile oflag=direct status=progress
+dd if=/mnt/cephfs/testfile bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+```
+
+# 3. 使用 cephadm 部署
+
+> **注意:** 由于 CentOS 8 已经没有 v19.x.x 版本的 cephadm 软件包供使用. 但是我们通过在 CentOS 9 Stream 上编译打包 RPM 后提供 CentoS 8 使用. 之后 cephadm 部署集群的时候使用官方最新的 Ceph 容器镜像, 这里使用的是 Ceph v19.2.3 的容器镜像.
+
+本次测试环境的机器系统为 CentOS 8.5.2111, 使用 Ceph [v19.2.3](https://github.com/ceph/ceph/tree/v19.2.3) 版本进行测试.
+
+
+
+## 3.1 环境配置
+
+### 3.1.1 配置 cephadm
+
+在部署集群之前, 我们需要指定一些集群配置以启用 RDMA 特性. 这里仅介绍和 RDMA 有关的一些配置, 其他的部署集群所需要的配置这里并没有介绍, 仍需要你在部署集群前配置 ok.
+
+**/root/ceph.conf 配置文件内容如下:**
+```conf
+[global]
+ms_type = async+rdma
+ms_cluster_type = async+rdma
+ms_public_type = async+posix
+ms_async_rdma_cm = false
+ms_bind_ipv4 = true
+ms_bind_ipv6 = false
+ms_async_rdma_type = ib
+ms_async_rdma_device_name = mlx5_bond_0
+ms_async_rdma_port_num = 1
+ms_async_rdma_gid_idx = 3
+```
+
+**配置解析:**
++ `ms_type`: 消息传输类型, 支持 async+posix, async+dpdk 和 async+rdma 三种类型, 其中 async+posix 为默认的传输类型, 其他两种是实验性的并且支持可能受限.
++ `ms_cluster_type`: 集群内部消息传输类型, 如果未指定默认为 `ms_type`.
++ `ms_public_type`: 集群内部消息传输类型, 如果未指定默认为 `ms_type`.
++ `ms_async_rdma_cm`: 是否启用 RDMA CM 方式管理 RDMA 连接, 默认为 false, 如果未启用则使用 Verbs 方式管理 RDMA 连接.
+  + 该参数需要和 ms_async_rdma_type 配合使用, 如果该参数为 true, 则 ms_async_rdma_type 需要要设置为 iwarp, 否则会出错.
++ `ms_async_rdma_type`: RDMA 实现协议类型, 可选值为 iwarp 或 ib, 默认为 ib.
++ `ms_async_rdma_device_name`: RDMA 设备名称.
++ `ms_async_rdma_port_num`:  RDMA 设备上的端口号. 一块网络卡可能有多个端口, 每个端口都能独立地进行网络通信. port_num 参数用于选择具体哪个端口用于 RDMA 通讯.
++ `ms_async_rdma_gid_idx`: RDMA 设备全局标识符. 用于在 InfiniBand 网络中唯一标识设备. gid_idx 是 GID 表中的索引, 用于选择特定的 GID. 这在配置 RoCE (RDMA over Converged Ethernet) 连接时尤其重要, 可以根据需求选择使用 RoCE v1 或 v2.
+
+### 3.1.2 配置部署节点环境
+
+由于 RDMA 通信要求固定计算机的物理内存 (也就是说, 当整个计算机在可用内存上启动不足时, 内核不允许将该内存交换到分页文件). 固定内存通常是非常特权的操作. 为了允许 root 之外的用户运行大型 RDMA 应用程序, 可能需要增加非 root 用户在系统中被允许的内存量. 这可以通过在 `/etc/security/limits.d/` 目录中添加一个自定义配置文件来实现. 参考配置文件内容: [Bring Up Ceph RDMA - Developer's Guide](https://enterprise-support.nvidia.com/s/article/bring-up-ceph-rdma---developer-s-guide)
+
+**修改 Ceph 部署机器上的 /etc/security/limits.d/rdma.conf 配置:**
+```bash
+cat /etc/security/limits.d/rdma.conf
+# configuration for rdma tuning
+*       soft    memlock         unlimited
+*       hard    memlock         unlimited
+# rdma tuning end
+```
+
+
+## 3.2 部署集群
+
+```bash
+# 部署测试
+cephadm bootstrap --config /root/ceph.conf --mon-ip 10.10.10.1 --initial-dashboard-password admin --allow-fqdn-hostname --no-minimize-config
+
+# 启用文件日志 (可选)
+ceph config set global log_to_file true
+ceph config set global mon_cluster_log_to_file true
+ceph config set global log_to_stderr false
+ceph config set global mon_cluster_log_to_stderr false
+ceph config set global log_to_journald false
+ceph config set global mon_cluster_log_to_journald false
+
+# 初始化环境配置: 新主机安装集群 SSH 公钥
+ssh-copy-id -f -i /etc/ceph/ceph.pub root@host02
+ssh-copy-id -f -i /etc/ceph/ceph.pub root@host03
+
+# 添加主机到集群
+ceph orch host add host02 10.10.10.2
+ceph orch host add host02 10.10.10.3
+
+# 添加 OSD 存储
+# 注意: 由于我们配置调整 /etc/systemd/system/ceph-<cluster_id>@.service 配置文件, 这会导致 osd 启动失败,
+#       不过没有关系, 我们会在下面统一调整该配置文件, 之后在重启 osd 组件即可.
+ceph orch device ls
+ceph orch daemon add osd host01:/dev/nvme0n1,/dev/nvme1n1,/dev/nvme2n1
+ceph orch daemon add osd host02:/dev/nvme0n1,/dev/nvme1n1,/dev/nvme2n1
+ceph orch daemon add osd host03:/dev/nvme0n1,/dev/nvme1n1,/dev/nvme2n1
+
+# 传输 ceph 集群和密钥配置文件 (可选)
+scp /etc/ceph/ceph.conf host02:/etc/ceph/
+scp /etc/ceph/ceph.conf host02:/etc/ceph/
+scp /etc/ceph/ceph.client.admin.keyring host02:/etc/ceph/
+scp /etc/ceph/ceph.client.admin.keyring host03:/etc/ceph/
+
+# 创建文件系统
+ceph fs volume create cephfs
+
+# 调整文件系统数据池副本为 2 (可选)
+ceph osd pool ls detail
+ceph osd pool set cephfs.cephfs.meta min_size 1
+ceph osd pool set cephfs.cephfs.meta size 2 --yes-i-really-mean-it
+ceph osd pool set cephfs.cephfs.data min_size 1
+ceph osd pool set cephfs.cephfs.data size 2 --yes-i-really-mean-it
+
+# 查看集群配置
+ceph tell osd.* config get ms_type
+ceph tell osd.* config get ms_cluster_type
+ceph tell osd.* config get ms_public_type
+ceph tell osd.* config get ms_async_rdma_cm
+
+# 销毁集群
+cephadm rm-cluster --force --zap-osds --fsid b07cea80-741f-11f0-a76e-946dae8f5dda
+```
+
+
+## 3.3 集群配置调整
+
+> **注意:** 当每次执行 `ceph orch daemon add *` 操作的时候, 都会重新更新对应机器上的 `/etc/systemd/system/ceph-<cluster_id>@.service` 配置文件, 我们可以从 [src/cephadm/cephadmlib/systemd_unit.py](https://github.com/ceph/ceph/blob/v19.2.3/src/cephadm/cephadmlib/systemd_unit.py#L137) 和 [src/cephadm/cephadmlib/templating.py](https://github.com/ceph/ceph/blob/v19.2.3/src/cephadm/cephadmlib/templating.py) 中找到相关的实现. 由于这些模板会被打包成一个 zipapp 文件 (即 cephadm 可执行文件), 因此我们无法在执行 cephadm 的时候修改本地的一些文件来尝试在远程机器的 `/etc/systemd/system/ceph-<cluster_id>@.service` 文件中应用新的配置.
+
+
+**修改 /etc/systemd/system/ceph-<cluster_id>@. service 配置文件中的内容:**
+```bash
+[Service]
+LimitMEMLOCK=infinity
+PrivateDevices=no
+```
+
+**相关命令:**
+```bash
+# 查询所有 ceph 相关的 systemd 文件的位置
+systemctl show -p FragmentPath ceph-*
+
+# 重新加载 systemd 的服务配置文件
+systemctl daemon-reload
+
+# 获取集群id
+fsid=$(cephadm shell -- ceph fsid)
+
+# 重启 osd 服务
+# 需要在每个部署 osd 的节点上执行
+ls /var/lib/ceph/$fsid/ | grep osd | while read dir; do systemctl restart ceph-$fsid@$dir.service; done
+
+
+# 检查 cephadm 部分内容
+[root@host01 data]# unzip -l /usr/sbin/cephadm | grep templates
+warning [/usr/sbin/cephadm]:  2 extra bytes at beginning or within zipfile
+  (attempting to process anyway)
+        0  02-01-2024 07:14   cephadmlib/templates/
+     1488  02-01-2024 07:14   cephadmlib/templates/init_containers.run.j2
+      205  02-01-2024 07:14   cephadmlib/templates/dropin.service.j2
+     1264  02-01-2024 07:14   cephadmlib/templates/init_ctr.service.j2
+      133  02-01-2024 07:14   cephadmlib/templates/cephadm.logrotate.config.j2
+      508  02-01-2024 07:14   cephadmlib/templates/sidecar.run.j2
+     1031  02-01-2024 07:14   cephadmlib/templates/sidecar.service.j2
+     1198  02-01-2024 07:14   cephadmlib/templates/ceph.service.j2
+      307  02-01-2024 07:14   cephadmlib/templates/agent.service.j2
+      280  02-01-2024 07:14   cephadmlib/templates/cluster.logrotate.config.j2
+
+# 查看 cephadm 部分内容
+mkdir ./cephadm_templates
+unzip /usr/sbin/cephadm 'cephadmlib/templates/*' -d ./cephadm_templates
+cat ./cephadm_templates/cephadmlib/templates/ceph.service.j2
+```
+
+
+## 3.4 客户端挂载使用
+
+```bash
+# 挂载 cephfs
+mkdir -p /mnt/cephfs
+mount -t ceph 10.10.10.1:6789,10.10.10.1:6789,10.10.10.1:6789:/ /mnt/cephfs -o name=admin,secret=AQANl5VobL1iKxAAF49gUb79LeHCnsftT2rV+g==
+ls -al /mnt/cephfs/
+
+# 读写测试
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/cephfs/testfile oflag=direct status=progress
+dd if=/mnt/cephfs/testfile bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+```
+
+
+
+# 4. 相关问题
+
+## 4.1 Infiniband to_dead failed to send a beacon 错误
+
+**问题记录:**
+```bash
+2024-08-09T13:34:49.108+0800 7fcdd4ea8700 -1 Infiniband to_dead failed to send a beacon: (115) Operation now in progress
+2024-08-09T13:34:50.702+0800 7fcdd56a9700 -1 Infiniband to_dead failed to send a beacon: (115) Operation now in progress
+2024-08-09T13:34:50.703+0800 7fcdd5eaa700 -1 Infiniband to_dead failed to send a beacon: (115) Operation now in progress
+2024-08-09T13:34:50.703+0800 7fcdd4ea8700 -1 Infiniband to_dead failed to send a beacon: (115) Operation now in progress
+2024-08-09T13:34:50.905+0800 7fcdd5eaa700 -1 Infiniband to_dead failed to send a beacon: (115) Operation now in progress
+
+
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 EpollDriver.del_event del event fd=41 cur_mask=3 delmask=3 to 27
+2024-08-09T14:06:56.631+0800 7fbe29599700 10 Infiniband send_cm_meta sending: 0, 13049, 2116118, 0, 00000000000000000000ffff0a5a1833
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20  RDMAConnectedSocketImpl try_connect tcp_fd: 43
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 Event(0x55df39caa300 nevent=5000 time_id=2).create_file_event create event started fd=43 mask=3 original mask is 0
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 EpollDriver.add_event add event fd=43 cur_mask=0 add_mask=3 to 24
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 Event(0x55df39caa300 nevent=5000 time_id=2).create_file_event create event end fd=43 mask=3 current mask is 3
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 Event(0x55df39caa300 nevent=5000 time_id=2).create_file_event create event started fd=39 mask=1 original mask is 0
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 EpollDriver.add_event add event fd=39 cur_mask=0 add_mask=1 to 24
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 Event(0x55df39caa300 nevent=5000 time_id=2).create_file_event create event end fd=39 mask=1 current mask is 1
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 Event(0x55df39caa800 nevent=5000 time_id=2).create_file_event create event started fd=41 mask=1 original mask is 0
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 EpollDriver.add_event add event fd=41 cur_mask=0 add_mask=1 to 27
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 Event(0x55df39caa800 nevent=5000 time_id=2).create_file_event create event end fd=41 mask=1 current mask is 1
+2024-08-09T14:06:56.631+0800 7fbe29599700 20  RDMAConnectedSocketImpl handle_connection_established finish
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 10 --  >> [v2:10.10.10.1:3300/0,v1:10.10.10.1:6789/0] conn(0x55df3909ac00 msgr2=0x55df39009e00 unknown :-1 s=STATE_CONNECTING_RE l=0).process nonblock connect inprogress
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20  RDMAConnectedSocketImpl handle_connection_established start
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 EpollDriver.del_event del event fd=42 cur_mask=3 delmask=3 to 21
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 10 Infiniband send_cm_meta sending: 0, 13050, 5515815, 0, 00000000000000000000ffff0a5a1833
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20  RDMAConnectedSocketImpl handle_connection_established start
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 EpollDriver.del_event del event fd=43 cur_mask=3 delmask=3 to 24
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 10 Infiniband send_cm_meta sending: 0, 13048, 0, 0, 00000000000000000000ffff0a5a1833
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 Event(0x55df39caa080 nevent=5000 time_id=2).create_file_event create event started fd=42 mask=1 original mask is 0
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 EpollDriver.add_event add event fd=42 cur_mask=0 add_mask=1 to 21
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 Event(0x55df39caa080 nevent=5000 time_id=2).create_file_event create event end fd=42 mask=1 current mask is 1
+2024-08-09T14:06:56.631+0800 7fbe29599700 20  RDMAConnectedSocketImpl handle_connection QP: 13049 tcp_fd: 41 notify_fd: 38
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20  RDMAConnectedSocketImpl handle_connection_established finish
+2024-08-09T14:06:56.631+0800 7fbe29599700  1 Infiniband recv_cm_meta got bad length (26)
+2024-08-09T14:06:56.631+0800 7fbe29599700  1  RDMAConnectedSocketImpl handle_connection recv handshake msg failed.
+2024-08-09T14:06:56.631+0800 7fbe29599700  1  RDMAConnectedSocketImpl fault tcp fd 41
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 Event(0x55df39caa300 nevent=5000 time_id=2).create_file_event create event started fd=43 mask=1 original mask is 0
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 EpollDriver.add_event add event fd=43 cur_mask=0 add_mask=1 to 24
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 Event(0x55df39caa300 nevent=5000 time_id=2).create_file_event create event end fd=43 mask=1 current mask is 1
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20  RDMAConnectedSocketImpl handle_connection_established finish
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 --  >> [v2:10.10.10.2:3300/0,v1:10.10.10.2:6789/0] conn(0x55df3909a800 msgr2=0x55df3900a300 unknown :-1 s=STATE_CONNECTING_RE l=0).process
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 EpollDriver.del_event del event fd=38 cur_mask=1 delmask=2 to 27
+2024-08-09T14:06:56.631+0800 7fbe29599700 10 --  >> [v2:10.10.10.2:3300/0,v1:10.10.10.2:6789/0] conn(0x55df3909a800 msgr2=0x55df3900a300 unknown :-1 s=STATE_CONNECTING_RE l=0).process connect successfully, ready to send banner
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 --2-  >> [v2:10.10.10.2:3300/0,v1:10.10.10.2:6789/0] conn(0x55df3909a800 0x55df3900a300 unknown :-1 s=START_CONNECT pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0).read_event
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 --2-  >> [v2:10.10.10.2:3300/0,v1:10.10.10.2:6789/0] conn(0x55df3909a800 0x55df3900a300 unknown :-1 s=START_CONNECT pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0).start_client_banner_exchange
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 --2-  >> [v2:10.10.10.2:3300/0,v1:10.10.10.2:6789/0] conn(0x55df3909a800 0x55df3900a300 unknown :-1 s=BANNER_CONNECTING pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0)._banner_exchange
+2024-08-09T14:06:56.631+0800 7fbe29599700  1 --  >> [v2:10.10.10.2:3300/0,v1:10.10.10.2:6789/0] conn(0x55df3909a800 msgr2=0x55df3900a300 unknown :-1 s=STATE_CONNECTION_ESTABLISHED l=0)._try_send send error: (32) Broken pipe
+2024-08-09T14:06:56.631+0800 7fbe29599700  1 --2-  >> [v2:10.10.10.2:3300/0,v1:10.10.10.2:6789/0] conn(0x55df3909a800 0x55df3900a300 unknown :-1 s=BANNER_CONNECTING pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0).write banner write failed r=-32 ((32) Broken pipe)
+2024-08-09T14:06:56.631+0800 7fbe29599700 10 --2-  >> [v2:10.10.10.2:3300/0,v1:10.10.10.2:6789/0] conn(0x55df3909a800 0x55df3900a300 unknown :-1 s=BANNER_CONNECTING pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0)._fault
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 EpollDriver.del_event del event fd=38 cur_mask=1 delmask=3 to 27
+2024-08-09T14:06:56.631+0800 7fbe29599700 20  RDMAConnectedSocketImpl ~RDMAConnectedSocketImpl destruct.
+2024-08-09T14:06:56.631+0800 7fbe29599700 20 EpollDriver.del_event del event fd=41 cur_mask=1 delmask=3 to 27
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20  RDMAConnectedSocketImpl handle_connection QP: 13050 tcp_fd: 42 notify_fd: 40
+2024-08-09T14:06:56.631+0800 7fbe2a59b700  1 Infiniband recv_cm_meta got bad length (26)
+2024-08-09T14:06:56.631+0800 7fbe2a59b700  1  RDMAConnectedSocketImpl handle_connection recv handshake msg failed.
+2024-08-09T14:06:56.631+0800 7fbe2a59b700  1  RDMAConnectedSocketImpl fault tcp fd 42
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20  RDMAConnectedSocketImpl handle_connection QP: 13048 tcp_fd: 43 notify_fd: 39
+2024-08-09T14:06:56.631+0800 7fbe29d9a700  1 Infiniband recv_cm_meta got bad length (26)
+2024-08-09T14:06:56.631+0800 7fbe29d9a700  1  RDMAConnectedSocketImpl handle_connection recv handshake msg failed.
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 --  >> [v2:10.10.10.3:3300/0,v1:10.10.10.3:6789/0] conn(0x55df3909a400 msgr2=0x55df3900a800 unknown :-1 s=STATE_CONNECTING_RE l=0).process
+2024-08-09T14:06:56.631+0800 7fbe29d9a700  1  RDMAConnectedSocketImpl fault tcp fd 43
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 EpollDriver.del_event del event fd=40 cur_mask=1 delmask=2 to 21
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 10 --  >> [v2:10.10.10.3:3300/0,v1:10.10.10.3:6789/0] conn(0x55df3909a400 msgr2=0x55df3900a800 unknown :-1 s=STATE_CONNECTING_RE l=0).process connect successfully, ready to send banner
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20  RDMAConnectedSocketImpl handle_connection QP: 13048 tcp_fd: 43 notify_fd: 39
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 10 Infiniband recv_cm_meta got disconnect message
+2024-08-09T14:06:56.631+0800 7fbe29d9a700  1  RDMAConnectedSocketImpl handle_connection recv handshake msg failed.
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 --2-  >> [v2:10.10.10.3:3300/0,v1:10.10.10.3:6789/0] conn(0x55df3909a400 0x55df3900a800 unknown :-1 s=START_CONNECT pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0).read_event
+2024-08-09T14:06:56.631+0800 7fbe29d9a700  1  RDMAConnectedSocketImpl fault tcp fd 43
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 --2-  >> [v2:10.10.10.3:3300/0,v1:10.10.10.3:6789/0] conn(0x55df3909a400 0x55df3900a800 unknown :-1 s=START_CONNECT pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0).start_client_banner_exchange
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 --  >> [v2:10.10.10.1:3300/0,v1:10.10.10.1:6789/0] conn(0x55df3909ac00 msgr2=0x55df39009e00 unknown :-1 s=STATE_CONNECTING_RE l=0).process
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 EpollDriver.del_event del event fd=39 cur_mask=1 delmask=2 to 24
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 --2-  >> [v2:10.10.10.3:3300/0,v1:10.10.10.3:6789/0] conn(0x55df3909a400 0x55df3900a800 unknown :-1 s=BANNER_CONNECTING pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0)._banner_exchange
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 10 --  >> [v2:10.10.10.1:3300/0,v1:10.10.10.1:6789/0] conn(0x55df3909ac00 msgr2=0x55df39009e00 unknown :-1 s=STATE_CONNECTING_RE l=0).process connect successfully, ready to send banner
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 --2-  >> [v2:10.10.10.1:3300/0,v1:10.10.10.1:6789/0] conn(0x55df3909ac00 0x55df39009e00 unknown :-1 s=START_CONNECT pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0).read_event
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 --2-  >> [v2:10.10.10.1:3300/0,v1:10.10.10.1:6789/0] conn(0x55df3909ac00 0x55df39009e00 unknown :-1 s=START_CONNECT pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0).start_client_banner_exchange
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 20 --2-  >> [v2:10.10.10.1:3300/0,v1:10.10.10.1:6789/0] conn(0x55df3909ac00 0x55df39009e00 unknown :-1 s=BANNER_CONNECTING pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0)._banner_exchange
+2024-08-09T14:06:56.631+0800 7fbe2a59b700  1 --  >> [v2:10.10.10.3:3300/0,v1:10.10.10.3:6789/0] conn(0x55df3909a400 msgr2=0x55df3900a800 unknown :-1 s=STATE_CONNECTION_ESTABLISHED l=0)._try_send send error: (32) Broken pipe
+2024-08-09T14:06:56.631+0800 7fbe2a59b700  1 --2-  >> [v2:10.10.10.3:3300/0,v1:10.10.10.3:6789/0] conn(0x55df3909a400 0x55df3900a800 unknown :-1 s=BANNER_CONNECTING pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0).write banner write failed r=-32 ((32) Broken pipe)
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 10 --2-  >> [v2:10.10.10.3:3300/0,v1:10.10.10.3:6789/0] conn(0x55df3909a400 0x55df3900a800 unknown :-1 s=BANNER_CONNECTING pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0)._fault
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 EpollDriver.del_event del event fd=40 cur_mask=1 delmask=3 to 21
+2024-08-09T14:06:56.631+0800 7fbe29d9a700  1 --  >> [v2:10.10.10.1:3300/0,v1:10.10.10.1:6789/0] conn(0x55df3909ac00 msgr2=0x55df39009e00 unknown :-1 s=STATE_CONNECTION_ESTABLISHED l=0)._try_send send error: (32) Broken pipe
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20  RDMAConnectedSocketImpl ~RDMAConnectedSocketImpl destruct.
+2024-08-09T14:06:56.631+0800 7fbe2a59b700 20 EpollDriver.del_event del event fd=42 cur_mask=1 delmask=3 to 21
+2024-08-09T14:06:56.631+0800 7fbe29d9a700  1 --2-  >> [v2:10.10.10.1:3300/0,v1:10.10.10.1:6789/0] conn(0x55df3909ac00 0x55df39009e00 unknown :-1 s=BANNER_CONNECTING pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0).write banner write failed r=-32 ((32) Broken pipe)
+2024-08-09T14:06:56.631+0800 7fbe29d9a700 10 --2-  >> [v2:10.10.10.1:3300/0,v1:10.10.10.1:6789/0] conn(0x55df3909ac00 0x55df39009e00 unknown :-1 s=BANNER_CONNECTING pgs=0 cs=0 l=0 rev1=0 rx=0 tx=0)._fault
+```
+
+
+## 4.2 未配置 LimitMEMLOCK 和 PrivateDevices 报错
+
+该问题由于未修改 osd 启动进程的 `/etc/systemd/system/ceph-<cluster_id>@.service` 配置文件, 导致启动 osd 启动报错, 按照上面规则修改后可解决该问题.
+
+**问题记录:**
+```bash
+Cumulative compaction: 0.00 GB write, 0.00 MB/s write, 0.00 GB read, 0.00 MB/s read, 0.0 seconds
+Interval compaction: 0.00 GB write, 0.00 MB/s write, 0.00 GB read, 0.00 MB/s read, 0.0 seconds
+Stalls(count): 0 level0_slowdown, 0 level0_slowdown_with_compaction, 0 level0_numfiles, 0 level0_numfiles_with_compaction, 0 stop for pending_compaction_bytes, 0 slowdown for pending_compaction_bytes, 0 memtable_compaction, 0 memtable_slowdown, interval 0 total count
+Block cache BinnedLRUCache@0x55bcc84eb350#7 capacity: 1.35 GB usage: 2.47 KB table_size: 0 occupancy: 18446744073709551615 collections: 1 last_copies: 8 last_secs: 3.2e-05 secs_since: 0
+Block cache entry stats(count,size,portion): FilterBlock(11,1.20 KB,8.49918e-05%) IndexBlock(11,1.27 KB,8.9407e-05%) Misc(1,0.00 KB,0%)
+
+** File Read Latency Histogram By Level [P] **
+
+2025-08-10T06:56:02.560+0000 7fd21006b740  0 <cls> /home/jenkins-build/build/workspace/ceph-build/ARCH/x86_64/AVAILABLE_ARCH/x86_64/AVAILABLE_DIST/centos9/DIST/centos9/MACHINE_SIZE/gigantic/release/19.2.3/rpm/el9/BUILD/ceph-19.2.3/src/cls/hello/cls_hello.cc:316: loadi
+ng cls_hello
+2025-08-10T06:56:02.561+0000 7fd21006b740  0 <cls> /home/jenkins-build/build/workspace/ceph-build/ARCH/x86_64/AVAILABLE_ARCH/x86_64/AVAILABLE_DIST/centos9/DIST/centos9/MACHINE_SIZE/gigantic/release/19.2.3/rpm/el9/BUILD/ceph-19.2.3/src/cls/cephfs/cls_cephfs.cc:201: loa
+ding cephfs
+2025-08-10T06:56:02.562+0000 7fd21006b740  0 _get_class not permitted to load sdk
+2025-08-10T06:56:02.565+0000 7fd21006b740  0 _get_class not permitted to load lua
+2025-08-10T06:56:02.565+0000 7fd21006b740  0 osd.3 0 crush map has features 288232575208783872, adjusting msgr requires for clients
+2025-08-10T06:56:02.565+0000 7fd21006b740  0 osd.3 0 crush map has features 288232575208783872 was 8705, adjusting msgr requires for mons
+2025-08-10T06:56:02.565+0000 7fd21006b740  0 osd.3 0 crush map has features 288232575208783872, adjusting msgr requires for osds
+2025-08-10T06:56:02.565+0000 7fd21006b740  0 osd.3 0 load_pgs
+2025-08-10T06:56:02.565+0000 7fd21006b740  0 osd.3 0 load_pgs opened 0 pgs
+2025-08-10T06:56:02.565+0000 7fd21006b740 -1 osd.3 0 log_to_monitors true
+2025-08-10T06:56:02.574+0000 7fd20d002640 -1 /home/jenkins-build/build/workspace/ceph-build/ARCH/x86_64/AVAILABLE_ARCH/x86_64/AVAILABLE_DIST/centos9/DIST/centos9/MACHINE_SIZE/gigantic/release/19.2.3/rpm/el9/BUILD/ceph-19.2.3/src/msg/async/rdma/Infiniband.cc: In functi
+on 'int Infiniband::MemoryManager::Cluster::fill(uint32_t)' thread 7fd20d002640 time 2025-08-10T06:56:02.571743+0000
+/home/jenkins-build/build/workspace/ceph-build/ARCH/x86_64/AVAILABLE_ARCH/x86_64/AVAILABLE_DIST/centos9/DIST/centos9/MACHINE_SIZE/gigantic/release/19.2.3/rpm/el9/BUILD/ceph-19.2.3/src/msg/async/rdma/Infiniband.cc: 783: FAILED ceph_assert(m)
+
+ ceph version 19.2.3 (c92aebb279828e9c3c1f5d24613efca272649e62) squid (stable)
+ 1: (ceph::__ceph_assert_fail(char const*, char const*, int, char const*)+0x113) [0x55bcc517f85d]
+ 2: /usr/bin/ceph-osd(+0x401a14) [0x55bcc517fa14]
+ 3: /usr/bin/ceph-osd(+0x45669a) [0x55bcc51d469a]
+ 4: (Infiniband::init()+0x2fb) [0x55bcc5b6428b]
+ 5: (RDMAWorker::listen(entity_addr_t&, unsigned int, SocketOptions const&, ServerSocket*)+0x2d) [0x55bcc59d652d]
+ 6: /usr/bin/ceph-osd(+0xc24ccd) [0x55bcc59a2ccd]
+ 7: (EventCenter::process_events(unsigned int, std::chrono::duration<unsigned long, std::ratio<1l, 1000000000l> >*)+0x75d) [0x55bcc59d0d1d]
+ 8: /usr/bin/ceph-osd(+0xc53086) [0x55bcc59d1086]
+ 9: /lib64/libstdc++.so.6(+0xdbae4) [0x7fd21087fae4]
+ 10: /lib64/libc.so.6(+0x8a4da) [0x7fd21052f4da]
+ 11: clone()
+
+2025-08-10T06:56:02.588+0000 7fd20d002640 -1 *** Caught signal (Aborted) **
+ in thread 7fd20d002640 thread_name:msgr-worker-0
+
+ ceph version 19.2.3 (c92aebb279828e9c3c1f5d24613efca272649e62) squid (stable)
+ 1: /lib64/libc.so.6(+0x3ebf0) [0x7fd2104e3bf0]
+ 2: /lib64/libc.so.6(+0x8c21c) [0x7fd21053121c]
+ 3: raise()
+ 4: abort()
+ 5: (ceph::__ceph_assert_fail(char const*, char const*, int, char const*)+0x169) [0x55bcc517f8b3]
+ 6: /usr/bin/ceph-osd(+0x401a14) [0x55bcc517fa14]
+ 7: /usr/bin/ceph-osd(+0x45669a) [0x55bcc51d469a]
+ 8: (Infiniband::init()+0x2fb) [0x55bcc5b6428b]
+ 9: (RDMAWorker::listen(entity_addr_t&, unsigned int, SocketOptions const&, ServerSocket*)+0x2d) [0x55bcc59d652d]
+ 10: /usr/bin/ceph-osd(+0xc24ccd) [0x55bcc59a2ccd]
+ 11: (EventCenter::process_events(unsigned int, std::chrono::duration<unsigned long, std::ratio<1l, 1000000000l> >*)+0x75d) [0x55bcc59d0d1d]
+ 12: /usr/bin/ceph-osd(+0xc53086) [0x55bcc59d1086]
+ 13: /lib64/libstdc++.so.6(+0xdbae4) [0x7fd21087fae4]
+ 14: /lib64/libc.so.6(+0x8a4da) [0x7fd21052f4da]
+ 15: clone()
+ NOTE: a copy of the executable, or `objdump -rdS <executable>` is needed to interpret this.
+
+--- begin dump of recent events ---
+ -2747> 2025-08-10T06:55:56.424+0000 7fd21006b740  5 asok(0x55bcc8524000) register_command assert hook 0x55bcc845ace0
+ -2746> 2025-08-10T06:55:56.424+0000 7fd21006b740  5 asok(0x55bcc8524000) register_command abort hook 0x55bcc845ace0
+ -2745> 2025-08-10T06:55:56.424+0000 7fd21006b740  5 asok(0x55bcc8524000) register_command leak_some_memory hook 0x55bcc845ace0
+ -2744> 2025-08-10T06:55:56.424+0000 7fd21006b740  5 asok(0x55bcc8524000) register_command perfcounters_dump hook 0x55bcc845ace0
+ -2743> 2025-08-10T06:55:56.424+0000 7fd21006b740  5 asok(0x55bcc8524000) register_command 1 hook 0x55bcc845ace0
+```
+
+
+## 4.3 osd 进程异常
+
+当通过 cephadm 完成集群部署, 配置变更后, 仍出现该问题, 目前问题不明.
+
+```bash
+2025-08-10T07:02:24.266+0000 7f8177a94740  0 <cls> /home/jenkins-build/build/workspace/ceph-build/ARCH/x86_64/AVAILABLE_ARCH/x86_64/AVAILABLE_DIST/centos9/DIST/centos9/MACHINE_SIZE/gigantic/release/19.2.3/rpm/el9/BUILD/ceph-19.2.3/src/cls/cephfs/cls_cephfs.cc:201: loa
+ding cephfs
+2025-08-10T07:02:24.267+0000 7f8177a94740  0 _get_class not permitted to load sdk
+2025-08-10T07:02:24.270+0000 7f8177a94740  0 _get_class not permitted to load lua
+2025-08-10T07:02:24.270+0000 7f8177a94740  0 osd.4 54 crush map has features 288514051259236352, adjusting msgr requires for clients
+2025-08-10T07:02:24.271+0000 7f8177a94740  0 osd.4 54 crush map has features 288514051259236352 was 8705, adjusting msgr requires for mons
+2025-08-10T07:02:24.271+0000 7f8177a94740  0 osd.4 54 crush map has features 3314933000852226048, adjusting msgr requires for osds
+2025-08-10T07:02:24.271+0000 7f8177a94740  1 osd.4 54 check_osdmap_features require_osd_release unknown -> squid
+2025-08-10T07:02:24.271+0000 7f8177a94740  0 osd.4 54 load_pgs
+2025-08-10T07:02:24.271+0000 7f8177a94740  0 osd.4 54 load_pgs opened 0 pgs
+2025-08-10T07:02:24.271+0000 7f8177a94740 -1 osd.4 54 log_to_monitors true
+2025-08-10T07:02:24.634+0000 7f8177a94740  1 bluestore(/var/lib/ceph/osd/ceph-4) collect_metadata devices span numa nodes 0
+2025-08-10T07:02:25.468+0000 7f8177a94740  0 osd.4 54 done with init, starting boot process
+2025-08-10T07:02:25.468+0000 7f8177a94740  1 osd.4 54 start_boot
+2025-08-10T07:02:25.469+0000 7f8177a94740  1 osd.4 54 maybe_override_options_for_qos osd_max_backfills set to 1
+2025-08-10T07:02:25.469+0000 7f8177a94740  1 osd.4 54 maybe_override_options_for_qos osd_recovery_max_active set to 0
+2025-08-10T07:02:25.469+0000 7f8177a94740  1 osd.4 54 maybe_override_options_for_qos osd_recovery_max_active_hdd set to 3
+2025-08-10T07:02:25.469+0000 7f8177a94740  1 osd.4 54 maybe_override_options_for_qos osd_recovery_max_active_ssd set to 10
+2025-08-10T07:02:25.469+0000 7f8177a94740  1 osd.4 54 maybe_override_max_osd_capacity_for_qos default_iops: 21500.00 cur_iops: 26142.86. Skip OSD benchmark test.
+2025-08-10T07:02:25.474+0000 7f816a035640  1 osd.4 54 set_numa_affinity storage numa node 0
+2025-08-10T07:02:25.474+0000 7f816a035640 -1 osd.4 54 set_numa_affinity unable to identify public interface '' numa node: (2) No such file or directory
+2025-08-10T07:02:25.474+0000 7f816a035640  1 osd.4 54 set_numa_affinity not setting numa affinity
+2025-08-10T07:02:25.474+0000 7f816a035640  1 bluestore(/var/lib/ceph/osd/ceph-4) collect_metadata devices span numa nodes 0
+2025-08-10T07:02:25.474+0000 7f816a035640  1 bluestore(/var/lib/ceph/osd/ceph-4) collect_metadata devices span numa nodes 0
+2025-08-10T07:02:25.680+0000 7f816c039640  1 osd.4 54 tick checking mon for new map
+2025-08-10T07:02:26.468+0000 7f8161e13640  1 osd.4 61 state: booting -> active
+2025-08-10T07:02:27.167+0000 7f8174a2b640 -1 Infiniband to_dead failed to send a beacon: (11) Resource temporarily unavailable
+2025-08-10T07:02:33.507+0000 7f8173a17640 -1 Infiniband modify_qp_to_rtr failed to transition to RTR state: (22) Invalid argument
+2025-08-10T07:02:33.509+0000 7f8173a17640 -1 /home/jenkins-build/build/workspace/ceph-build/ARCH/x86_64/AVAILABLE_ARCH/x86_64/AVAILABLE_DIST/centos9/DIST/centos9/MACHINE_SIZE/gigantic/release/19.2.3/rpm/el9/BUILD/ceph-19.2.3/src/msg/async/rdma/RDMAConnectedSocketImpl.
+cc: In function 'void RDMAConnectedSocketImpl::handle_connection()' thread 7f8173a17640 time 2025-08-10T07:02:33.508351+0000
+/home/jenkins-build/build/workspace/ceph-build/ARCH/x86_64/AVAILABLE_ARCH/x86_64/AVAILABLE_DIST/centos9/DIST/centos9/MACHINE_SIZE/gigantic/release/19.2.3/rpm/el9/BUILD/ceph-19.2.3/src/msg/async/rdma/RDMAConnectedSocketImpl.cc: 231: FAILED ceph_assert(!r)
+
+ ceph version 19.2.3 (c92aebb279828e9c3c1f5d24613efca272649e62) squid (stable)
+ 1: (ceph::__ceph_assert_fail(char const*, char const*, int, char const*)+0x113) [0x5627245fc85d]
+ 2: /usr/bin/ceph-osd(+0x401a14) [0x5627245fca14]
+ 3: /usr/bin/ceph-osd(+0x45b95a) [0x56272465695a]
+ 4: (EventCenter::process_events(unsigned int, std::chrono::duration<unsigned long, std::ratio<1l, 1000000000l> >*)+0x1cd) [0x562724e4d78d]
+ 5: /usr/bin/ceph-osd(+0xc53086) [0x562724e4e086]
+ 6: /lib64/libstdc++.so.6(+0xdbae4) [0x7f81782a8ae4]
+ 7: /lib64/libc.so.6(+0x8a4da) [0x7f8177f584da]
+ 8: clone()
+
+2025-08-10T07:02:33.512+0000 7f8173a17640 -1 *** Caught signal (Aborted) **
+ in thread 7f8173a17640 thread_name:msgr-worker-2
+
+ ceph version 19.2.3 (c92aebb279828e9c3c1f5d24613efca272649e62) squid (stable)
+ 1: /lib64/libc.so.6(+0x3ebf0) [0x7f8177f0cbf0]
+ 2: /lib64/libc.so.6(+0x8c21c) [0x7f8177f5a21c]
+ 3: raise()
+ 4: abort()
+ 5: (ceph::__ceph_assert_fail(char const*, char const*, int, char const*)+0x169) [0x5627245fc8b3]
+ 6: /usr/bin/ceph-osd(+0x401a14) [0x5627245fca14]
+ 7: /usr/bin/ceph-osd(+0x45b95a) [0x56272465695a]
+ 8: (EventCenter::process_events(unsigned int, std::chrono::duration<unsigned long, std::ratio<1l, 1000000000l> >*)+0x1cd) [0x562724e4d78d]
+ 9: /usr/bin/ceph-osd(+0xc53086) [0x562724e4e086]
+ 10: /lib64/libstdc++.so.6(+0xdbae4) [0x7f81782a8ae4]
+ 11: /lib64/libc.so.6(+0x8a4da) [0x7f8177f584da]
+ 12: clone()
+ NOTE: a copy of the executable, or `objdump -rdS <executable>` is needed to interpret this.
+
+--- begin dump of recent events ---
+ -2984> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command assert hook 0x562727300ce0
+ -2983> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command abort hook 0x562727300ce0
+ -2982> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command leak_some_memory hook 0x562727300ce0
+ -2981> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command perfcounters_dump hook 0x562727300ce0
+ -2980> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command 1 hook 0x562727300ce0
+ -2979> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command perf dump hook 0x562727300ce0
+ -2978> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command perfcounters_schema hook 0x562727300ce0
+ -2977> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command perf histogram dump hook 0x562727300ce0
+ -2976> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command 2 hook 0x562727300ce0
+ -2975> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command perf schema hook 0x562727300ce0
+ -2974> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command counter dump hook 0x562727300ce0
+ -2973> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command counter schema hook 0x562727300ce0
+ -2972> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command perf histogram schema hook 0x562727300ce0
+ -2971> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command perf reset hook 0x562727300ce0
+ -2970> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command config show hook 0x562727300ce0
+ -2969> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command config help hook 0x562727300ce0
+ -2968> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command config set hook 0x562727300ce0
+ -2967> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command config unset hook 0x562727300ce0
+ -2966> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command config get hook 0x562727300ce0
+ -2965> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command config diff hook 0x562727300ce0
+ -2964> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command config diff get hook 0x562727300ce0
+ -2963> 2025-08-10T07:02:19.690+0000 7f8177a94740  5 asok(0x5627273ca000) register_command injectargs hook 0x562727300ce0
+```
+
+# 5. 参考资料
+
++ https://enterprise-support.nvidia.com/s/article/bring-up-ceph-rdma---developer-s-guide
++ https://jianyue.tech/posts/devops-ceph-rdma/
++ https://forum.proxmox.com/threads/ceph-in-pve-7-3-can-not-working-with-rdma-roce.132637/
++ https://docs.ceph.com/en/latest/rados/configuration/network-config-ref/#confval-ms_type
++ https://www.spinics.net/lists/ceph-users/msg69925.html
++ https://www.spinics.net/lists/ceph-users/msg69930.html
++ https://www.spinics.net/lists/ceph-users/msg75006.html
++ https://www.spinics.net/lists/ceph-users/msg75014.html
++ https://www.spinics.net/lists/ceph-users/msg75034.html
++ https://www.spinics.net/lists/ceph-users/msg75180.html
++ https://stackoverflow.com/questions/71080451/why-error-shows-usr-include-c-8-bits-stl-vector-h932-while-start-using-cha
++ https://github.com/VDrift/vdrift/issues/163
++ https://bugzilla.redhat.com/show_bug.cgi?id=1573253
++ https://tracker.ceph.com/issues/56863
++ https://tracker.ceph.com/issues/56789
