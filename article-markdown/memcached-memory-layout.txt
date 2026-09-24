@@ -1,0 +1,19 @@
+# Memcached 的内存分配机制
+
+# 1. 基本概念
+
++ `Slab Class`: 由相同大小的 Chunk 组成, 不同的 Slab Class 中的 Chunk 大小不同;
+
++ `Page`: 分配给单个 Slab 的内存大小, 默认为 1MB, 分配给 Slab 之后依据 Slab 的大小拆分为 Chunk;
+
++ `Chunk`: 将每一个 Slab 按照不同大小进行拆分, 得到了不同大小的 Chunk(每个 Slab 中的 Chunk 大小一致), Chunk 的初始大小可以指定, 并且可以根据不同的业务场景通过调整增长因子 (factor: 默认为 1.25) 进行调优;
+
+![Slab Alloction 构造图 ](/assets/images/posts/memcached-memory-layout/memcached-slab-alloction.webp)
+
+# 2. 存储过程
+
+Memcached 根据收到数据的大小, 选择最合适数据大小的 Slab Class, 根据 Memcached 中保存的该 Slab Class 中空闲的 Chunk 列表, 将将数据存储于其中.
+
+# 3. 相关链接
+
++ [The Slab Allocator: An Object-Caching Kernel Memory Allocator](

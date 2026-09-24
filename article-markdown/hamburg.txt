@@ -1,0 +1,58 @@
+# Hamburg - 抓包/耗时分析工具
+
+`Hamburg` 是一款用 `Go` 实现的抓包/耗时分析的工具, 项目地址为 [https://github.com/bugwz/hamburg](https://github.com/bugwz/hamburg). 该工具的设计思想以及实现逻辑基本参照[tcpkit](https://github.com/git-hulk/tcpkit).
+
+# 1. 功能实现
+
++ `抓包/拆包`: 使用 [gopacket](https://github.com/google/gopacket) 进行抓包以及 `IP`/`TCP`/`UDP` 等信息的解析;
++ `耗时分析`: 通过监听端口以及与本地监听网卡的 IP 地址比对, 猜测数据包的请求方向 (Request/Response), 并临时保存 Request 的数据包, 在接收到与之匹配的回复数据包后, 就可以计算出整个请求在本机的处理耗时. 由于只要有一个回复数据包, 整个请求回复链路的耗时统计就算完成, 因此在 server 对于 pipline 的请求会批次回复的情况 (redis 等) 下, 耗时统计可能会偏小;
++ `Lua自定义脚本`: 通过使用[gopher-lua](https://github.com/yuin/gopher-lua)包, 支持使用自定义 lua 处理数据包;
++ `应用层数据解析`: 目前支持按照 `raw`/`dns`/`http`/`redis`/`memcached`/`mysql` 等协议的数据解析. 在收到多个 `Request数据包` 并且还没有相应的 `Response数据包` 的情况下会自动合并解析后的请求内容.
+  + **raw**: 仅输出 `SequenceID`,`ACKNumber`,`PayloadLen` 以及数据包的 Flags(包含 `FIN`/`SYN`/`RST`/`PSH`/`ACK`/`URG`/`ECE`/`CWR`) 等信息;
+  + **dns**: 支持解析多种请求的类型, 包含 `A`/`NS`/`MD`/`MF`/`CNAME`/`SOA`/`MB`/`MG`/`MR`/`NULL`/`WKS`/`PTR`/`HINFO`/`MINFO`/`MX`/`TXT`/`AAAA`, 而响应数据包支持的解析类型较少, 目前仅有 `A` 和 `CNAME`;
+  + **http**: 支持所有类型的数据解析, 不过输出的信息仅有 `Method Type`,`Host`,`Resource Path` 和 `Response Code`;
+  + **redis**: 支持大多数的请求访问类型, 不统计 noreply 请求耗时, 在 pipline 的场景下对于 `multi bulk` 的指令解析比 tcpkit 更准确;
+  + **memcached**: 不统计 noreply 请求耗时;
+  + **mysql**: 仅支持了部分 client 对 server 的请求的数据包的解析, 对于 server 回复给 client 的数据包暂时没有做解析处理;
+
+# 2. 示例
+
+## 2.1 解析 dns 数据包
+
+监听本地网卡 `en0`, 过滤包含 IP 为 `192.168.1.101` 和端口 `53` 的数据包, 按照 `dns` 的解析规则解析 payload, 输出请求回复链路耗时 `大于0ms` 的信心, 并打印回复数据包的内容;
+
+```bash
+$ go run main.go -i en0 -s 192.168.1.101 -p 53 -m dns -t 0 -a
+
+Name:  en0
+Description:
+Devices addresses:
+- IP address: 192.168.1.101
+- Subnet mask:  ffffff00
+
+Start capturing packet with filter: ((port 53) and ((host192.168.1.101)))
+2020-07-26 11:17:30 ||  192.168.1.101:45742 =>       223.5.5.5:53    || 155µs || [AAAA] manshs1.tsdmain.org ||
+2020-07-26 11:17:30 ||  192.168.1.101:25138 =>       223.5.5.5:53    || 162µs || [A] manshs1.tsdmain.org || [A] 215.33.36.57;
+2020-07-26 11:17:30 ||  192.168.1.101:25138 =>  208.67.220.220:53    || 584µs || [A] manshs1.tsdmain.com || [A] 225.42.15.55;
+2020-07-26 11:17:33 ||  192.168.1.101:53488 =>  208.67.220.220:53    || 575µs || [A] www.a.shifen.com || [A] 61.135.169.125/61.135.169.125;
+```
+
+## 2.2 解析 redis 数据包
+
+监听本地网卡 `en0`, 过滤包含 IP 为 `192.168.1.101` 和端口 `6379` 的数据包, 按照 `redis` 的解析规则解析 payload, 输出请求回复链路耗时 `大于0ms` 的信心;
+
+```bash
+$ go run main.go -i en0 -s 192.168.1.101 -p 6379 -m redis -t 0
+
+Name:  en0
+Description:
+Devices addresses:
+- IP address: 192.168.1.101
+- Subnet mask:  ffffff00
+
+Start capturing packet with filter: ((port 6379) and ((host 192.168.1.101)))
+2020-07-26 14:33:55 ||   192.168.1.203:55241 =>   192.168.1.101:50396 || 408µs || COMMAND
+2020-07-26 14:33:57 ||   192.168.1.203:55241 =>   192.168.1.101:50396 || 191µs || info
+2020-07-26 14:34:05 ||   192.168.1.203:55242 =>   192.168.1.101:50396 || 193µs || info memory
+2020-07-26 14:34:19 ||   192.168.1.203:54311 =>   192.168.1.101:50396 || 312µs || set a 1000
+```

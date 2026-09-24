@@ -1,0 +1,207 @@
+# Ghost 博客成功 "更新" 至 0.11.9
+
+Ghost 真的是一个让我又爱又恨的博客平台, 界面的简洁之美, 写作的流畅与舒适, 还有那烦人的安装与更新操作. 在差不多一年之前吧, 我安装了版本是 `0.7.4` 的 Ghost 平台, 那时候用的是<a href="http://www.ghostchina.com/" target="_blank">Ghost 中文网</a>中的那个 `Ghost 中文集成版` , 当时也是费了很多周折, 使用到现在也没有出现什么问题. 也是在最近几天, 闲着没事去 Ghost 中文网看了看, 竟然还是 `0.7.4` 的版本! 心想难道 Ghost 一直没更新? 于是去英文官网看了看, 才发现原来 Ghost 有两个路线, 一个是 `Alpha` 版本, 已经更新到了 `Alpha.21` , 一个是正式版, 也已经更新到了 `0.11.9` ; 而 Ghost 中文网的内容就有点滞后了, 希望可以尽快更新. 之后我就想体验新版本的 Ghost. 开始吧~
+
+# 1. 尝试更新 Ghost
+
+根据 Ghost 英文官网的 <a href="https://support.ghost.org/how-to-upgrade" target="_blank">How-To-Upgrade</a>更新指导步骤, 我整理如下:
+
++ 备份: 在后台中的 "实验室" 栏目中导出一个 `.json文件` , 并且将 Ghost 根目录中的 `content目录` 进行备份 (这里存放着博客站点的所有上传图片和主题). 而我直接是把 `整个Ghost目录和数据库` 进行了备份. 记住: 一定要备份! 无论你做什么一定要备份! ! !
++ 检查 Ghost 平台是否可以重启: 因为在更新 Ghost 完成之后, 或者更新出错进行调试的时候, 需要重启 Ghost, 所以我们必须确保 Ghost 可以重启;
++ 关于跨版本更新的问题: 源版本与目标版本如果跨度较大可能会出现问题, 所以更新升级的建议如下:
+ + `0.7.1` 或更高版本应该可以直接升级到 `0.11.9` ;
+ + `0.5.0` 或更高版本应该可以直接升级到 `0.7.x` ;
+ + `0.4.2` 的版本必须升级到版本 `0.7.1` (`0.7.0` 有几个升级错误, 在 `0.7.1` 中被解决), 然后升级到更高版本的 `0.7.x`;
+ + `0.4.2` 之前的版本必须按照版本号由低到高升级, 直到达到 `0.4.2`;
++ 下载新版本并解压: 可以使用 `wget` 或者 `curl -LOk` 下载
+   `https://ghost.org/zip/ghost-latest.zip` 中的最新版本文件, 然后可以使用 `unzip Ghost-*.*.*.zip -d ghost-*.*.*` 解压.
++ 删除旧文件/复制新文件: 删除 Ghost 更目录下的 `core目录` ,`index.js` ,`*.md` 和 `*.json` ; 复制新版本 Ghost 目录中的 
+   `core目录` , `index.js` , `package.json` 和 `npm-shrinkwrap.json` 到目前的 Ghost 根目录中.
++ 开始升级: 在目前的 Ghost 目录中执行升级命令 `npm install --production --unsafe-perm` , 如果期间报错, 先删除 `node_modules文件夹` , 再运行 `npm cache clean` 并重试. 最后运行 `npm start --production` 进行调试.
+
+>  使用 `npm install --production --unsafe-perm` 需要注意的问题:
+
++ 添加 `--unsafe-perm` 的参数的原因是: 如果我们不添加这个参数, 会出现类似于 `npm WARN cannot run in wd test@0.0.0 echo something (wd=/Users/Lloyd/Documents/test)` 的错误, 原因是如果使用 root 权限调用 `npm` , 那么它会将 `uid` 更改为用户配置指定的 `uid` , 默认为 `nobody` , 设置 ` --unsafe-perm` 参数以使用 root 权限运行脚本;
++ 因为 GFW 的原因, 使用 `npm install --production --unsafe-perm` 可能会出现很多错误, 建议修改一下 `npm` 的镜像源, 这里推荐<a href="http://npm.taobao.org/" target="_blank">淘宝 NPM 镜像</a>, 具体使用命令为 (其他修改方法见<a href="https://cnodejs.org/topic/4f9904f9407edba21468f31e" target="_blank">这里</a>):
+
+```bash
+npm config set registry https://registry.npm.taobao.org 
+npm info underscore(如果上面配置正确这个命令会有字符串response)
+```
++ 由于我这里不使用 `sqlite3` , 所以我吧 `package.json` 中的 `sqlite3` 依赖包给删除了, 否则的话安装会卡住不动.
+
+# 2. 全新安装 Ghost 平台
+
+因为之前安装 Ghost 也出现了不少问题, 但是目前都忘了, 为了回顾一下, 也为了照顾第一次使用 Ghost 的用户, 这里再说明一下全新安装 `Ghost 0.11.9` 的方法. 下文中部分参考于<a href="https://snowz.me/how-to-install-ghost/" target="_blank">手把手教你搭建一个属于自己的 Ghost 博客</a>
+
+## 2.1 安装 `Node` 环境
+
+由于 `Ghost` 是基于 `Node` 的, 所以 `Node` 的环境是必须第一步要安装的, 而 `Ghost` 对于 `Node` 版本的要求也是十分苛刻的, 具体要求可以去<a href="http://support.ghost.org/supported-node-versions/" target="_blank">官方的说明</a>中去查看, 我整理如下:
+
++ Ghost 目前支持的 Node 版本只有 `0.12.x` , `4.2+` , `6.9+`;
++ 官方推荐的版本是 `4.2+` , 经实测使用 `4.5` 会报错, 所以这里的
+   `4.2+` 应该是指 `4.2.*` ;
+
+我在这里使用的 `Node` 版本是 4.2.5, 安装 Node 的命令如下所示:
+```bash
+wget http://nodejs.org/dist/v4.2.5/node-v4.2.5.tar.gz
+tar zxvf node-v4.2.5.tar.gz
+cd node-v4.2.5
+./configure
+make && make install
+```
+
+## 2.2 安装 Nginx 并配置
+
+首先我们安装 Nginx:
+```bash
+sudo apt-get install nginx
+```
+安装之后可以使用 IP 访问, 检查 `Nginx` 是否安装成功, 然后我们需要为 Ghost 平台在 `/etc/nginx/conf.d` 目录下创建一个配置文件
+ `ghost.conf` :
+```bash
+vi /etc/nginx/conf.d/ghost.conf
+```
+写入的内容如下所示:
+```nginx
+#http访问
+server {  
+    listen 80;
+    server_name example.com; #将example.com改为你的域名或ip
+    location / {
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   Host      $http_host;
+        proxy_pass         http://127.0.0.1:2368;
+    }
+}
+#https访问,可以配置也可以不配置:
+server {
+	listen 443;
+	server_name example.com; #将example.com改为你的域名或ip
+	ssl on;
+	ssl_certificate	/etc/crt.crt;#证书crt的绝对路径;
+	ssl_certificate_key    /etc/private.key;#私钥key的绝对路径;
+	location / {
+		proxy_set_header   X-Real-IP $remote_addr;
+		proxy_set_header   Host      $http_host;
+		proxy_set_header X-Forwarded-Proto $scheme;
+		proxy_pass	 http://127.0.0.1:2368;
+	}
+}
+```
+保存退出, 然后重启 `Nginx` 生效配置:
+```bash
+/etc/init.d/nginx restart
+```
+## 2.3 安装 `MySQL` 并配置
+
+Ghost 默认使用 `sqlite3 数据库` , `sqlite3 数据库` 功能简约, 小型化, 追求最大磁盘效率, 而 `MySQL` 是完善的服务器数据库, 功能全面, 综合化, 追求最大并发效率, 所以我这里使用的是 `MySQL` , 下面是操作命令:
+```bash
+apt-get install mysql-server # 安装Mysql  
+/etc/init.d/mysql restart # 启动/重新启动Mysql
+mysql_secure_installation #配置Mysql
+```
+输入 `mysql_secure_installation` 回车后, 系统可能会询问一些 `MySQL` 的用户密码安全措施, 建议在设置时选择 `1 or MEDIUM` 即可, 这是说明你的 `MySQL` 用户密码必须包括 "数字, 大写字母, 小写字母, 特殊字符", 部分配置的解释为:
+```bash
+Set root password? [Y/n] # 设置root密码  
+anonymous users? [Y/n] # 删除匿名用户  
+Disallow root login remotely? [Y/n] # 禁止root用户远程登录  
+Remove test database and access to it? [Y/n] # 删除默认的 test 数据库  
+Reload privilege tables now? [Y/n] # 刷新授权表使修改生效
+```
+为了防止在 `MySQL` 数据库中出现中文乱码, 需要设置 `MySQL` 的编码, 编辑 `/etc/mysql/my.cnf` 写入如下信息后保存退出, 并重启 `MySQL` 服务:
+```bash
+[client]
+default-character-set=utf8mb4
+[mysql]
+default-character-set=utf8mb4
+[mysqld]
+character-set-server=utf8mb4
+collation-server=utf8mb4_unicode_ci
+skip-character-set-client-handshake = true
+```
+```bash
+/etc/init.d/mysql restart #重启MySQL服务
+```
+然后我们新建一个数据库用来存放博客中的文章等信息, 并且建立一个用户管理该数据库, 由于我们之前设置的 `MySQL` 数据库用户密码策略, 所以密码必须包含 "数字, 大写字母, 小写字母, 特殊字符":
+```bash
+mysql -u root -p # 输入设置好的密码  
+create database ghost; # 创建ghost数据库  
+# 新建一个用户ghost,密码为123456Aa!并将ghost数据库授权给它
+grant all privileges on ghost.* to 'ghost'@'%' identified by '123456Aa!'; 
+flush privileges # 重新读取权限表中的数据到内存,不用重启mysql就可以让权限生效
+```
+
+## 2.4 安装 `Ghost` 并配置
+
+下载并解压 Ghost:
+```bash
+cd /var/www
+wget https://ghost.org/zip/ghost-latest.zip
+unzip Ghost-0.11.9.zip -d ghost
+cd ghost
+```
+修改配置:
+```bash
+cp config.example.js config.js  
+vi config.js
+```
+ `Ghost` 有生产模式, 开发模式和测试模式等多种运行模式, 这里我们需要在配置文件中找到 `production` 模式:
+```bash
+# 生产模式
+production: {  
+    url: 'http://snowz.me', # 修改为你的域名或者IP,注意加上http://
+    mail: {},
+    database: {
+        client: 'mysql'
+        connection: {
+            host     : '127.0.0.1',
+            user     : 'ghost', # 数据库连接的用户
+            password : '123456Aa!', # 先前创建的密码
+            database : 'ghost', # 先前创建的数据库
+            charset  : 'utf8'
+        },
+    server: {
+            host: '127.0.0.1',
+            port: '2368' # 若修改该端口记得在nginx中做相应改变
+        }
+    }  
+```
+接下来下载 `Ghost` 所需要的依赖包:
+```bash
+npm config set registry https://registry.npm.taobao.org 
+npm info underscore(如果上面配置正确这个命令会有字符串response)
+npm install --production --unsafe-perm
+```
+
+>  上面代码的解释如下:
+
++  `npm config set registry https://registry.npm.taobao.org` 是修改一下 `npm` 的镜像源, 避免因为 `GFW` 而下载依赖包失败, 其他修改方法见<a href="https://cnodejs.org/topic/4f9904f9407edba21468f31e" target="_blank">这里</a>;
++  添加 `--unsafe-perm` 的参数的原因是: 如果我们不添加这个参数, 会出现类似于 `npm WARN cannot run in wd test@0.0.0 echo something (wd=/Users/Lloyd/Documents/test)` 的错误, 原因是如果使用 `root` 权限调用 `npm` , 那么它会将 `uid` 更改为用户配置指定的 `uid` , 默认为 `nobody` , 设置 ` --unsafe-perm` 参数以使用 `root` 权限运行脚本;
+
+# 3. 开机后博客自动运行
+
+安装 `PM2` 让 `Ghost` 可以在开机后自动后台运行
+```bash
+npm install -g cnpm --registry=https://registry.npm.taobao.org  
+cnpm install pm2 -g  
+NODE_ENV=production pm2 start index.js --name "ghost"  
+pm2 startup ubuntu 
+pm2 save
+```
+我们需要打开 `/etc/rc.local` 文件在其中添加如下代码, 让 `MySQL` 和 `Nginx` 开机自动运行:
+```bash
+/etc/init.d/mysql restart
+/etc/init.d/nginx restart
+```
+
+# 4. 出现的一些问题
+
+# 5. config.js 文件中的的 URL 配置 https 后, 访问是浏览器提示重定向次数过多问题:
+
+之前就曾在安装完运行过程中发现网站的针对谷歌的复合搜索卡中的 URL 是 http 的, 如果改成 https, 浏览器提示重定向次数过多. 由于不妨碍使用, 当时就没注意.
+
+今天 (`2017/06/03`) 在 Search Console 中发现 `我们在您的网站上未找到复合搜索卡的任何结构化数据.` 的提示信息. 先通过谷歌的<a href="https://search.google.com/structured-data/testing-tool" target="_blank">结构化数据测试工具</a>检测了一番, 发现我的复合搜索卡结构语法并没有错误, 然后谷歌提供的<a href="https://support.google.com/webmasters/answer/6381755?#debugging" target="_blank">问题排查</a>, 我发现是由于 config.js 文件中配置的是http://bugwz.com , 而我在谷歌的 Search Console 中配置的是https://bugwz.com , 导致 Search Console 资源必须与托管网站不匹配, 所以最后查阅一番, 修正方法为在 nginx 的配置文件中的 `location /` 配置中加入如下代码:
+```bash
+proxy_set_header X-Forwarded-Proto $scheme; //其中$scheme也可以直接写为https
+```

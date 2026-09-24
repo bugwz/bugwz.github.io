@@ -1,0 +1,124 @@
+# iTerm2 配置 rz/sz 上传下载文件
+
+# 1. iTerm2 的 Triggers 功能
+
+关于 iTerm2 的 [Triggers](https://iterm2.com/documentation/2.1/documentation-triggers.html) 功能, 官方的介绍是:
+
+> A trigger is an action that is performed when text matching some regular expression is received in a terminal session.
+
+即: 触发器是在终端会话中收到与某个正则表达式匹配的文本时执行的动作.
+
+# 2. 配置 rs/zs
+
+## 2.1 一键脚本
+
+```bash
+curl -sSLf https://git.io/bugwz-sh-iterm2-rzsz | sh  
+```
+
+**该脚本作用如下:**
+
++ 使用指令 `brew install lrzsz` 安装 `lrzsz` 软件;
++ 下载 `iterm2-send-zmodem.sh` 和 `iterm2-recv-zmodem.sh` 到 `/usr/local/bin/` 目录;
++ 提示在 iTerm2 中进行后续的操作步骤;
+
+## 2.2 单独操作步骤
+
+-   安装 lrzsz:
+
+```bash
+brew install lrzsz
+```
+
+-   在 `/usr/local/bin` 目录中新增 `iterm2-send-zmodem.sh` 脚本 (内容如下), 并设置可执行权限:`chmod +x iterm2-send-zmodem.sh`
+
+```bash
+#!/bin/bash  
+# shellcheck shell=dash  
+# Author: Matt Mastracci (matthew@mastracci.com)  
+# AppleScript from http://stackoverflow.com/questions/4309087/cancel-button-on-osascript-in-a-bash-script  
+# licensed under cc-wiki with attribution required   
+# Remainder of script public domain  
+  
+osascript -e 'tell application "iTerm2" to version' > /dev/null 2>&1 && NAME=iTerm2 || NAME=iTerm  
+if [ "$NAME" = "iTerm" ]; then  
+    FILE=$(osascript -e 'tell application "iTerm" to activate' -e 'tell application "iTerm" to set thefile to choose file with prompt "Choose a file to send"' -e "do shell script ( \"echo \"&(quoted form of POSIX path of thefile as Unicode text)&\"\" )")  
+else  
+    FILE=$(osascript -e 'tell application "iTerm2" to activate' -e 'tell application "iTerm2" to set thefile to choose file with prompt "Choose a file to send"' -e "do shell script ( \"echo \"&(quoted form of POSIX path of thefile as Unicode text)&\"\" )")  
+fi  
+  
+if [ "$FILE" = "" ]; then  
+    echo Cancelled.  
+    # Send ZModem cancel  
+    echo \\x18\\x18\\x18\\x18\\x18  
+    sleep 1  
+    echo  
+    echo \# Cancelled transfer  
+else  
+    /usr/local/bin/sz "$FILE" --escape --binary --bufsize 4096  
+    sleep 1  
+    echo  
+    echo  
+    echo "# Received $FILE"  
+fi
+```
+
+-   在 `/usr/local/bin` 目录中新增 `iterm2-recv-zmodem.sh` 脚本 (内容如下), 并设置可执行权限:`chmod +x iterm2-recv-zmodem.sh`
+
+```bash
+#!/bin/bash  
+# shellcheck shell=dash  
+# Author: Matt Mastracci (matthew@mastracci.com)  
+# AppleScript from http://stackoverflow.com/questions/4309087/cancel-button-on-osascript-in-a-bash-script  
+# licensed under cc-wiki with attribution required   
+# Remainder of script public domain  
+  
+osascript -e 'tell application "iTerm2" to version' > /dev/null 2>&1 && NAME=iTerm2 || NAME=iTerm  
+if [ "$NAME" = "iTerm" ]; then  
+    FILE=$(osascript -e 'tell application "iTerm" to activate' -e 'tell application "iTerm" to set thefile to choose folder with prompt "Choose a folder to place received files in"' -e "do shell script (\"echo \"&(quoted form of POSIX path of thefile as Unicode text)&\"\")")  
+else  
+    FILE=$(osascript -e 'tell application "iTerm2" to activate' -e 'tell application "iTerm2" to set thefile to choose folder with prompt "Choose a folder to place received files in"' -e "do shell script (\"echo \"&(quoted form of POSIX path of thefile as Unicode text)&\"\")")  
+fi  
+  
+if [ "$FILE" = "" ]; then  
+    echo Cancelled.  
+    # Send ZModem cancel  
+    echo \\x18\\x18\\x18\\x18\\x18  
+    sleep 1  
+    echo  
+    echo \# Cancelled transfer  
+else  
+    cd "$FILE" || exit  
+    /usr/local/bin/rz --rename --escape --binary --bufsize 4096   
+    sleep 1  
+    echo  
+    echo  
+    echo "# Sent -> $FILE"  
+fi
+```
+
+-   打开 iTerm2 软件, 按照如下步骤配置 Triggers:
+    -   打开 `Preferences...`;
+    -   选择 `Profiles` 标签页, 并在左侧选择对应的 `Profile Name`;
+    -   点击右侧的 `Advanced` 标签页;
+    -   点击 `Triggers` 栏目下的 `Edit` 按钮, 新增触发器, 具体配置如下所示;
+
+|**Regular Expression**|**Action**|**Parameters**|**Instant**|
+|:---------------------------------:|:-------------------:|:----------------------------------:|:---------:|
+|rz waiting to receive.\\\*\\\*B0100|Run Silent Coprocess...|/usr/local/bin/iterm2-send-zmodem.sh|checked|
+|\\\*\\\*B00000000000000|Run Silent Coprocess...|/usr/local/bin/iterm2-recv-zmodem.sh|checked|
+
+
+# 3. 实现逻辑
+
+-   发送文件到终端的当前路径的实现逻辑:
+
+![rz](/assets/images/posts/iterm2-rzsz/iterm2-rz.webp)
+
+-   从终端下载文件到本地的实现逻辑:
+
+![sz](/assets/images/posts/iterm2-rzsz/iterm2-sz.webp)
+
+# 4. 相关知识点
+
+-   [osascript](https://ss64.com/osx/osascript.html)

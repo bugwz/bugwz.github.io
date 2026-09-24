@@ -1,0 +1,65 @@
+# Hexo 的多种 Markdown 渲染器对比分析
+
+Hexo 作为一个优秀的 Markdown 博客框架, 自然也诞生了很多适用的 Markdown 渲染器, 这里对比分析一下 Hexo 下几种常用的 Markdown 渲染器: `hexo-renderer-marked` , `hexo-renderer-kramed` , `hexo-renderer-pandoc` , `hexo-renderer-markdown-it` , `hexo-renderer-markdown-it-plus` , 本文使用的渲染器为: `hexo-renderer-markdown-it-plus` .
+
+# 1. 详细介绍
+
+## 1.1 hexo-renderer-marked
+
+Hexo 默认的 Markdown 的渲染器, 针对于普通的 Markdown 的文章书写, 该渲染器已经足够, 但是由于不支持 Mathjax, 不支持插件扩展, 不支持 emoji 表情, 所以该渲染器也是介绍的渲染器中功能最弱的.
+
+- GitHub 地址:[hexojs/hexo-renderer-marked](https://github.com/hexojs/hexo-renderer-marked)
+- NPM 地址:[hexo-renderer-marked](https://www.npmjs.com/package/hexo-renderer-marked)
+  - `版本`: 2.0.0
+  - `最近提交`: a month ago
+  - `依赖`:[hexo-util](https://www.npmjs.com/package/hexo-util),[marked](https://www.npmjs.com/package/marked),[strip-indent](https://www.npmjs.com/package/strip-indent)
+
+- 安装方式:`npm install hexo-renderer-marked --save`
+
+## 1.2 hexo-renderer-kramed
+
+基于 hexo-renderer-marked 二次开发的渲染器, 完善了对 Mathjax 的支持, 仍然不支持插件的扩展, 不支持 emoji 表情.
+
+- GitHub 地址:[sun11/hexo-renderer-kramed](https://github.com/sun11/hexo-renderer-kramed)
+- NPM 地址:[hexo-renderer-kramed](https://www.npmjs.com/package/hexo-renderer-kramed)
+  - `版本`: 0.1.4
+  - `最近提交`: 2 years ago
+  - `依赖`:[hexo-util](https://www.npmjs.com/package/hexo-util),[kramed](https://www.npmjs.com/package/kramed),[object-assign](https://www.npmjs.com/package/object-assign),[strip-indent](https://www.npmjs.com/package/strip-indent)
+
+- 安装方式:`npm install hexo-renderer-kramed --save`
+
+## 1.3 hexo-renderer-pandoc
+
+与 hexo-renderer-marked 类似, 支持 Mathjax 语法, 不仅可以渲染 markdown, 还支持 textile, reStructedText 和许多其他格式, 仍然不支持 emoji 表情; 内建的汇总文件 `db.json` 将来可能会非常大, 同步到 Github 可能会比较慢, 博客内建的搜索功能也可能会变得非常慢.
+
+- GitHub 地址:[wzpan/hexo-renderer-pandoc](https://github.com/wzpan/hexo-renderer-pandoc)
+- NPM 地址:[hexo-renderer-pandoc](https://www.npmjs.com/package/hexo-renderer-pandoc)
+  - `版本`: 0.1.4
+  - `最近提交`: 2 years ago
+  - `依赖`: 无
+
+- 安装方式:`npm install hexo-renderer-pandoc --save`
+
+## 1.4 hexo-renderer-markdown-it
+
+支持 Mathjax 语法 (支持不太好), 支持 Markdown 以及 CommonMark 语法, 渲染速度比 hexo-renderer-marked 快, 支持插件配置, 支持标题带安全的 id 信息, 支持脚注 (上标, 下标, 下划线).
+
+- GitHub 地址:[hexojs/hexo-renderer-markdown-it](https://github.com/hexojs/hexo-renderer-markdown-it)
+- NPM 地址:[hexo-renderer-markdown-it](https://www.npmjs.com/package/hexo-renderer-markdown-it)
+  - `版本`: 3.4.1
+  - `最近提交`: 4 years ago
+  - `依赖`: 较多...
+
+- 安装方式:`npm i hexo-renderer-markdown-it --save`
+
+## 1.5 hexo-renderer-markdown-it-plus
+
+支持 Katex 插件并默认启用, 默认启用插件列表:`markdown-it-emoji`,`markdown-it-sub`,`markdown-it-sup`,`markdown-it-deflist`,`markdown-it-abbr`,`markdown-it-footnote`,`markdown-it-ins`,`markdown-it-mark`,`@iktakahiro/markdown-it-katex`,`markdown-it-toc-and-anchor`.
+
+- GitHub 地址:[CHENXCHEN/hexo-renderer-markdown-it-plus](https://github.com/CHENXCHEN/hexo-renderer-markdown-it-plus)
+- NPM 地址:[hexo-renderer-markdown-it-plus](https://www.npmjs.com/package/hexo-renderer-markdown-it-plus)
+  - `版本`: 1.0.4
+  - `最近提交`: a year ago
+  - `依赖`:[@iktakahiro/markdown-it-katex](https://www.npmjs.com/package/%40iktakahiro%2Fmarkdown-it-katex),[clone](https://www.npmjs.com/package/clone),[highlight.js](https://www.npmjs.com/package/highlight.js),[markdown-it](https://www.npmjs.com/package/markdown-it),[markdown-it-abbr](https://www.npmjs.com/package/markdown-it-abbr),[markdown-it-deflist](https://www.npmjs.com/package/markdown-it-deflist),[markdown-it-emoji](https://www.npmjs.com/package/markdown-it-emoji),[markdown-it-footnote](https://www.npmjs.com/package/markdown-it-footnote),[markdown-it-ins](https://www.npmjs.com/package/markdown-it-ins),[markdown-it-mark](https://www.npmjs.com/package/markdown-it-mark),[markdown-it-sub](https://www.npmjs.com/package/markdown-it-sub),[markdown-it-sup](https://www.npmjs.com/package/markdown-it-sup),[markdown-it-toc](https://www.npmjs.com/package/markdown-it-toc),[uslug](https://www.npmjs.com/package/uslug)
+
+- 安装方式:`npm i hexo-renderer-markdown-it-plus --save`

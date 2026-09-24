@@ -1,0 +1,56 @@
+# 网站收藏列表
+
+# 1. 网站分类列表
+
+## 1.1 推荐技术类网站
+
+- [编程狂人周刊](https://www.tuicool.com/mags)
+- [码农周刊](https://weekly.manong.io/issues/)
+- [开发者头条-今日头条](https://toutiao.io/)
+- [阿里-数据库内核月报](http://mysql.taobao.org/monthly/)
+- [阿里-中间件团队博客](http://jm.taobao.org/)
+- [美团技术团队](https://tech.meituan.com/)
+- [360核心安全技术博客](http://blogs.360.cn/)
+
+## 1.2 设计类网站
+
+- [Icon-阿里巴巴矢量图标库](https://www.iconfont.cn/plus)
+- [Easyicon图标下载](https://www.easyicon.net/)
+- [艺术字体在线生成](http://www.akuziti.com/)
+
+## 1.3 在线工具
+
+- [在线工具箱](https://tool.lu/)
+- [站长工具](http://tool.chinaz.com/)
+- [ATOOL在线工具](http://www.atool9.com/)
+- [ProcessOn在线流程图](https://www.processon.com/)
+- [在线编程工具](https://tool.lu/coderunner/)
+- [搞定设计-在线PS](https://www.uupoop.com/)
+- [图片背景抠除](https://www.remove.bg/)
+
+## 1.4 阅读类
+
+- [少数派](https://sspai.com/)
+- [MottoIN-专注于互联网信息安全的科技媒体](http://www.mottoin.com/)
+- [InfoQ](https://www.infoq.cn/)
+
+## 1.5 搜索/导航类
+
+- [鸠摩搜书-电子书搜索引擎](https://www.jiumodiary.com/)
+- [DuckDuckGo 一款不追踪你的搜索引擎](https://duckduckgo.com/)
+- [Bing搜索](https://cn.bing.com/)
+- [安全圈-信息安全导航页](https://www.anquanquan.info/)
+
+## 1.6 国内镜像站
+
+- [PHPComposer](https://pkg.phpcomposer.com/)
+- [清华大学开源软件镜像站](https://mirrors.tuna.tsinghua.edu.cn/)
+
+## 1.7 在线学习
+
+- [合天网安实验室](http://www.hetianlab.com/)
+
+## 1.8 其他工具
+
+- [射手网(伪)字幕下载](http://assrt.net/)
+- [Archive 网站历史记录查询](

@@ -1,0 +1,287 @@
+# HAProxy 的学习与使用
+
+[HAProxy](http://www.haproxy.org/) 是一个用于提供高可用, 负载均衡以及基于四层和七层网络的代理软件, 常使用于对性能要求较高, 差错容忍度较低的场景.
+
+# 1. 简介
+## 1.1 安装
+
+前往 HAProxy 的[官网](http://www.haproxy.org/), 下载指定版本的源码包文件 (当前的最新版本为[2.1.2](http://www.haproxy.org/download/2.1/src/haproxy-2.1.2.tar.gz)) 进行安装, 其中 `TARGET` 后的具体参数依据系统的内核版本进行指定;
+
+```bash
+wget http://www.haproxy.org/download/2.1/src/haproxy-2.1.2.tar.gz
+tar -zxvf haproxy-2.1.2.tar.gz
+cd haproxy-2.1.2
+make TARGET=linux310
+make install
+```
+
+## 1.2 运行
+
++ 创建配置文件:
+  + 新建配置文件目录:`mkdir -p /etc/haproxy`;
+  + 复制配置文件模板: 各类模板为源码包中的 `./examples/*.cfg` 文件, 这里使用 `./examples/socks4.cfg` 文件, 指令为:`cp ./examples/socks4.cfg /etc/haproxy/haproxy.cfg`;
++ 启动:`haproxy -f /etc/haproxy/haproxy.cfg`;
+
+# 2. 详细介绍
+
+## 2.1 调度管理
+
+HAProxy 的调度管理主要在 `run_poll_loop` 中循环实现. 采用事件驱动模型显著降低了上下文切换的开销及内存占用, 主循环的结构比较清晰, 主循环的执行逻辑如下所示, 相关代码如下所示:
+
++ 处理信号队列;
++ 唤醒超时任务;
++ 处理可运行的任务;
++ 检测是否结束循环;
++ 执行 poll 处理 fd 的 IO 事件;
++ 处理可能仍有 IO 事件的 fd;
+
+```c
+/* 运行轮询循环 */
+static void run_poll_loop()
+{
+	int next, wake;
+
+	tv_update_date(0,1);
+	while (1) {
+		/* 处理一些任务 */
+		process_runnable_tasks();
+
+		/* 检查我们是否捕获了一些信号并在第一个线程中对其进行处理 */
+		if (tid == 0)
+			signal_process_queue();
+
+		/* 检查我们是否可以使某些任务过期 */
+		next = wake_expired_tasks();
+
+		/* 当无事可做时停止 */
+		if ((jobs - unstoppable_jobs) == 0)
+			break;
+
+		/* 如果我们未能彻底停止所有任务,也将停止 */
+		if (killed > 1)
+			break;
+
+		/* 如果事件处于等待中,则立即过期 */
+		wake = 1;
+		if (thread_has_tasks())
+			activity[tid].wake_tasks++;
+		else if (signal_queue_len && tid == 0)
+			activity[tid].wake_signal++;
+		else {
+			_HA_ATOMIC_OR(&sleeping_thread_mask, tid_bit);
+			__ha_barrier_atomic_store();
+			if ((global_tasks_mask & tid_bit) || thread_has_tasks()) {
+				activity[tid].wake_tasks++;
+				_HA_ATOMIC_AND(&sleeping_thread_mask, ~tid_bit);
+			} else
+				wake = 0;
+		}
+
+		/* 轮询程序将确保它在下一次循环前返回 */
+		cur_poller.poll(&cur_poller, next, wake);
+
+		activity[tid].loops++;
+	}
+}
+```
+
+## 2.2 信号管理
+
+HAProxy 封装了自己的信号处理机制. 接受到信号之后, 将该信号放到信号队列中.`signal_register_fct`,`signal_register_task` 接口提供了注册函数回调和任务类型回调两种方式. 在程序运行到 `signal_process_queue()` 时处理所有位于信号队列中的信号.
+
+```c
+/* 调用所有未决信号的处理程序,并清除计数和队列长度.
+ * 处理程序可以在被调用时通过调用signal_register()来注销自身,
+ * 就像使用普通的信号处理程序一样.
+ * 请注意,调用内联版本会更有效,该版本会在到达此处之前检查队列长度.
+ */
+void __signal_process_queue()
+{
+	int sig, cur_pos = 0;
+	struct signal_descriptor *desc;
+	sigset_t old_sig;
+
+	/* 处理期间阻止信号传递 */
+	ha_sigmask(SIG_SETMASK, &blocked_sig, &old_sig);
+
+	/* 重要的是,我们向前扫描队列,这样我们就可以捕获将
+	 * 由另一个信号处理程序排队的任何信号.这允许真实的
+	 * 信号处理程序将信号重新分配给订阅了信号零的任务.
+	 */
+	for (cur_pos = 0; cur_pos < signal_queue_len; cur_pos++) {
+		sig  = signal_queue[cur_pos];
+		desc = &signal_state[sig];
+		if (desc->count) {
+			struct sig_handler *sh, *shb;
+			list_for_each_entry_safe(sh, shb, &desc->handlers, list) {
+				if ((sh->flags & SIG_F_TYPE_FCT) && sh->handler)
+					((void (*)(struct sig_handler *))sh->handler)(sh);
+				else if ((sh->flags & SIG_F_TYPE_TASK) && sh->handler)
+					task_wakeup(sh->handler, TASK_WOKEN_SIGNAL);
+			}
+			desc->count = 0;
+		}
+	}
+	signal_queue_len = 0;
+
+	/* 恢复信号传递 */
+	ha_sigmask(SIG_SETMASK, &old_sig, NULL);
+}
+```
+
+信号注册时注册 `SIG_F_TYPE_FCT` 标识则直接调用信号回调处理;`SIG_F_TYPE_TASK` 标识说明注册时回调函数是一个 Task 指针, 这时需要唤醒 Task, 并指明任务状态为 `TASK_WOKEN_SIGNAL`, 此后对应处理函数将在 Task 管理下处理.
+
+### 2.2.1 优雅的重启信号
+
+为了能够进行优雅的重启,`wrapper` 中守护 `SIGUSR2` 信号进行重启.
+
++ 尝试读取旧的 Pids, 如果存在旧的 Pids, 说明存在之前启动的相关进程;
++ 启动时增加 `-sf` 选项, 在进入新的 `HAProxy` 程序后会对向所有旧进程发出 `SIGUSR1` 信号;
++ 旧的 `HAProxy` 程序捕获 `SIGUSR1` 执行对应回调 `sig_soft_stop` 优雅退出;
+
+## 2.3 Task 管理
+
+```c
+/* 所有任务的基础 */
+struct task {
+	TASK_COMMON;			/* 必须在开头! */
+	struct eb32sc_node rq;		/* ebtree节点,用于将任务保存在运行队列中 */
+	struct eb32_node wq;		/* ebtree节点,用于将任务保存在等待队列中 */
+	int expire;			/* 此任务的下一个到期日期,以时钟为单位 */
+	unsigned long thread_mask;	/* 授权处理任务的线程ID的掩码 */
+	uint64_t call_date;		/* 最后一次任务唤醒或调用的日期 */
+	uint64_t lat_time;		/* 经历的总延迟时间 */
+	uint64_t cpu_time;              /* 消耗的总CPU时间 */
+};
+```
+
+HAProxy 的调度最终都在 Task 内回调处理, 为提升性能, Task 的管理是采用 `ebtree树形队列` 方式, 分为 `wait queue` 和 `run queue`:
+
++ `wait queue`: 需要等待一定时间的 task 的集合;
++ `run queue`: 需要立即执行的 task 的集合;
+
+使用 wake_expired_tasks() 函数以及 process_runnable_tasks() 函数来处理相关的操作:
+
++ `wake_expired_tasks()函数`: 用来唤醒超时任务, 检查 `wait queue` 中那些超时的任务, 并将其放到 `run queue` 中;
++ `process_runnable_tasks()函数`: 处理位于 `run queue` 中的任务, 对于 TCP 或者 HTTP 业务流量的处理, 该函数最终通过调用 `process_session` 来完成, 包括解析已经接收到的数据, 并执行一系列 load balance 的特性, 但不负责从 socket 收发数据, 数据收发由 poll 完成. 同时, 也会因为一些情况导致需要将当前的任务通过调用 `task_queue` 等接口放到 `wait queue` 中, 实现上在任务回调处理时返回非空任务则会把任务重新加入 `wait queue`;
+
+## 2.4 配置相关
+
+HAProxy 配置中分五大部分:
+
++ `global`: 全局配置参数, 属于进程级的配置, 通常与操作系统的配置有关;
+
++ `defaults`: 配置一些默认的参数, 可以被 `frontend`,`backend`,`listen` 段继承使用, 如果 `frontend`,`backend`,`listen` 部分也配置了与 `defaults` 部分一样的参数,`defaults` 部分参数对应的值自动被覆盖;
+
++ `frontend`: 接收请求的前端虚拟节点, 用来匹配接收客户所请求的域名, uri 等, 并针对不同的匹配做不同的请求处理, 可直接指定具体使用后端的 `backend` (`1.3` 版本之后引入);
+
++ `backend`: 后端服务集群的配置, 真实服务器, 一个 `backend` 对应一个或者多个实体服务器 (`1.3` 版本之后引入);
+
++ `listen`:`frontend` 和 `backend` 的组合体, 在 `1.3` 版本之前, HAProxy 的所有配置选项都在这个部分中设置, 为了保持兼容性, 新的版本依然保留了 `listen` 组件配置;
+
+### 2.4.1 global 配置
+
+```bash
+global
+     log 127.0.0.1 local0 info
+     uid 99
+     gid 99
+     daemon
+     nbproc 16
+     maxconn 4096
+     ulimit -n 65536
+     pidfile /var/run/haproxy.pid
+```
+
++ `log`: 日志输出设置;
++ `uid`: 运行的用户 uid;
++ `gid`: 运行的用户组 gid;
++ `daemon`: 后台运行;
++ `nbproc`: 设置进程数量;
++ `maxconn`: 默认最大连接数;
++ `ulimit -n`: 设置最大打开的文件描述符数;
++ `pidfile`: 进程 PID 文件;
+
+### 2.4.2 default 配置
+
+```bash
+defaults
+     mode http
+     log 127.0.0.1 local3 err
+     retries 3
+     option httplog
+     option redispatch
+     option abortonclose
+     option dontlognull
+     timeout connect 5000
+     timeout client 3000
+     timeout server 3000
+```
+
++ `mode`:
+  + `http`: 七层模式;
+  + `tcp`: 四层模式;
+  + `health`: 健康检测;
++ `log`: 日志输出设置;
++ `retries`: 定义连接后端服务器的失败重连次数, 连接失败超过此值后会将对应后端服务器标记不可用;
++ `option`:
+  + `httplog`: 启用日志记录 HTTP 请求, 默认不记录 HTTP 请求日志;
+  + `tcplog`: 启用日志记录 TCP 请求, 默认不记录 TCP 请求日志;
+  + `redispatch`: 当使用了 cookie 时, haproxy 将会将其请求的后端服务器的 serverID 插入到 cookie 中, 以保证会话的 session 的持久性, 如果后端的服务器宕掉了, 但是客户端的 cookie 是不会刷新的, 如果设置此参数, 将会将客户的请求强制定向到另外一个后端 server 上, 以保证服务的正常;
+  + `abortonclose`: 当服务器负载很高的时候, 自动结束掉当前队列处理比较久的链接;
+  + `dontlognull`: 启用该项, 日志中将不会记录空连接. 所谓空连接就是在上游的负载均衡器或者监控系统为了探测该服务是否存活可用时, 需要定期的连接或者获取某一固定的组件或页面, 或者探测扫描端口是否在监听或开放等动作被称为空连接; 官方文档中标注, 如果该服务上游没有其他的负载均衡器的话, 建议不要使用该参数, 因为互联网上的恶意扫描或其他动作就不会被记录下来;
+
++ `timeout connect`: 设置成功连接到一台服务器的最长等待时间, 默认单位是毫秒, 老版本使用 `contimeout` 替代;
++ `timeout client`: 设置连接客户端发送数据时的成功连接最长等待时间, 默认单位是毫秒, 老版本使用 `clitimeout` 替代;
++ `timeout server`: 设置服务器端回应客户度数据发送的最长等待时间, 默认单位是毫秒, 老版本使用 `srvtimeout` 替代;
+
+### 2.4.3 listen 配置
+
+```bash
+listen test
+     bind 0.0.0.0:1080
+     mode tcp
+     option tcplog
+     maxconn 2000
+     timeout connect 5000
+     timeout client  50000
+     timeout server  50000
+     option tcp-check
+     server HTTPS1 192.0.2.1:443 ssl verify none socks4 127.0.0.1:1080 check inter 30000 fastinter 1000
+     server HTTPS2 192.0.2.2:443 ssl verify none                       check inter 30000 fastinter 1000 backup
+```
+
+部分参数同 default 的含义, 以下只说明部分参数:
+
++ `server`:
+  + `name`: 名称;
+  + `weight`: 服务器的权重;
+  + `check`: 允许对该服务器进行健康检查;
+  + `inter`: 设置连续的两次健康检查之间的时间, 单位为毫秒 (ms), 默认值 2000(ms);
+  + `rise`: 指定多少次成功的健康检查后, 即可认定该服务器处于可用状态, 默认值 2;
+  + `fall`: 指定多少次不成功的健康检查后, 认为服务器为不可用状态, 默认值 3;
+  + `maxconn`: 指定可被发送到该服务器的最大并发连接数;
+
+**更多详细的配置文档位于源码包的 `./examples/configuration.txt` 文件中, 也可[在线查看(2.1.2配置文档)](http://www.haproxy.org/download/2.1/doc/configuration.txt);**
+
+## 2.5 调度算法
+
++ `roundrobin`: 基于权重进行轮询, 在服务器的处理时间保持均匀分布时, 这是最平衡, 最公平的算法;
++ `static-rr`: 基于权重进行轮询;
++ `first`: 第一个具有可用连接槽的服务器得到连接. 这些服务器将从最小到最大的 `id` 选择, 一旦一个服务器到达它的最大连接数, 下一个服务器将被使用; 如果不定义每个服务器的 `maxconn` 参数, 这个算法是无意义的. 使用这个算法的目的是尽量使用最小数量的服务器以便于其他服务器可以在非密集时段待机. 这个算法将忽略服务器权重;
++ `leastconn`: 新的连接请求被派发至具有最少连接数目的后端服务器, 在有着较长时间会话的场景中推荐使用此算法, 如 `LDAP`,`SQL` 等; 其并不太适用于较短会话的应用层协议, 如 `HTTP`;
++ `random`: 基于一个随机数作为一致性 hash 的 key, 随机负载平衡对于大型服务器场或经常添加或删除服务器非常有用, 因为它可以避免在这种情况下由 `roundrobin` 或 `leastconn` 导致的[水锤效应](https://zh.wikipedia.org/zh/%E6%B0%B4%E9%8C%98%E4%BD%9C%E7%94%A8);
++ `source`: 将请求的源地址进行 hash 运算, 并由后端服务器的权重总数相除后派发至某匹配的服务器, 这可以使得同一个客户端 IP 的请求始终被派发至某特定的服务器. 不过当服务器权重总数发生变化时, 如某服务器宕机或添加了新的服务器, 许多客户端的请求可能会被派发至与此前请求不同的服务器. 常用于负载均衡无 `cookie` 功能的基于 `TCP` 的协议;
++ `uri`: 对 URI 进行 hash 运算, 并由服务器的总权重相除后派发至某匹配的服务器. 这可以使得对同一个 `URI` 的请求总是被派发至某特定的服务器, 除非服务器的权重总数发生了变化. 此算法常用于代理缓存或反病毒代理以提高缓存的命中率. 需要注意的是, 此算法仅应用于 HTTP 后端服务器场景;
++ `url_param`: 通过< argument>为 URL 指定的参数在每个 HTTP GET 请求中将会被检索, 如果找到了指定的参数且其通过等于号 "=" 被赋予了一个值, 那么此值将被执行 hash 运算并被服务器的总权重相除后派发至某匹配的服务器. 此算法可以通过追踪请求中的用户标识进而确保同一个用户 ID 的请求将被送往同一个特定的服务器, 除非服务器的总权重发生了变化. 如果某请求中没有出现指定的参数或其没有有效值, 则使用轮叫算法对相应请求进行调度;
++ `hdr(name)`: 对于每个 `HTTP` 请求, 通过 `< name>` 指定的 `HTTP` 首部将会被检索. 如果相应的首部没有出现或其没有有效值, 则使用轮询算法对相应请求进行调度. 其有一个可选选项 `use_domain_only`, 可在指定检索类似 Host 类的首部时仅计算域名部分 (比如通过 `www.bugwz.com` 来说, 仅计算 `bugwz` 字符串的 hash 值) 以降低 hash 算法的运算量;
++ `rdp-cookie(name)`: 根据 `cookie(name)` 来锁定并哈希每一次 `TCP` 请求;
+
+
+
+参考地址:
+
++ http://vlambda.com/wz_5gLxSJYWQfp.html
++ https://www.cnblogs.com/f-ck-need-u/p/8540805.html
++ http://blog.xiayf.cn/gitbook/tech-note/operation/haproxy.html
++ https://blog.51cto.com/leejia/1421882

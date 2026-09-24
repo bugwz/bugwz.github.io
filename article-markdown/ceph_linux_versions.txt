@@ -1,0 +1,358 @@
+# Ceph 和 LinuxKernel 版本时间对照表
+
+本文提供了一份详细的 Ceph, Ceph-client 与 Linux 内核版本对应关系表, 涵盖了从 2015 年至今的月度发布记录. 内容包含各版本的具体发布时间, GitHub 链接以及三个组件的时间轴甘特图, 旨在帮助用户快速查询和规划 Ceph 部署时所需的内核兼容性.
+
+# 1. 版本时间对照
+
+## 1.1 版本时间对照表
+
+|Month|ceph|ceph-client|linux|
+|:------:|:------:|:-------------:|:------:|
+|2011-07|-|-|[v3.0](https://github.com/torvalds/linux/releases/tag/v3.0 "2011-07-22 10:17:29")|
+|2011-10|-|-|[v3.1](https://github.com/torvalds/linux/releases/tag/v3.1 "2011-10-24 15:10:51")|
+|2012-01|-|-|[v3.2](https://github.com/torvalds/linux/releases/tag/v3.2 "2012-01-05 07:55:50")|
+|2012-03|-|-|[v3.3](https://github.com/torvalds/linux/releases/tag/v3.3 "2012-03-19 07:15:42")|
+|2012-05|-|-|[v3.4](https://github.com/torvalds/linux/releases/tag/v3.4 "2012-05-21 06:29:25")|
+|2012-07|-|-|[v3.5](https://github.com/torvalds/linux/releases/tag/v3.5 "2012-07-22 04:58:43")|
+|2012-10|-|-|[v3.6](https://github.com/torvalds/linux/releases/tag/v3.6 "2012-10-01 07:48:10")|
+|2012-12|-|-|[v3.7](https://github.com/torvalds/linux/releases/tag/v3.7 "2012-12-11 11:31:01")|
+|2013-02|-|-|[v3.8](https://github.com/torvalds/linux/releases/tag/v3.8 "2013-02-19 07:59:05")|
+|2013-04|-|-|[v3.9](https://github.com/torvalds/linux/releases/tag/v3.9 "2013-04-29 08:36:09")|
+|2013-07|-|-|[v3.10](https://github.com/torvalds/linux/releases/tag/v3.10 "2013-07-01 06:13:42")|
+|2013-09|-|-|[v3.11](https://github.com/torvalds/linux/releases/tag/v3.11 "2013-09-03 04:46:18")|
+|2013-11|-|-|[v3.12](https://github.com/torvalds/linux/releases/tag/v3.12 "2013-11-04 07:41:59")|
+|2014-01|-|-|[v3.13](https://github.com/torvalds/linux/releases/tag/v3.13 "2014-01-20 10:40:23")|
+|2014-03|-|-|[v3.14](https://github.com/torvalds/linux/releases/tag/v3.14 "2014-03-31 11:40:23")|
+|2014-06|-|-|[v3.15](https://github.com/torvalds/linux/releases/tag/v3.15 "2014-06-09 02:20:02")|
+|2014-08|-|-|[v3.16](https://github.com/torvalds/linux/releases/tag/v3.16 "2014-08-04 06:25:25")|
+|2014-10|-|-|[v3.17](https://github.com/torvalds/linux/releases/tag/v3.17 "2014-10-06 03:23:20")|
+|2014-12|-|-|[v3.18](https://github.com/torvalds/linux/releases/tag/v3.18 "2014-12-08 06:21:13")|
+|2015-02|-|-|[v3.19](https://github.com/torvalds/linux/releases/tag/v3.19 "2015-02-09 10:54:38")|
+|2015-04|-|-|[v4.0](https://github.com/torvalds/linux/releases/tag/v4.0 "2015-04-13 06:13:03")|
+|2015-06|-|-|[v4.1](https://github.com/torvalds/linux/releases/tag/v4.1 "2015-06-22 13:06:00")|
+|2015-08|-|-|[v4.2](https://github.com/torvalds/linux/releases/tag/v4.2 "2015-08-31 02:34:17")|
+|2015-11|[v9.2.0](https://github.com/ceph/ceph/releases/tag/v9.2.0 "2015-11-04 00:58:34")|-|[v4.3](https://github.com/torvalds/linux/releases/tag/v4.3 "2015-11-02 08:05:39")|
+|2016-01|-|-|[v4.4](https://github.com/torvalds/linux/releases/tag/v4.4 "2016-01-11 07:01:54")|
+|2016-02|[v9.2.1](https://github.com/ceph/ceph/releases/tag/v9.2.1 "2016-02-25 06:07:27")|-|-|
+|2016-03|-|-|[v4.5](https://github.com/torvalds/linux/releases/tag/v4.5 "2016-03-14 12:29:05")|
+|2016-04|[v10.2.0](https://github.com/ceph/ceph/releases/tag/v10.2.0 "2016-04-20 19:29:49")<br>[v10.2.01](https://github.com/ceph/ceph/releases/tag/v10.2.01 "2016-04-28 03:27:19")|-|-|
+|2016-05|[v10.2.1](https://github.com/ceph/ceph/releases/tag/v10.2.1 "2016-05-14 04:20:20")|-|[v4.6](https://github.com/torvalds/linux/releases/tag/v4.6 "2016-05-16 06:43:23")|
+|2016-06|[v10.2.2](https://github.com/ceph/ceph/releases/tag/v10.2.2 "2016-06-14 19:43:27")|-|-|
+|2016-07|-|[ceph-for-4.7-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.7-rc8 "2016-07-23 23:11:01")|[v4.7](https://github.com/torvalds/linux/releases/tag/v4.7 "2016-07-25 03:24:02")|
+|2016-08|-|[ceph-for-4.8-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.8-rc1 "2016-08-02 21:38:49")<br>[ceph-for-4.8-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.8-rc2 "2016-08-11 20:59:02")|-|
+|2016-09|[v10.2.3](https://github.com/ceph/ceph/releases/tag/v10.2.3 "2016-09-21 06:04:25")|[ceph-for-4.8-rc6](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.8-rc6 "2016-09-08 20:49:51")|-|
+|2016-10|-|[ceph-for-4.9-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.9-rc1 "2016-10-08 21:45:49")<br>[ceph-for-4.9-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.9-rc2 "2016-10-21 00:31:31")|[v4.8](https://github.com/torvalds/linux/releases/tag/v4.8 "2016-10-03 07:24:40")|
+|2016-11|-|[ceph-for-4.9-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.9-rc5 "2016-11-11 22:41:48")|-|
+|2016-12|[v10.2.4](https://github.com/ceph/ceph/releases/tag/v10.2.4 "2016-12-06 06:15:22")<br>[v10.2.5](https://github.com/ceph/ceph/releases/tag/v10.2.5 "2016-12-10 04:08:25")|[ceph-for-4.10-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.10-rc1 "2016-12-17 00:54:36")<br>[ceph-for-4.9-rc9](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.9-rc9 "2016-12-09 18:55:24")|[v4.9](https://github.com/torvalds/linux/releases/tag/v4.9 "2016-12-12 03:18:02")|
+|2017-01|[v11.2.0](https://github.com/ceph/ceph/releases/tag/v11.2.0 "2017-01-19 21:08:40")|[ceph-for-4.10-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.10-rc4 "2017-01-14 01:17:40")<br>[ceph-for-4.10-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.10-rc5 "2017-01-20 22:13:58")|-|
+|2017-02|-|[ceph-for-4.11-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.11-rc1 "2017-02-28 22:45:46")|[v4.10](https://github.com/torvalds/linux/releases/tag/v4.10 "2017-02-20 06:34:08")|
+|2017-03|[v10.2.6](https://github.com/ceph/ceph/releases/tag/v10.2.6 "2017-03-07 21:29:41")|[ceph-for-4.11-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.11-rc2 "2017-03-10 23:06:42")<br>[ceph-for-4.11-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.11-rc4 "2017-03-24 19:58:54")|-|
+|2017-04|[v10.2.7](https://github.com/ceph/ceph/releases/tag/v10.2.7 "2017-04-10 19:43:45")|[ceph-for-4.11-rc9](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.11-rc9 "2017-04-27 23:26:11")|-|
+|2017-05|-|[ceph-for-4.12-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.12-rc1 "2017-05-10 17:38:47")<br>[ceph-for-4.12-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.12-rc3 "2017-05-26 22:34:49")|[v4.11](https://github.com/torvalds/linux/releases/tag/v4.11 "2017-05-01 10:48:00")|
+|2017-06|-|[ceph-for-4.12-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.12-rc4 "2017-06-02 23:17:00")<br>[ceph-for-4.12-rc6](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.12-rc6 "2017-06-17 21:34:47")|-|
+|2017-07|[v10.2.8](https://github.com/ceph/ceph/releases/tag/v10.2.8 "2017-07-06 22:56:19")<br>[v10.2.9](https://github.com/ceph/ceph/releases/tag/v10.2.9 "2017-07-13 21:04:57")|[ceph-for-4.13-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.13-rc1 "2017-07-11 21:05:49")<br>[ceph-for-4.13-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.13-rc2 "2017-07-19 22:32:12")|[v4.12](https://github.com/torvalds/linux/releases/tag/v4.12 "2017-07-03 07:07:11")|
+|2017-08|[v11.2.1](https://github.com/ceph/ceph/releases/tag/v11.2.1 "2017-08-09 03:07:08")<br>[v12.2.0](https://github.com/ceph/ceph/releases/tag/v12.2.0 "2017-08-29 00:30:20")|[ceph-for-4.13-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.13-rc4 "2017-08-04 23:10:45")|-|
+|2017-09|[v12.2.1](https://github.com/ceph/ceph/releases/tag/v12.2.1 "2017-09-27 00:27:09")|[ceph-for-4.13-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.13-rc8 "2017-09-01 23:48:47")<br>[ceph-for-4.14-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.14-rc1 "2017-09-12 22:08:47")<br>[ceph-for-4.14-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.14-rc2 "2017-09-22 21:16:56")|[v4.13](https://github.com/torvalds/linux/releases/tag/v4.13 "2017-09-04 04:56:28")|
+|2017-10|[v10.2.10](https://github.com/ceph/ceph/releases/tag/v10.2.10 "2017-10-04 22:17:27")|[ceph-for-4.14-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.14-rc4 "2017-10-06 22:01:19")<br>[ceph-for-4.14-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.14-rc7 "2017-10-26 16:00:59")|-|
+|2017-11|[v12.2.2](https://github.com/ceph/ceph/releases/tag/v12.2.2 "2017-11-30 22:59:28")|[ceph-for-4.14-rc9](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.14-rc9 "2017-11-10 22:01:00")<br>[ceph-for-4.15-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.15-rc1 "2017-11-21 01:10:22")|[v4.14](https://github.com/torvalds/linux/releases/tag/v4.14 "2017-11-13 02:46:21")|
+|2017-12|-|[ceph-for-4.15-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.15-rc4 "2017-12-16 00:18:44")|-|
+|2018-01|-|[ceph-for-4.15-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.15-rc8 "2018-01-12 00:54:17")|[v4.15](https://github.com/torvalds/linux/releases/tag/v4.15 "2018-01-29 05:20:41")|
+|2018-02|[v12.2.3](https://github.com/ceph/ceph/releases/tag/v12.2.3 "2018-02-20 07:14:48")<br>[v12.2.4](https://github.com/ceph/ceph/releases/tag/v12.2.4 "2018-02-27 05:47:19")|[ceph-for-4.16-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.16-rc1 "2018-02-08 22:22:41")|-|
+|2018-03|-|[ceph-for-4.16-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.16-rc4 "2018-03-02 22:21:11")<br>[ceph-for-4.16-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.16-rc8 "2018-03-30 21:30:42")|-|
+|2018-04|[v12.2.5](https://github.com/ceph/ceph/releases/tag/v12.2.5 "2018-04-24 00:18:34")|[ceph-for-4.17-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.17-rc1 "2018-04-11 00:11:32")<br>[ceph-for-4.17-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.17-rc2 "2018-04-18 22:41:42")<br>[ceph-for-4.17-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.17-rc3 "2018-04-27 21:52:28")|[v4.16](https://github.com/torvalds/linux/releases/tag/v4.16 "2018-04-02 05:20:37")|
+|2018-05|[v13.2.0](https://github.com/ceph/ceph/releases/tag/v13.2.0 "2018-05-31 21:13:46")|[ceph-for-4.17-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.17-rc5 "2018-05-11 23:24:54")|-|
+|2018-06|-|[ceph-for-4.18-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.18-rc1 "2018-06-14 18:50:47")<br>[ceph-for-4.18-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.18-rc3 "2018-06-29 22:14:04")|[v4.17](https://github.com/torvalds/linux/releases/tag/v4.17 "2018-06-04 05:15:30")|
+|2018-07|[v10.2.11](https://github.com/ceph/ceph/releases/tag/v10.2.11 "2018-07-10 00:23:09")<br>[v12.2.6](https://github.com/ceph/ceph/releases/tag/v12.2.6 "2018-07-10 00:18:48")<br>[v12.2.7](https://github.com/ceph/ceph/releases/tag/v12.2.7 "2018-07-17 00:00:32")<br>[v13.2.1](https://github.com/ceph/ceph/releases/tag/v13.2.1 "2018-07-27 01:40:01")|-|-|
+|2018-08|[v12.2.8](https://github.com/ceph/ceph/releases/tag/v12.2.8 "2018-08-31 01:24:42")|[ceph-for-4.19-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.19-rc1 "2018-08-20 23:01:58")|[v4.18](https://github.com/torvalds/linux/releases/tag/v4.18 "2018-08-13 04:41:12")|
+|2018-09|[v13.2.2](https://github.com/ceph/ceph/releases/tag/v13.2.2 "2018-09-25 01:22:32")|[ceph-for-4.19-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.19-rc3 "2018-09-08 00:51:16")|-|
+|2018-10|[v12.2.9](https://github.com/ceph/ceph/releases/tag/v12.2.9 "2018-10-25 05:04:20")|-|[v4.19](https://github.com/torvalds/linux/releases/tag/v4.19 "2018-10-22 14:47:45")|
+|2018-11|[v12.2.10](https://github.com/ceph/ceph/releases/tag/v12.2.10 "2018-11-27 03:36:01")|[ceph-for-4.20-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.20-rc1 "2018-11-01 01:35:22")<br>[ceph-for-4.20-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.20-rc2 "2018-11-10 00:36:11")<br>[ceph-for-4.20-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.20-rc4 "2018-11-24 02:37:44")|-|
+|2018-12|-|[ceph-for-4.20-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.20-rc7 "2018-12-14 23:34:18")|[v4.20](https://github.com/torvalds/linux/releases/tag/v4.20 "2018-12-24 07:56:06")|
+|2019-01|[v12.2.11](https://github.com/ceph/ceph/releases/tag/v12.2.11 "2019-01-30 23:51:28")<br>[v13.2.3](https://github.com/ceph/ceph/releases/tag/v13.2.3 "2019-01-03 02:01:00")<br>[v13.2.4](https://github.com/ceph/ceph/releases/tag/v13.2.4 "2019-01-04 23:40:45")|[ceph-for-4.21-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-4.21-rc1 "2019-01-03 22:46:17")<br>[ceph-for-5.0-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.0-rc2 "2019-01-12 00:28:21")<br>[ceph-for-5.0-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.0-rc4 "2019-01-24 23:36:34")|-|
+|2019-02|-|[ceph-for-5.0-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.0-rc8 "2019-02-22 01:07:10")|-|
+|2019-03|[v13.2.5](https://github.com/ceph/ceph/releases/tag/v13.2.5 "2019-03-13 00:48:07")<br>[v14.2.0](https://github.com/ceph/ceph/releases/tag/v14.2.0 "2019-03-18 18:08:30")|[ceph-for-5.1-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.1-rc1 "2019-03-12 23:50:51")<br>[ceph-for-5.1-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.1-rc2 "2019-03-23 00:09:23")<br>[ceph-for-5.1-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.1-rc3 "2019-03-30 00:18:54")|[v5.0](https://github.com/torvalds/linux/releases/tag/v5.0 "2019-03-04 07:21:38")|
+|2019-04|[v12.2.12](https://github.com/ceph/ceph/releases/tag/v12.2.12 "2019-04-11 20:33:51")<br>[v14.2.1](https://github.com/ceph/ceph/releases/tag/v14.2.1 "2019-04-26 02:15:49")|[ceph-for-5.1-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.1-rc7 "2019-04-26 01:29:45")|-|
+|2019-05|-|[ceph-for-5.2-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.2-rc1 "2019-05-16 22:35:00")|[v5.1](https://github.com/torvalds/linux/releases/tag/v5.1 "2019-05-06 08:43:10")|
+|2019-06|[v13.2.6](https://github.com/ceph/ceph/releases/tag/v13.2.6 "2019-06-03 23:19:00")|[ceph-for-5.2-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.2-rc4 "2019-06-09 02:19:34")<br>[ceph-for-5.2-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.2-rc7 "2019-06-28 23:09:25")|-|
+|2019-07|[v14.2.2](https://github.com/ceph/ceph/releases/tag/v14.2.2 "2019-07-17 23:12:39")|[ceph-for-5.3-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.3-rc1 "2019-07-17 18:33:29")|[v5.2](https://github.com/torvalds/linux/releases/tag/v5.2 "2019-07-08 06:42:04")|
+|2019-08|-|[ceph-for-5.3-rc6](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.3-rc6 "2019-08-23 20:15:48")<br>[ceph-for-5.3-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.3-rc7 "2019-08-30 22:02:05")|-|
+|2019-09|[v14.2.3](https://github.com/ceph/ceph/releases/tag/v14.2.3 "2019-09-03 21:19:59")<br>[v14.2.4](https://github.com/ceph/ceph/releases/tag/v14.2.4 "2019-09-14 02:07:43")|[ceph-for-5.4-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.4-rc1 "2019-09-26 00:23:30")|[v5.3](https://github.com/torvalds/linux/releases/tag/v5.3 "2019-09-16 05:19:40")|
+|2019-10|-|[ceph-for-5.4-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.4-rc4 "2019-10-19 02:10:44")|-|
+|2019-11|[v13.2.7](https://github.com/ceph/ceph/releases/tag/v13.2.7 "2019-11-21 01:36:37")|[ceph-for-5.4-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.4-rc7 "2019-11-08 23:31:29")<br>[ceph-for-5.4-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.4-rc8 "2019-11-16 00:52:20")|[v5.4](https://github.com/torvalds/linux/releases/tag/v5.4 "2019-11-25 08:32:07")|
+|2019-12|[v13.2.8](https://github.com/ceph/ceph/releases/tag/v13.2.8 "2019-12-13 05:09:44")<br>[v14.2.5](https://github.com/ceph/ceph/releases/tag/v14.2.5 "2019-12-07 00:42:39")|[ceph-for-5.5-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.5-rc1 "2019-12-05 03:25:51")<br>[ceph-for-5.5-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.5-rc2 "2019-12-13 01:53:35")|-|
+|2020-01|[v12.2.13](https://github.com/ceph/ceph/releases/tag/v12.2.13 "2020-01-31 04:52:37")<br>[v14.2.6](https://github.com/ceph/ceph/releases/tag/v14.2.6 "2020-01-09 02:36:55")|[ceph-for-5.5-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.5-rc8 "2020-01-24 01:28:44")|[v5.5](https://github.com/torvalds/linux/releases/tag/v5.5 "2020-01-27 08:23:17")|
+|2020-02|[v14.2.7](https://github.com/ceph/ceph/releases/tag/v14.2.7 "2020-02-01 01:07:53")|[ceph-for-5.6-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.6-rc1 "2020-02-06 04:36:10")<br>[ceph-for-5.6-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.6-rc2 "2020-02-15 00:17:12")|-|
+|2020-03|[v14.2.8](https://github.com/ceph/ceph/releases/tag/v14.2.8 "2020-03-03 01:49:22")<br>[v15.2.0](https://github.com/ceph/ceph/releases/tag/v15.2.0 "2020-03-24 01:47:47")|[ceph-for-5.6-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.6-rc8 "2020-03-27 04:07:25")|[v5.6](https://github.com/torvalds/linux/releases/tag/v5.6 "2020-03-30 06:25:50")|
+|2020-04|[v13.2.10](https://github.com/ceph/ceph/releases/tag/v13.2.10 "2020-04-24 00:32:33")<br>[v13.2.9](https://github.com/ceph/ceph/releases/tag/v13.2.9 "2020-04-16 23:49:41")<br>[v14.2.9](https://github.com/ceph/ceph/releases/tag/v14.2.9 "2020-04-10 00:17:29")<br>[v15.2.1](https://github.com/ceph/ceph/releases/tag/v15.2.1 "2020-04-09 01:51:50")|[ceph-for-5.7-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.7-rc1 "2020-04-09 00:26:03")<br>[ceph-for-5.7-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.7-rc2 "2020-04-17 00:51:35")|-|
+|2020-05|[v15.2.2](https://github.com/ceph/ceph/releases/tag/v15.2.2 "2020-05-19 00:25:13")<br>[v15.2.3](https://github.com/ceph/ceph/releases/tag/v15.2.3 "2020-05-30 00:24:51")|[ceph-for-5.7-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.7-rc5 "2020-05-09 00:59:33")<br>[ceph-for-5.7-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.7-rc8 "2020-05-29 23:29:41")|-|
+|2020-06|[v14.2.10](https://github.com/ceph/ceph/releases/tag/v14.2.10 "2020-06-26 01:32:34")<br>[v15.2.4](https://github.com/ceph/ceph/releases/tag/v15.2.4 "2020-06-30 23:40:52")|[ceph-for-5.8-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.8-rc1 "2020-06-08 22:55:21")<br>[ceph-for-5.8-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.8-rc2 "2020-06-19 20:27:46")|[v5.7](https://github.com/torvalds/linux/releases/tag/v5.7 "2020-06-01 07:49:24")|
+|2020-08|[v14.2.11](https://github.com/ceph/ceph/releases/tag/v14.2.11 "2020-08-11 04:15:23")|[ceph-for-5.9-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.9-rc1 "2020-08-13 00:42:15")<br>[ceph-for-5.9-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.9-rc3 "2020-08-28 19:50:53")|[v5.8](https://github.com/torvalds/linux/releases/tag/v5.8 "2020-08-03 05:21:45")|
+|2020-09|[v15.2.5](https://github.com/ceph/ceph/releases/tag/v15.2.5 "2020-09-16 02:57:06")|[ceph-for-5.9-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.9-rc5 "2020-09-11 22:10:53")|-|
+|2020-10|[v14.2.12](https://github.com/ceph/ceph/releases/tag/v14.2.12 "2020-10-20 04:19:22")<br>[v14.2.13](https://github.com/ceph/ceph/releases/tag/v14.2.13 "2020-10-30 22:54:38")|[ceph-for-5.10-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.10-rc1 "2020-10-21 20:49:15")|[v5.9](https://github.com/torvalds/linux/releases/tag/v5.9 "2020-10-12 05:15:50")|
+|2020-11|[v14.2.14](https://github.com/ceph/ceph/releases/tag/v14.2.14 "2020-11-18 02:10:13")<br>[v14.2.15](https://github.com/ceph/ceph/releases/tag/v14.2.15 "2020-11-24 02:30:16")<br>[v15.2.6](https://github.com/ceph/ceph/releases/tag/v15.2.6 "2020-11-18 02:12:55")|[ceph-for-5.10-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.10-rc3 "2020-11-07 03:08:51")|-|
+|2020-12|[v14.2.16](https://github.com/ceph/ceph/releases/tag/v14.2.16 "2020-12-17 01:35:04")<br>[v15.2.7](https://github.com/ceph/ceph/releases/tag/v15.2.7 "2020-12-01 03:58:31")<br>[v15.2.8](https://github.com/ceph/ceph/releases/tag/v15.2.8 "2020-12-17 01:29:53")|[ceph-for-5.11-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.11-rc1 "2020-12-17 23:26:29")<br>[ceph-for-5.11-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.11-rc2 "2020-12-31 01:13:49")|[v5.10](https://github.com/torvalds/linux/releases/tag/v5.10 "2020-12-14 06:41:30")|
+|2021-01|-|[ceph-for-5.11-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.11-rc5 "2021-01-22 23:51:26")|-|
+|2021-02|[v15.2.9](https://github.com/ceph/ceph/releases/tag/v15.2.9 "2021-02-23 22:10:17")|[ceph-for-5.12-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.12-rc1 "2021-02-22 21:18:04")|[v5.11](https://github.com/torvalds/linux/releases/tag/v5.11 "2021-02-15 06:32:24")|
+|2021-03|[v14.2.17](https://github.com/ceph/ceph/releases/tag/v14.2.17 "2021-03-12 01:07:33")<br>[v14.2.18](https://github.com/ceph/ceph/releases/tag/v14.2.18 "2021-03-16 01:46:23")<br>[v14.2.19](https://github.com/ceph/ceph/releases/tag/v14.2.19 "2021-03-31 00:19:19")<br>[v15.2.10](https://github.com/ceph/ceph/releases/tag/v15.2.10 "2021-03-18 01:02:41")<br>[v16.2.0](https://github.com/ceph/ceph/releases/tag/v16.2.0 "2021-03-31 05:13:30")|-|-|
+|2021-04|[v14.2.20](https://github.com/ceph/ceph/releases/tag/v14.2.20 "2021-04-19 22:11:16")<br>[v15.2.11](https://github.com/ceph/ceph/releases/tag/v15.2.11 "2021-04-19 21:47:33")<br>[v16.2.1](https://github.com/ceph/ceph/releases/tag/v16.2.1 "2021-04-19 21:50:10")|-|[v5.12](https://github.com/torvalds/linux/releases/tag/v5.12 "2021-04-26 04:49:08")|
+|2021-05|[v14.2.21](https://github.com/ceph/ceph/releases/tag/v14.2.21 "2021-05-14 01:23:10")<br>[v15.2.12](https://github.com/ceph/ceph/releases/tag/v15.2.12 "2021-05-14 01:26:14")<br>[v15.2.13](https://github.com/ceph/ceph/releases/tag/v15.2.13 "2021-05-27 03:24:08")<br>[v16.2.2](https://github.com/ceph/ceph/releases/tag/v16.2.2 "2021-05-05 02:38:24")<br>[v16.2.3](https://github.com/ceph/ceph/releases/tag/v16.2.3 "2021-05-06 23:47:02")<br>[v16.2.4](https://github.com/ceph/ceph/releases/tag/v16.2.4 "2021-05-14 01:20:30")|[ceph-for-5.13-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.13-rc1 "2021-05-06 21:34:25")|-|
+|2021-06|[v14.2.22](https://github.com/ceph/ceph/releases/tag/v14.2.22 "2021-06-30 06:09:11")|[ceph-for-5.13-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.13-rc8 "2021-06-25 21:53:34")|[v5.13](https://github.com/torvalds/linux/releases/tag/v5.13 "2021-06-28 06:21:11")|
+|2021-07|[v16.2.5](https://github.com/ceph/ceph/releases/tag/v16.2.5 "2021-07-08 22:03:58")|[ceph-for-5.14-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.14-rc1 "2021-07-09 03:44:46")<br>[ceph-for-5.14-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.14-rc3 "2021-07-24 00:27:24")|-|
+|2021-08|[v15.2.14](https://github.com/ceph/ceph/releases/tag/v15.2.14 "2021-08-06 01:11:55")|[ceph-for-5.14-rc6](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.14-rc6 "2021-08-13 02:26:48")<br>[ceph-for-5.14-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.14-rc8 "2021-08-26 23:40:30")|[v5.14](https://github.com/torvalds/linux/releases/tag/v5.14 "2021-08-30 06:04:50")|
+|2021-09|[v16.2.6](https://github.com/ceph/ceph/releases/tag/v16.2.6 "2021-09-16 22:27:21")|[ceph-for-5.15-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.15-rc1 "2021-09-08 22:36:36")<br>[ceph-for-5.15-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.15-rc3 "2021-09-24 19:40:13")|-|
+|2021-10|[v15.2.15](https://github.com/ceph/ceph/releases/tag/v15.2.15 "2021-10-20 22:19:59")|[ceph-for-5.15-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.15-rc7 "2021-10-21 02:07:14")|-|
+|2021-11|-|[ceph-for-5.16-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.16-rc1 "2021-11-12 18:41:14")|[v5.15](https://github.com/torvalds/linux/releases/tag/v5.15 "2021-11-01 04:53:10")|
+|2021-12|[v12.2.14](https://github.com/ceph/ceph/releases/tag/v12.2.14 "2021-12-16 06:05:25")<br>[v16.2.7](https://github.com/ceph/ceph/releases/tag/v16.2.7 "2021-12-08 00:15:50")|[ceph-for-5.16-rc6](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.16-rc6 "2021-12-15 20:35:41")|-|
+|2022-01|-|[ceph-for-5.17-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.17-rc1 "2022-01-20 18:53:05")<br>[ceph-for-5.17-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.17-rc2 "2022-01-29 00:03:43")|[v5.16](https://github.com/torvalds/linux/releases/tag/v5.16 "2022-01-10 06:55:34")|
+|2022-02|-|[ceph-for-5.17-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.17-rc3 "2022-02-04 20:54:25")|-|
+|2022-03|[v15.2.16](https://github.com/ceph/ceph/releases/tag/v15.2.16 "2022-03-01 14:44:31")|[ceph-for-5.18-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.18-rc1 "2022-03-25 01:20:10")|[v5.17](https://github.com/torvalds/linux/releases/tag/v5.17 "2022-03-21 04:14:17")|
+|2022-04|[v17.2.0](https://github.com/ceph/ceph/releases/tag/v17.2.0 "2022-04-19 06:08:29")|[ceph-for-5.18-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.18-rc5 "2022-04-30 00:22:04")|-|
+|2022-05|[v16.2.8](https://github.com/ceph/ceph/releases/tag/v16.2.8 "2022-05-13 06:23:14")<br>[v16.2.9](https://github.com/ceph/ceph/releases/tag/v16.2.9 "2022-05-19 03:51:52")|[ceph-for-5.18-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.18-rc7 "2022-05-14 01:03:55")<br>[ceph-for-5.18-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.18-rc8 "2022-05-20 23:14:01")|[v5.18](https://github.com/torvalds/linux/releases/tag/v5.18 "2022-05-23 03:52:31")|
+|2022-06|[v17.2.1](https://github.com/ceph/ceph/releases/tag/v17.2.1 "2022-06-23 22:41:35")|[ceph-for-5.19-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.19-rc1 "2022-06-02 20:55:20")|-|
+|2022-07|[v16.2.10](https://github.com/ceph/ceph/releases/tag/v16.2.10 "2022-07-22 01:28:56")<br>[v17.2.2](https://github.com/ceph/ceph/releases/tag/v17.2.2 "2022-07-22 01:29:33")<br>[v17.2.3](https://github.com/ceph/ceph/releases/tag/v17.2.3 "2022-07-29 05:52:13")|[ceph-for-5.19-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.19-rc5 "2022-07-01 22:57:53")<br>[ceph-for-5.19-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.19-rc7 "2022-07-16 00:27:09")|-|
+|2022-08|[v15.2.17](https://github.com/ceph/ceph/releases/tag/v15.2.17 "2022-08-10 01:07:02")|[ceph-for-5.20-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-5.20-rc1 "2022-08-11 23:12:14")|[v5.19](https://github.com/torvalds/linux/releases/tag/v5.19 "2022-08-01 05:03:01")|
+|2022-09|[v17.2.4](https://github.com/ceph/ceph/releases/tag/v17.2.4 "2022-09-29 06:55:59")|-|-|
+|2022-10|[v17.2.5](https://github.com/ceph/ceph/releases/tag/v17.2.5 "2022-10-18 04:07:31")|[ceph-for-6.1-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.1-rc1 "2022-10-13 23:14:45")|[v6.0](https://github.com/torvalds/linux/releases/tag/v6.0 "2022-10-03 05:09:07")|
+|2022-11|-|[ceph-for-6.1-rc6](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.1-rc6 "2022-11-18 05:19:21")|-|
+|2022-12|-|[ceph-for-6.2-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.2-rc1 "2022-12-15 00:56:52")|[v6.1](https://github.com/torvalds/linux/releases/tag/v6.1 "2022-12-12 06:15:18")|
+|2023-01|[v16.2.11](https://github.com/ceph/ceph/releases/tag/v16.2.11 "2023-01-25 04:43:14")|[ceph-for-6.2-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.2-rc3 "2023-01-07 02:26:09")|-|
+|2023-02|-|[ceph-for-6.2-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.2-rc7 "2023-02-04 02:04:57")<br>[ceph-for-6.2-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.2-rc8 "2023-02-10 23:58:18")|[v6.2](https://github.com/torvalds/linux/releases/tag/v6.2 "2023-02-20 06:24:22")|
+|2023-03|-|[ceph-for-6.3-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.3-rc1 "2023-03-03 00:42:44")|-|
+|2023-04|[v16.2.12](https://github.com/ceph/ceph/releases/tag/v16.2.12 "2023-04-20 05:33:07")<br>[v17.2.6](https://github.com/ceph/ceph/releases/tag/v17.2.6 "2023-04-05 23:09:51")|-|[v6.3](https://github.com/torvalds/linux/releases/tag/v6.3 "2023-04-24 03:02:52")|
+|2023-05|[v16.2.13](https://github.com/ceph/ceph/releases/tag/v16.2.13 "2023-05-09 04:39:37")|[ceph-for-6.4-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.4-rc1 "2023-05-05 02:11:25")<br>[ceph-for-6.4-rc3](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.4-rc3 "2023-05-20 00:04:28")|-|
+|2023-06|-|[ceph-for-6.4-rc6](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.4-rc6 "2023-06-10 00:17:37")|[v6.4](https://github.com/torvalds/linux/releases/tag/v6.4 "2023-06-26 07:29:58")|
+|2023-07|-|[ceph-for-6.5-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.5-rc1 "2023-07-07 23:28:20")<br>[ceph-for-6.5-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.5-rc2 "2023-07-14 23:10:03")<br>[ceph-for-6.5-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.5-rc4 "2023-07-29 00:27:26")|-|
+|2023-08|[v16.2.14](https://github.com/ceph/ceph/releases/tag/v16.2.14 "2023-08-29 23:43:59")<br>[v18.2.0](https://github.com/ceph/ceph/releases/tag/v18.2.0 "2023-08-04 00:53:13")|[ceph-for-6.5-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.5-rc5 "2023-08-04 23:07:42")|[v6.5](https://github.com/torvalds/linux/releases/tag/v6.5 "2023-08-28 05:49:51")|
+|2023-09|-|[ceph-for-6.6-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.6-rc1 "2023-09-07 00:16:33")<br>[ceph-for-6.6-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.6-rc4 "2023-09-29 22:50:27")|-|
+|2023-10|[v17.2.7](https://github.com/ceph/ceph/releases/tag/v17.2.7 "2023-10-26 07:46:16")|[ceph-for-6.6-rc6](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.6-rc6 "2023-10-13 23:21:08")|[v6.6](https://github.com/torvalds/linux/releases/tag/v6.6 "2023-10-30 10:31:08")|
+|2023-11|-|[ceph-for-6.7-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.7-rc1 "2023-11-10 00:27:21")|-|
+|2023-12|[v18.2.1](https://github.com/ceph/ceph/releases/tag/v18.2.1 "2023-12-12 05:55:38")|-|-|
+|2024-01|-|[ceph-for-6.8-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.8-rc1 "2024-01-19 23:40:20")<br>[ceph-for-6.8-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.8-rc2 "2024-01-25 04:12:56")|[v6.7](https://github.com/torvalds/linux/releases/tag/v6.7 "2024-01-08 04:18:38")|
+|2024-02|[v16.2.15](https://github.com/ceph/ceph/releases/tag/v16.2.15 "2024-02-27 03:21:10")|[ceph-for-6.8-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.8-rc4 "2024-02-09 23:28:03")<br>[ceph-for-6.8-rc5](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.8-rc5 "2024-02-17 01:29:10")|-|
+|2024-03|[v18.2.2](https://github.com/ceph/ceph/releases/tag/v18.2.2 "2024-03-05 04:04:06")|[ceph-for-6.8-rc7](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.8-rc7 "2024-03-02 01:18:12")<br>[ceph-for-6.8-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.8-rc8 "2024-03-09 06:52:18")<br>[ceph-for-6.9-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.9-rc1 "2024-03-23 01:37:38")|[v6.8](https://github.com/torvalds/linux/releases/tag/v6.8 "2024-03-11 04:38:09")|
+|2024-04|-|[ceph-for-6.9-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.9-rc4 "2024-04-13 00:13:38")|-|
+|2024-05|-|[ceph-for-6.10-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.10-rc1 "2024-05-25 17:41:59")|[v6.9](https://github.com/torvalds/linux/releases/tag/v6.9 "2024-05-13 05:12:29")|
+|2024-07|[v18.2.4](https://github.com/ceph/ceph/releases/tag/v18.2.4 "2024-07-12 21:57:23")|[ceph-for-6.10-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.10-rc8 "2024-07-13 00:38:14")<br>[ceph-for-6.11-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.11-rc1 "2024-07-26 22:36:46")|[v6.10](https://github.com/torvalds/linux/releases/tag/v6.10 "2024-07-15 06:43:32")|
+|2024-08|-|[ceph-for-6.11-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.11-rc2 "2024-08-03 00:34:18")|-|
+|2024-09|[v19.2.0](https://github.com/ceph/ceph/releases/tag/v19.2.0 "2024-09-19 00:27:51")|[ceph-for-6.12-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.12-rc1 "2024-09-28 05:40:03")|[v6.11](https://github.com/torvalds/linux/releases/tag/v6.11 "2024-09-15 22:57:56")|
+|2024-10|-|[ceph-for-6.12-rc2](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.12-rc2 "2024-10-04 23:15:47")|-|
+|2024-11|[v17.2.8](https://github.com/ceph/ceph/releases/tag/v17.2.8 "2024-11-12 05:31:50")|[ceph-for-6.13-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.13-rc1 "2024-11-30 01:49:46")|[v6.12](https://github.com/torvalds/linux/releases/tag/v6.12 "2024-11-18 06:15:08")|
+|2024-12|-|[ceph-for-6.13-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.13-rc4 "2024-12-21 03:35:01")|-|
+|2025-01|-|-|[v6.13](https://github.com/torvalds/linux/releases/tag/v6.13 "2025-01-20 07:51:45")|
+|2025-02|[v19.2.1](https://github.com/ceph/ceph/releases/tag/v19.2.1 "2025-02-01 07:14:13")|[ceph-for-6.14-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.14-rc1 "2025-02-01 02:05:12")|-|
+|2025-03|-|-|[v6.14](https://github.com/torvalds/linux/releases/tag/v6.14 "2025-03-24 22:02:41")|
+|2025-04|[v18.2.5](https://github.com/ceph/ceph/releases/tag/v18.2.5 "2025-04-08 00:49:17")<br>[v18.2.6](https://github.com/ceph/ceph/releases/tag/v18.2.6 "2025-04-17 05:22:52")<br>[v19.2.2](https://github.com/ceph/ceph/releases/tag/v19.2.2 "2025-04-09 05:08:38")|[ceph-for-6.15-rc4](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.15-rc4 "2025-04-26 02:33:19")|-|
+|2025-05|[v17.2.9](https://github.com/ceph/ceph/releases/tag/v17.2.9 "2025-05-21 00:52:45")<br>[v18.2.7](https://github.com/ceph/ceph/releases/tag/v18.2.7 "2025-05-07 07:15:56")|-|[v6.15](https://github.com/torvalds/linux/releases/tag/v6.15 "2025-05-26 07:09:23")|
+|2025-06|-|[ceph-for-6.16-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.16-rc1 "2025-06-07 01:26:51")|-|
+|2025-07|[v19.2.3](https://github.com/ceph/ceph/releases/tag/v19.2.3 "2025-07-17 10:58:27")|-|[v6.16](https://github.com/torvalds/linux/releases/tag/v6.16 "2025-07-28 05:26:38")|
+|2025-09|-|[ceph-for-6.17-rc6](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.17-rc6 "2025-09-13 23:46:10")|[v6.17](https://github.com/torvalds/linux/releases/tag/v6.17 "2025-09-29 05:39:22")|
+|2025-10|[v20.2.0](https://github.com/ceph/ceph/releases/tag/v20.2.0 "2025-10-30 23:22:25")|[ceph-for-6.18-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.18-rc1 "2025-10-11 02:01:59")|-|
+|2025-11|-|[ceph-for-6.18-rc8](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.18-rc8 "2025-11-28 02:33:28")|-|
+|2025-12|-|[ceph-for-6.19-rc1](https://github.com/ceph/ceph-client/releases/tag/ceph-for-6.19-rc1 "2025-12-13 02:42:23")|[v6.18](https://github.com/torvalds/linux/releases/tag/v6.18 "2025-12-01 06:42:10")|
+
+
+## 1.2 版本对照时间轴
+
+**版本时间轴**:
+
+```mermaid
+%%{init: {
+  "theme":"base",
+  "themeVariables": {
+    "primaryColor": "#1f78b4",
+    "sectionBkgColor": "#f4f8ff",
+    "doneTaskColor": "#1f78b4",
+    "fontSize":"11px"
+  }
+}}%%
+gantt
+  title Ceph 版本时间线 (2015-2025)
+  dateFormat  YYYY-MM-DD
+  axisFormat  %Y-%m
+
+  section Ceph Releases
+    v9.2.0 :done, 2015-11-04, 20d
+    v9.2.1 :done, 2016-02-25, 20d
+    v10.2.0 :done, 2016-04-20, 20d
+    v10.2.1 :done, 2016-05-14, 20d
+    v10.2.3 :done, 2016-09-21, 20d
+    v11.2.0 :done, 2017-01-19, 20d
+    v12.2.0 :done, 2017-08-29, 20d
+    v13.2.0 :done, 2018-05-31, 20d
+    v14.2.0 :done, 2019-03-18, 20d
+    v15.2.0 :done, 2020-03-24, 20d
+    v16.2.0 :done, 2021-03-31, 20d
+    v17.2.0 :done, 2022-04-19, 20d
+    v18.2.0 :done, 2023-08-04, 20d
+    v19.2.0 :done, 2024-09-19, 20d
+    v19.2.1 :done, 2025-02-01, 20d
+    v19.2.2 :done, 2025-04-09, 20d
+    v19.2.3 :done, 2025-07-17, 20d
+    v20.2.0 :done, 2025-10-30, 20d
+```
+
+```mermaid
+%%{init: {
+  "theme":"base",
+  "themeVariables": {
+    "primaryColor": "#33a02c",
+    "sectionBkgColor": "#f5fff4",
+    "activeTaskColor": "#33a02c",
+    "fontSize":"11px"
+  }
+}}%%
+gantt
+  title Ceph‑client 版本时间线 (2016-2025)
+  dateFormat  YYYY-MM-DD
+  axisFormat  %Y-%m
+
+  section Ceph‑client Tags
+    ceph-for-4.7-rc8 :active, 2016-07-23, 15d
+    ceph-for-4.8-rc1 :active, 2016-08-02, 15d
+    ceph-for-4.9-rc1 :active, 2016-10-08, 15d
+    ceph-for-4.10-rc1 :active, 2016-12-17, 15d
+    ceph-for-4.11-rc1 :active, 2017-02-28, 15d
+    ceph-for-4.14-rc1 :active, 2017-09-12, 15d
+    ceph-for-4.15-rc1 :active, 2017-11-21, 15d
+    ceph-for-4.16-rc1 :active, 2018-02-08, 15d
+    ceph-for-4.17-rc1 :active, 2018-04-11, 15d
+    ceph-for-4.18-rc1 :active, 2018-06-14, 15d
+    ceph-for-4.19-rc1 :active, 2018-08-20, 15d
+    ceph-for-4.20-rc1 :active, 2018-11-01, 15d
+    ceph-for-5.0-rc1  :active, 2019-01-03, 15d
+    ceph-for-5.5-rc1  :active, 2019-12-05, 15d
+    ceph-for-5.10-rc1 :active, 2020-10-21, 15d
+    ceph-for-5.15-rc1 :active, 2021-09-08, 15d
+    ceph-for-6.0-rc1  :active, 2022-10-13, 15d
+    ceph-for-6.5-rc1  :active, 2023-07-07, 15d
+    ceph-for-6.10-rc1 :active, 2024-05-25, 15d
+    ceph-for-6.15-rc4 :active, 2025-04-26, 15d
+    ceph-for-6.18-rc1 :active, 2025-10-11, 15d
+```
+
+```mermaid
+%%{init: {
+  "theme":"base",
+  "themeVariables": {
+    "primaryColor": "#e31a1c",
+    "sectionBkgColor": "#fff5f5",
+    "critColor": "#e31a1c",
+    "fontSize":"11px"
+  }
+}}%%
+gantt
+  title Linux Kernel 版本时间线 (2015-2025)
+  dateFormat  YYYY-MM-DD
+  axisFormat  %Y-%m
+
+  section Linux Kernel
+    v4.3 :crit, 2015-11-02, 15d
+    v4.4 :crit, 2016-01-11, 15d
+    v4.5 :crit, 2016-03-14, 15d
+    v4.6 :crit, 2016-05-16, 15d
+    v4.7 :crit, 2016-07-25, 15d
+    v4.8 :crit, 2016-10-03, 15d
+    v4.9 :crit, 2016-12-12, 15d
+    v4.10 :crit, 2017-02-20, 15d
+    v4.11 :crit, 2017-05-01, 15d
+    v4.12 :crit, 2017-07-03, 15d
+    v4.13 :crit, 2017-09-04, 15d
+    v4.14 :crit, 2017-11-13, 15d
+    v4.15 :crit, 2018-01-29, 15d
+    v4.16 :crit, 2018-04-02, 15d
+    v4.17 :crit, 2018-06-04, 15d
+    v4.18 :crit, 2018-08-13, 15d
+    v4.19 :crit, 2018-10-22, 15d
+    v5.0 :crit, 2019-03-04, 15d
+    v5.5 :crit, 2020-01-27, 15d
+    v5.10 :crit, 2020-12-14, 15d
+    v5.15 :crit, 2021-11-01, 15d
+    v6.0 :crit, 2022-10-03, 15d
+    v6.5 :crit, 2023-08-28, 15d
+    v6.10 :crit, 2024-07-15, 15d
+    v6.15 :crit, 2025-05-26, 15d
+    v6.18 :crit, 2025-12-01, 15d
+```
+
+
+# 2. 相关脚本
+
+## 2.1 版本时间对照表生成脚本
+
+以下脚本在执行时需要提前讲 ceph, ceph-client, linux 对应的 git 项目下载到当前脚本的目录中.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 定义三个仓库及其 GitHub releases 地址前缀
+declare -A REPO_URLS=(
+    ["ceph"]="https://github.com/ceph/ceph/releases/tag"
+    ["ceph-client"]="https://github.com/ceph/ceph-client/releases/tag"
+    ["linux"]="https://github.com/torvalds/linux/releases/tag"
+)
+
+repos=( "ceph" "ceph-client" "linux" )
+
+# 打印 Markdown 表头(居中对齐)
+echo "| Month | ceph | ceph-client | linux |"
+echo "|:------:|:------:|:-------------:|:------:|"
+
+# 将多仓库tag信息以内存管道的形式汇集
+(
+  for repo in "${repos[@]}"; do
+      [[ -d "$repo/.git" ]] || { echo "仓库 $repo 不存在" >&2; continue; }
+      pushd "$repo" >/dev/null
+
+      case "$repo" in
+          ceph)
+              tags=$(git tag --list 'v*' | grep -E '^v[0-9]+\.2\.[0-9]+$' || true)
+              ;;
+          ceph-client)
+              tags=$(git tag --list 'ceph-for*' || true)
+              ;;
+          linux)
+              tags=$(git tag --list 'v[0-9]*.[0-9]*' | grep -E '^v[0-9]+\.[0-9]+$' || true)
+              ;;
+          *)
+              tags=$(git tag)
+              ;;
+      esac
+
+      for tag in $tags; do
+          ttime=$(git for-each-ref --format='%(taggerdate:iso8601)' "refs/tags/$tag" | head -n 1)
+          [[ -n "$ttime" ]] || ttime=$(git log -1 --format=%ai "$tag")
+          [[ -z "$ttime" ]] && continue
+
+          month=$(TZ="Asia/Shanghai" date -d "$ttime" "+%Y-%m")
+          btime=$(TZ="Asia/Shanghai" date -d "$ttime" "+%Y-%m-%d %H:%M:%S")
+          echo "$month,$repo,$tag,$btime"
+      done
+      popd >/dev/null
+  done
+) | awk -F, '
+BEGIN{
+  ceph_url="https://github.com/ceph/ceph/releases/tag";
+  ccli_url="https://github.com/ceph/ceph-client/releases/tag";
+  linux_url="https://github.com/torvalds/linux/releases/tag";
+}
+{
+  month=$1; repo=$2; tag=$3; t=$4;
+  if      (repo=="ceph")        base=ceph_url;
+  else if (repo=="ceph-client") base=ccli_url;
+  else if (repo=="linux")       base=linux_url;
+  else                          base="";
+  link=sprintf("[%s](%s/%s) (%s)", tag, base, tag, t);
+  data[month,repo] = data[month,repo] ? data[month,repo] "<br>" link : link;
+  months[month]=1;
+}
+END{
+  PROCINFO["sorted_in"]="@ind_str_asc";
+  for (m in months){
+    ceph  = (data[m,"ceph"]       ? data[m,"ceph"]       : "-");
+    ccli  = (data[m,"ceph-client"]? data[m,"ceph-client"]: "-");
+    linux = (data[m,"linux"]      ? data[m,"linux"]      : "-");
+    printf("| %s | %s | %s | %s |\n", m, ceph, ccli, linux);
+  }
+}'
+```

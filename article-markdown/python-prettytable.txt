@@ -1,0 +1,169 @@
+# PrettyTable-Python 使用笔记
+
+# 1. 简述
+
+PrettyTable 是一个简单的 Python 库, 旨在快速, 轻松地在视觉上吸引人的 ASCII 表中表示表格数据. 它的灵感来自 PostgreSQL shell psql 中使用的 ASCII 表. PrettyTable 允许选择要打印的列, 列的独立对齐 (左对齐或右对齐或居中) 以及通过指定行范围打印 "子表".[GitHub](https://github.com/dprince/python-prettytable)
+
+# 2. 安装与使用
+
+```bash
+# 安装:使用pip可以方便的安装PrettyTable
+pip install PrettyTable
+
+# 使用:python代码中引入该库
+import prettytable as pt
+```
+
+# 3. 相关 API 介绍
+
+## 3.1 创建表
+
+### 3.1.1 普通创建表:
+
+```python
+import prettytable as pt
+tb = pt.PrettyTable()
+```
+
+### 3.1.2 从已有的文件中创建
+
+```python
+# [利用CSV文件创建]
+# 	+ 变量pt将是一个完全填充的PrettyTable对象;
+# 	+ CSV文件的第一行将被解释为字段名称并用于表头;
+# 	+ 可以通过传递"field_names"关键字参数来指定自己的字段名称;
+from prettytable import from_csv
+fp = open("mytable.csv", "r")
+pt = from_csv(fp)
+fp.close()
+
+# [利用HTMl文件创建]
+# 	+ 变量pts将是PrettyTable对象的列表;
+#	+ HTML代码中每个<table>都有一个PrettyTable;
+from prettytable import from_html 
+pts = from_html(html_string)
+
+# [利用SQL获取信息创建]
+#	+ db_cur是数据库的Cursor对象
+# 	+ 数据库中的数据具有与DB-API2规范兼容的Python API(例如,标准库中的sqlite3 API);
+# 	+ 可以使用SELECT语句的结果生成一个PrettyTable
+from prettytable import from_db_cursor 
+db_cur.execute("SELECT * FROM mytable")
+pt = from_db_cursor(db_cur)
+```
+
+## 3.2 添加元素
+
+```python
+# 按行添加
+pt.add_row()
+
+# 按列添加
+pt.add_column()
+```
+
+## 3.3 输出格式
+
+```python
+# ASCII码表 - 直接输出
+print(pt)
+
+# ASCII码表 - 无表格框输出
+# 	+ get_string()方法返回一个unicode对象,而不是ASCII编码的字节字符串;
+print(pt.get_string())
+
+# HTML表
+#	+ 可以使用"attribute"关键字参数来传递应该出现在开始<table>标记中的HTML属性的字典;
+#	+ 可以使用CSS来设置表格的样式而不是依赖于PrettyTable的格式;
+print(pt.get_html_string())
+print(pt.get_html_string(attributes = {"class": "foo"}))
+
+# 选择子表输出
+print(pt.get_string(fields = ["City name", "Population"]))
+
+# 仅输出前三列
+print(pt.get_string(start = 0, end = 3))
+# 删除除前3行以外的所有行,可通过将表切片为Python列表来创建一个只包含这些规则的新PrettyTable对象:
+new_table = old_table[0:3]
+print(new_table)
+
+# 表排序
+#	+ 以相反的顺序对表进行排序(从大到小)
+print(x.get_string(sortby="Annual Rainfall", reversesort=True))
+```
+
+## 3.4 控制表样式
+
+### 3.4.1 临时设置表样式:
+
+```python
+# 可在使用set_style之前使用get_string方法获取该表的样式:
+#	+ 除了MSWORD_FRIENDLY目前还有两种内置样式可用于表:
+#	+ DEFAULT - 默认外观,用于撤消您可能进行的任何样式更改;
+#	+ PLAIN_COLUMNS - 无边框样式,适用于柱状数据的命令行程序
+from prettytable import MSWORD_FRIENDLY
+x.set_style(MSWORD_FRIENDLY) 
+print(x)
+```
+
+手动更改表格样式:
+
+- `border`- 布尔选项 (必须是 `True` 或 `False`), 是否在表格周围绘制边框;
+- `header`- 布尔选项 (必须是 `True` 或 `False`), 表格的第一行是否显示所有字段名称的标题;
+- `header_style` - 控制标题中字段名称的大写, 允许值如下, 默认值为 None:
+  - `cap`: 每个单词的首字母大写;
+  - `title`: 标题大小写;
+  - `upper`: 全部为大写;
+  - `lower`: 全部为小写;
+  - `None`: 不更改原始字段名称设置;
+- `hrules` - 控制行后水平规则的打印, 可选值为 `FRAME`,`ALL`,`NONE` ; 这些是 `prettytable` 模块内定义的变量, 因此请确保导入或使用 `prettytable.FRAME` 等:
+- `vrules` - 控制列之间垂直规则的打印, 可选值为:`FRAME`,`ALL`,`NONE`;
+- `align` - 水平对齐, 可选值为: 空,`l` (左),`c` (中),`r` (右);
+- `valign` - 垂直对齐, 可选至为: 空,`t` (顶部),`m` (中间),`b` (底部);
+- `int_format` - 控制整数数据的格式, 为一个字符串, 为 "%" 和 "d" 之间 `print "%d" % 42`;
+- `float_format` - 控制浮点数据的格式, 为一个字符串, 为 "%" 和 "f" 之间 `print "%f" % 4.2`;
+- `padding_width` - 列数据两侧的空格数 (仅在左右填充为 None 时使用);
+- `left_padding_width` - 列数据左侧的空格数;
+- `right_padding_width` - 列数据右侧的空格数;
+- `vertical_char` - 用于绘制垂直线的单个字符, 默认是 `|`;
+- `horizontal_char` - 用于绘制水平线的单个字符, 默认是 `-`;
+- `junction_char` - 用于绘制线结的单个字符, 默认是 `+`;
+
+### 3.4.2 长期设置样式:
+
+```python
+# 更改相应的属性即可为"长期"设置选项
+x.border = False
+print(x)
+```
+
+如果您在创建表时知道所需的样式选项, 则可以使用构造函数的关键字参数指定它们, 更改相应的属性即可为 "长期" 设置选项; 例如, 以下两个代码块是等效的:
+
+```python
+# 代码块一
+x = PrettyTable()
+x.border = False
+x.header = False
+x.padding_width = 5
+
+# 代码块二
+x = PrettyTable(border=False, header=False, padding_width=5)
+```
+
+### 3.4.3 列设置
+
+```python
+# 使用属性赋值而非关键字参数设置某些设置,可以按列控制某些设置,设置列对齐方式如下:
+print(x.get_string(align="l"))
+
+# 或者
+x.align = "l"
+
+# 将对齐设置为所有列的左侧,但您可以像这样设置各列的对齐方式
+x.align["City name"] = "l"
+x.align["Population"] = "c"
+x.align["Area"] = "r"
+
+# 下面的将覆盖上面的列设置,再次将所有列设置为"l"
+x.align = "l"
+```

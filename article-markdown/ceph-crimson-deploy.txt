@@ -1,0 +1,695 @@
+# Ceph Crimson 集群部署教程
+
+当前 ceph 集群搭建部署的方式主要有三种: ceph-ansible, vstart.sh 和 cephadm. 其中 vstart.sh 脚本用于在开发环境中快速搭建测试集群. ceph-ansible 是之前推荐的部署 ceph 集群的方式, 支持在直接在宿主机上部署或者通过容器部署的方式, 目前社区已不推荐使用. cephadm 是当前最新的支持部署生产集群的方式, 仅支持容器部署. 接下来主要介绍通过 vstart.sh 和 cephadm 部署 crimson 集群的方式.
+
+# 1. vstart.sh 搭建集群
+
+通过这种方式部署的时候理论上对于 Ceph 版本没有特殊的要求, 本文中使用的版本为 [v19.2.1](https://github.com/ceph/ceph/tree/v19.2.1).
+
+vstart.sh 常用于在开发环境环境中快速搭建集群, 且在部署集群前我们需要编译出对应的二进制包. 由于编译环境可能会有各种依赖缺失, 版本异常等问题, 这里推荐使用 [bugwz/ceph-images](https://github.com/bugwz/ceph-image/tree/main/squid/centos-9-stream/dev) 中提供的 CentOS Stream 9 的编译打包环境. 同时后续的集群的搭建也可以在容器内部进行.
+
+
+**搭建集群操作步骤如下:**
+1. 软件编译: 使用开发容器镜像, 编译对应的 ceph 代码, 产出对应的二进制运行文件;
+2. 集群部署: 在开发容器内部使用 vstart.sh 脚本搭建测试集群;
+3. 集群测试: 验证集群功能特性是否正常;
+
+## 1.1 软件编译
+
+> **注意:** 2025 年 04 月 03 日之后的代码版本中移除了 `WITH_SEASTAR` 变量, 需要使用新变量 `WITH_CRIMSON`, 相关 [commit/23c33f6](https://github.com/ceph/ceph/commit/23c33f69ff977f7a05d3e3368e078b20e67a5ced).
+
+```bash
+# 进入上述提供的容器开发环境
+# 启动容器时需要使用 --privileged=true 参数, 避免后续在容器内部部署集群时遇到 OSD 部署的权限问题
+
+# 编译
+cd /root/ceph
+git checkout -f v19.2.1
+git submodule update --init --recursive
+export FOR_MAKE_CHECK=true
+/root/ceph/install-deps.sh
+/root/ceph/do_cmake.sh
+cd /root/ceph/build/
+ninja -j "$(expr $(nproc) / 2)"
+
+
+# 编译 crimson
+cd /root/ceph
+git checkout -f v19.2.1
+git submodule update --init --recursive
+export FOR_MAKE_CHECK=true
+# 2025年04月03日之后的代码使用 WITH_CRIMSON 替换了 WITH_SEASTAR
+export WITH_SEASTAR=true
+/root/ceph/install-deps.sh
+# 2025年04月03日之后的代码使用 WITH_CRIMSON 替换了 WITH_SEASTAR
+/root/ceph/do_cmake.sh -DWITH_SEASTAR=ON
+cd /root/ceph/build/
+ninja -j "$(expr $(nproc) / 2)"
+```
+
+
+## 1.2 集群部署
+
+通过 vstart.sh 部署集群依赖 1.1 中产出的二进制文件, 因此我们需要在对应的编译环境中搭建测试测试.
++ 各组件的配置文件位于 build 目录中的 ceph.conf 文件;
++ 各组件的运行目录位于 build 目录中的 dev 目录;
++ 各组件的日志目录位于 build 目录中的 out 目录;
++ 各组件的管理 socket 位于 build 目录中的 asok 目录;
+
+
+**vstart.sh 脚本相关逻辑:**
++ 部署 `crimson-osd` 的时候, 如果没有指定 `--crimson-smp` 参数, 则默认会将 `crimson_smp` 参数值设置为 `1`, 并且在启动每个 `OSD` 前修改对应的 `crimson_seastar_cpu_cores` 参数. 按照 `crimson-osd` 的启动逻辑, 如果指定了 `crimson_seastar_cpu_cores` 参数, 则不会使用 `crimson_seastar_num_threads` 配置, 因此如果想要 `crimson_seastar_num_threads` 配置生效, 就需要在 `vstart.sh` 脚本中注释掉位于 `start_osd` 函数中设置 `crimson_seastar_cpu_cores` 参数的逻辑.
+
+
+**操作如下:**
+```bash
+# 进入 build 目录
+# 以下所有操作均位于 build 目录中执行
+cd build
+
+# 搭建非 crimson 集群
+../src/vstart.sh -d -n
+
+# 搭建后端存储为 alienstore(bluestore) 的 crimson 集群
+../src/vstart.sh -d -n \
+  --without-dashboard --redirect-output \
+  --bluestore --crimson
+
+# 搭建后端存储为 cyanstore(memstore) 的 crimson 集群
+../src/vstart.sh -d -n \
+  --without-dashboard --redirect-output \
+  --cyanstore --crimson
+
+# 搭建后端存储为 seastore 的 crimson 集群
+../src/vstart.sh -d -n \
+  --without-dashboard --redirect-output \
+  --seastore --crimson
+
+# 搭建后端存储为 seastore 的 crimson 集群, 并调整集群的一些配置
+# 该方式会在初始化集群配置文件的时候在所有组件中添加指定的配置
+../src/vstart.sh -d -n \
+  --without-dashboard --redirect-output \
+  --seastore --crimson \
+  -o "$(cat new.conf)"
+
+# 停止非 crimson 集群
+../src/stop.sh
+
+# 停止 crimson 集群
+../src/stop.sh --crimson
+
+# 查看集群状态
+./bin/ceph -s
+
+# 查看集群 osd 组件的后端存储类型
+cat ./dev/osd*/type
+```
+
+## 1.3 功能测试
+
+### 1.3.1 测试 RBD 功能
+
+需要注意, 容器环境中可能没有对应的 rbd 内核模块, 下面的执行命令可能会失败.
+
+**相关命令:** (以下命令执行的相对路径均位于 ceph/build 目录中)
+```bash
+# 创建 rbd pool
+./bin/ceph osd pool create rbdpool 64 64
+./bin/ceph osd pool application enable rbdpool rbd
+./bin/ceph osd pool set rbdpool pg_autoscale_mode off
+
+# 创建 rbd image
+./bin/rbd create -p rbdpool --image rbdimg01 --size 10G
+
+# 删除 rbd image
+./bin/rbd rm --pool rbdpool --image rbdimg01
+
+# 查看 rbd image 信息
+./bin/rbd info rbdpool/rbdimg01
+
+# krbd 方式映射 rbd image (默认方式)
+# 由于 crimson osd 仅支持 message v2, 因此我们需要切换为 message v2进行连接通信
+# 详细支持的参数列表: https://github.com/ceph/ceph/blob/v19.2.1/src/tools/rbd/action/Kernel.cc#L120
+./bin/rbd device map -t krbd rbdpool/rbdimg01 -o mount_timeout=5,ms_mode=crc
+
+# nbd 方式映射 rbd image
+# 由于 crimson osd 仅支持 message v2, 因此我们需要切换为 message v2进行连接通信
+# 详细支持的参数列表: https://github.com/ceph/ceph/blob/v19.2.1/src/tools/rbd_nbd/rbd-nbd.cc#L2118
+./bin/rbd device map -t nbd rbdpool/rbdimg01
+
+# 格式化 krbd 方式映射的 rbd image 并挂载
+mkfs.xfs /dev/rbd0
+mkdir -p /mnt/cephrbd
+mount /dev/rbd0 /mnt/cephrbd
+
+# 格式化 nbd 方式映射的 rbd image 并挂载
+mkfs.xfs /dev/nbd1
+mkdir -p /mnt/cephrbd
+mount /dev/nbd1 /mnt/cephrbd
+
+# 压测 rbd image - 限速写
+cd /mnt/cephrbd
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=testfile status=progress
+
+# 压测 rbd image - 限速读
+cd /mnt/cephrbd
+dd if=testfile bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+
+# 在线调整 rbd image 格式化后的文件系统的大小
+xfs_growfs -d /mnt/cephrbd-01
+
+# 查看 rbd map devices
+./bin/rbd device list -t krbd
+./bin/rbd device list -t nbd
+
+# 取消挂载 rbd image
+umount /mnt/cephrbd
+./bin/rbd device unmap rbdpool/rbdimg01 -t krbd
+./bin/rbd device unmap rbdpool/rbdimg01 -t nbd
+```
+
+### 1.3.2 测试 FS 功能
+
+添加 MDS 组件并创建文件系统:  详见 [Deploy CephFS](https://docs.ceph.com/en/latest/cephadm/services/mds/#orchestrator-cli-cephfs)
+
+需要注意, 容器环境中可能没有对应的 ceph 内核模块, 下面的执行命令可能会失败.
+
+**相关命令:** (以下命令执行的相对路径均位于 ceph/build 目录中)
+```bash
+# kernel 方式挂载 cephfs
+# 详细支持的参数列表: https://github.com/ceph/ceph/blob/v19.2.1/src/mount/mount.ceph.c#L473
+mkdir -p /mnt/kernel-cephfs
+mount -t ceph 10.10.10.1:3300:/ /mnt/kernel-cephfs -o name=admin,secret=AQBVokZoak+LJRAAqgeJr6j77v729bfvBl/Z3g==,ms_mode=crc,mount_timeout=5
+
+# fuse 方式挂载 cephfs
+mkdir -p /mnt/fuse-cephfs
+./bin/ceph-fuse -c /etc/ceph/ceph.conf -n client.admin -m 10.10.10.1:3300 /mnt/fuse-cephfs --client_mountpoint /
+
+# 测试读写 - 限速写
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/kernel-cephfs/testfile status=progress
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/fuse-cephfs/testfile status=progress
+
+# 测试读写 - 限速读
+dd if=/mnt/kernel-cephfs/testfile bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+dd if=/mnt/fuse-cephfs/testfile bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+
+# 取消挂载 kernel 方式的 cephfs
+umount /mnt/kernel-cephfs
+
+# 取消挂载 fuse 方式的 cephfs
+fusermount -u /mnt/fuse-cephfs
+```
+
+### 1.3.3 测试其他特性
+
+**相关命令:**
+```bash
+# 测试 crimson osd 后端存储类别是否应用成功 (位于 build 目录中测试)
+cat ./dev/osd*/type
+```
+
+
+# 2. cephadm 搭建集群
+
+> **注意:** 由于目前社区在 2025 年 07 月 29 日之后支持了通过 cephadm 部署 seastore 类型的 osd ([pull/64323](https://github.com/ceph/ceph/pull/64323)), 因此为了部署方便, 所以推荐使用最新版本进行部署.
+
+通过 cephadm 搭建集群需要用到对应版本的 ceph 容器镜像, mon/mgr/osd 等组件运行在容器环境中, 官方提供的 [Ceph 容器镜像仓库](https://quay.io/repository/ceph/ceph). 但是有时候我们需要修改代码或构建特定版本的镜像, 为此就需要自行构建对应的容器镜像, 详细步骤下面会介绍.
+
+**操作步骤如下:**
+1. 编译打包: 编译 Ceph 并产出 RPM 安装包, 之后搭建 Web 服务器提供 RPM 安装包的访问下载地址;
+2. 容器构建: 基于上一步产出的 RPM 安装包, 构建 Cephadm 依赖的 Ceph 镜像;
+3. 集群部署: 基于上一步构建的 Ceph 镜像, 开始部署集群;
+4. 集群测试: 验证集群功能;
+
+## 2.1 编译打包
+
+由于最终编译打包生成的 RPM 包需要安装在 CentOS Stream 9 的环境中, 因此我们需要基于该环境进行编译打包, 这里推荐使用 [bugwz/ceph-images](https://github.com/bugwz/ceph-image/tree/main/tentacle/centos-9-stream/dev) 中提供的 CentOS Stream 9 的编译打包环境.
+
+**编译打包的详细步骤如下:**
+1. 构建容器编译打包环境: 基于 [bugwz/ceph-image](https://github.com/bugwz/ceph-image/tree/main/tentacle/centos-9-stream/dev) 中提供的 Dockerfile 进行构建;
+2. 执行编译打包: 基于上一步构建的编译打包环境执行编译, RPM 打包等操作;
+3. 搭建 Web 服务器环境: 提供对上一步打包的 RPM 的访问下载服务;
+
+
+### 2.1.1 构建容器编译打包环境
+
+
+**操作如下:**
+```bash
+# 构建 Ceph 开发环境, 最终生成一个 ceph-dev:centos9-stream-tentacle 的镜像
+git clone https://github.com/bugwz/ceph-image.git
+cd ./ceph-image/tentacle/centos-9-stream/dev
+./run.sh
+```
+
+### 2.1.2 执行编译打包
+
+> **注意:** 2025 年 04 月 03 日之后的代码版本中移除了 `WITH_SEASTAR` 变量, 需要使用新变量 `WITH_CRIMSON`, 相关 [commit/23c33f6](https://github.com/ceph/ceph/commit/23c33f69ff977f7a05d3e3368e078b20e67a5ced).
+
+这里我指定了我测试使用的版本代码, 具体的版本可以根据你的需求变更.
+
+
+**操作如下:**
+```bash
+# 进入开发环境
+podman run -d --name ceph-build ceph-dev:centos9-stream-tentacle /bin/bash -c "while true; do sleep 1; done"
+podman exec -it ceph-build /bin/bash
+
+# 编译
+cd /root/ceph
+git checkout -f 783bf4834fe4ad1a8da57902a7f334c3dfa820b2
+git submodule update --init --recursive
+export FOR_MAKE_CHECK=true
+/root/ceph/install-deps.sh
+/root/ceph/do_cmake.sh
+cd /root/ceph/build/
+ninja -j "$(expr $(nproc) / 2)"
+
+
+# 编译 crimson
+cd /root/ceph
+git checkout -f 783bf4834fe4ad1a8da57902a7f334c3dfa820b2
+git submodule update --init --recursive
+export FOR_MAKE_CHECK=true
+export WITH_CRIMSON=true
+/root/ceph/install-deps.sh
+/root/ceph/do_cmake.sh -DWITH_CRIMSON=ON
+cd /root/ceph/build/
+ninja -j "$(expr $(nproc) / 2)"
+
+
+# 构建 RPM
+cd /root/ceph
+git checkout -f 783bf4834fe4ad1a8da57902a7f334c3dfa820b2
+git submodule update --init --recursive
+/root/ceph/make-dist
+mkdir -p /root/ceph/rpmbuild/SOURCES
+cp /root/ceph/ceph-*.tar.bz2 /root/ceph/rpmbuild/SOURCES
+rpmbuild -ba --clean --rmsource --rmspec \
+    --define="_topdir /root/ceph/rpmbuild" \
+    --define="_rpmdir /root/ceph/rpmbuild/RPMS" \
+    --define="_builddir /root/ceph/rpmbuild/BUILD" \
+    --define="_sourcedir /root/ceph/rpmbuild/SOURCES" \
+    --define="_specdir /root/ceph/rpmbuild/SPECS" \
+    --define="_srcrpmdir /root/ceph/rpmbuild/SRPMS" \
+    --define="_unpackaged_files_terminate_build 0" \
+    ceph.spec --without selinux
+createrepo /root/ceph/rpmbuild/RPMS/x86_64/
+createrepo /root/ceph/rpmbuild/RPMS/noarch/
+
+
+# 构建 crimson RPM
+cd /root/ceph
+git checkout -f 783bf4834fe4ad1a8da57902a7f334c3dfa820b2
+git submodule update --init --recursive
+/root/ceph/make-dist
+mkdir -p /root/ceph/rpmbuild/SOURCES
+cp /root/ceph/ceph-*.tar.bz2 /root/ceph/rpmbuild/SOURCES
+rpmbuild -ba --with crimson --clean --rmsource --rmspec \
+    --define="_topdir /root/ceph/rpmbuild" \
+    --define="_rpmdir /root/ceph/rpmbuild/RPMS" \
+    --define="_builddir /root/ceph/rpmbuild/BUILD" \
+    --define="_sourcedir /root/ceph/rpmbuild/SOURCES" \
+    --define="_specdir /root/ceph/rpmbuild/SPECS" \
+    --define="_srcrpmdir /root/ceph/rpmbuild/SRPMS" \
+    --define="_unpackaged_files_terminate_build 0" \
+    ceph.spec --without selinux
+createrepo /root/ceph/rpmbuild/RPMS/x86_64/
+createrepo /root/ceph/rpmbuild/RPMS/noarch/
+```
+
+### 2.1.3 搭建 Web 服务器环境
+
+这一步的目的是提供一个 Web 环境, 以便于在运行构建 Ceph 镜像脚本的时候, 在镜像中安装使用我们上一步打包的 RPM 包.
+
+以下操作继续位于 1.2 中提到的名为 ceph-build 的容器中执行.
+
+**操作如下:**
+```bash
+# 创建 CentOS 源所需要的 repo 文件
+# 该文件完整路径为 /root/ceph/rpmbuild/ceph.repo
+# 该文件内容如下, 需要修改对应的 IP 地址等信息
+[ceph-custom-stable]
+name=Ceph custom stable $basearch repo
+baseurl=http://127.0.0.1:8080/RPMS/$basearch
+enabled=1
+gpgcheck=0
+priority=0
+
+[ceph-custom-stable-noarch]
+name=Ceph custom stable noarch repo
+baseurl=http://127.0.0.1:8080/RPMS/noarch
+enabled=1
+gpgcheck=0
+priority=0
+
+
+# 使用 Python3 启动一个 Web 服务
+cd /root/ceph/rpmbuild/
+python3 -m http.server 8080
+```
+
+
+## 2.2 容器构建
+
+当构建 crimson RPM 的时候, 最后会同时生成 ceph-crimson-osd 和 ceph-osd 两个 rpm 包, 但是其内部的 /usr/bin/ceph-osd 和 /usr/bin/crimson-osd 文件完全相同, 也就是说在构建 crimson RPM 的场景下, 即使最后安装的软件包为 ceph-osd, 实际起作用的也是 crimson osd. 所以即使是构建 crimson osd 的容器环境, 在执行容器脚本时对应的 FLAVOR 环境变量也可以使用 default 参数.
+
+以下操作并不位于上面提到的名为 ceph-build 的容器中.
+
+### 2.2.1 修改构建脚本
+
+> **注意:** 社区当前的打包脚本中并没有提供 CEPH_CUSTOM_REPO 这个参数, 该参数是我为了使用自定义的源仓库来新增的参数. 需要修改的代码变动如下. 最新补充: 2025 年 08 月 13 日的 [pull/64976](https://github.com/ceph/ceph/pull/64976) 新增了 `CUSTOM_CEPH_REPO_URL` 参数来支持自定义的软件包源.
+
+**操作如下:**
+```bash
+# 下载 Ceph 源码
+git clone https://github.com/ceph/ceph.git
+cd ./ceph
+git checkout -f 783bf4834fe4ad1a8da57902a7f334c3dfa820b2
+cd ./container
+
+vi build.sh
+
+vi Containerfile
+```
+
+**build.sh 中的变动如下:**
+```bash
+podman build --pull=true --squash -f $CFILE -t build.sh.output \
+    --build-arg FROM_IMAGE=${FROM_IMAGE:-quay.io/centos/centos:stream9} \
+    --build-arg CEPH_SHA1=${CEPH_SHA1} \
+    --build-arg CEPH_GIT_REPO=${CEPH_GIT_REPO} \
+    --build-arg CEPH_REF=${BRANCH:-main} \
+    --build-arg OSD_FLAVOR=${FLAVOR:-default} \
+    --build-arg CI_CONTAINER=${CI_CONTAINER:-default} \
+    --build-arg CEPH_CUSTOM_REPO=${CEPH_CUSTOM_REPO:-} \
+    --secret=id=prerelease_creds,src=./prerelease.secret.txt \
+    2>&1
+```
+
+**Containerfile 中的变动如下:**
+```dockerfile
+# (optional) ceph custom repo (pull ceph packages from the repo)
+ARG CEPH_CUSTOM_REPO=""
+
+RUN /bin/echo -e "\
+FROM_IMAGE: ${FROM_IMAGE}\n\
+CEPH_REF: ${CEPH_REF}\n\
+GANESHA_REPO_BASEURL: ${GANESHA_REPO_BASEURL} \n\
+OSD_FLAVOR: ${OSD_FLAVOR} \n\
+CI_CONTAINER: ${CI_CONTAINER} \n\
+CEPH_CUSTOM_REPO: ${CEPH_CUSTOM_REPO}"
+
+
+# Ceph repo
+RUN --mount=type=secret,id=prerelease_creds set -ex && \
+    if [ -z "${CEPH_CUSTOM_REPO}" ]; then \
+        rpm --import 'https://download.ceph.com/keys/release.asc' && \
+        ARCH=$(arch); if [ "${ARCH}" == "aarch64" ]; then ARCH="arm64"; fi ;\
+        IS_RELEASE=0 ;\
+        if [[ "${CI_CONTAINER}" == "true" ]] ; then \
+            # TODO: this can return different ceph builds (SHA1) for x86 vs. arm runs. is it important to fix?
+            REPO_URL=$(curl -fs "https://shaman.ceph.com/api/search/?project=ceph&distros=centos/9/${ARCH}&flavor=${OSD_FLAVOR}&ref=${CEPH_REF}&sha1=latest" | jq -r .[0].url) ;\
+        else \
+            IS_RELEASE=1 ;\
+            source /run/secrets/prerelease_creds; \
+            REPO_URL="https://${PRERELEASE_USERNAME}:${PRERELEASE_PASSWORD}@download.ceph.com/prerelease/ceph/rpm-${CEPH_REF}/el9/" ;\
+        fi && \
+        rpm -Uvh "$REPO_URL/noarch/ceph-release-1-${IS_RELEASE}.el9.noarch.rpm" ; \
+        if [[ "$IS_RELEASE" == 1 ]] ; then \
+            sed -i "s;http://download.ceph.com/;https://${PRERELEASE_USERNAME}:${PRERELEASE_PASSWORD}@download.ceph.com/prerelease/ceph/;" /etc/yum.repos.d/ceph.repo ; \
+            dnf clean expire-cache ; \
+        fi \
+    else \
+        curl -fs -L ${CEPH_CUSTOM_REPO} -o /etc/yum.repos.d/ceph.repo ;\
+    fi
+```
+
+
+### 2.2.2 执行构建操作
+
+**操作如下:**
+```bash
+# 构建 Cephadm 所需要的容器镜像
+export NO_PUSH=true
+export CI_CONTAINER=true
+export FLAVOR=default
+export BRANCH=main
+export CEPH_SHA1=783bf4834fe4ad1a8da57902a7f334c3dfa820b2
+export ARCH=$(arch)
+export CEPH_CUSTOM_REPO="http://127.0.0.1:8080/ceph.repo"
+/root/ceph/container/build.sh
+
+# 推送容器镜像至内部/外部镜像服务器
+podman push $IMAGE_NAME
+```
+
+## 2.3 集群部署
+
+假设测试环境中拥有三台机器, 每台机器上均已安装 ceph-common, ceph-base 等 Ceph 相关的 CLI 软件, 且三台机器的信息如下:
+|机器节点|机器 IP|
+|:--:|:--:|
+|ceph01|10.10.10.1|
+|ceph02|10.10.10.2|
+|ceph03|10.10.10.3|
+
+
+**使用 cephadm 进行集群的搭建步骤如下:**
+1. 创建新集群:  详见 [Bootstrap a new cluster](https://docs.ceph.com/en/latest/cephadm/install/#bootstrap-a-new-cluster);
+2. 添加主机到集群:  详见 [Adding Hosts](https://docs.ceph.com/en/latest/cephadm/host-management/#cephadm-adding-hosts);
+3. 添加 OSD 存储:  详见 [Deploy OSDs](https://docs.ceph.com/en/latest/cephadm/services/osd/#cephadm-deploy-osds);
+
+
+### 2.3.1 创建新集群
+
+**注意:** 如果编译打包的环境和安装 cephadm 的环境中 python 版本不同, 这可能会导致 cephadm 无法运行, 由于 cephadm 使用固定的 python 路径进行解析执行, 所以如果遇到这种问题我们可以尝试修改本地已安装 cephadm 中的 python 路径来解决该问题.
+
+```bash
+head -1 $(which cephadm)
+sudo sed -i '1s|^.*$|#!/root/.pyenv/shims/python3|' $(which cephadm)
+```
+
+**创建集群相关命令:**
+```bash
+# 创建新集群
+cephadm --image $IMAGE_NAME bootstrap --config /data/ceph/cephadm.conf --mon-ip 10.10.10.1 --initial-dashboard-password admin --allow-fqdn-hostname --no-minimize-config
+
+# 初始化环境配置, 调整 crimson 相关配置
+ceph config set osd crimson_seastar_num_threads 1
+ceph config set global 'enable_experimental_unrecoverable_data_corrupting_features' crimson
+ceph osd set-allow-crimson --yes-i-really-mean-it
+ceph config set mon osd_pool_default_crimson true
+
+# 启用日志文件
+ceph config set global log_to_file true
+ceph config set global mon_cluster_log_to_file true
+ceph config set global log_to_stderr false
+ceph config set global mon_cluster_log_to_stderr false
+ceph config set global log_to_journald false
+ceph config set global mon_cluster_log_to_journald false
+
+# 初始化环境配置: 新主机安装集群 SSH 公钥
+ssh-copy-id -f -i /etc/ceph/ceph.pub root@ceph02
+ssh-copy-id -f -i /etc/ceph/ceph.pub root@ceph03
+```
+
+**其他命令:**
+```bash
+# 调整 cephadm 日志配置
+ceph config set mgr mgr/cephadm/log_level debug
+ceph config set mgr mgr/cephadm/log_to_cluster true
+ceph config set mgr mgr/cephadm/log_to_cluster_level debug
+ceph config set mgr mgr/cephadm/log_to_file true
+
+# 调整 osd 后端存储类别
+# 目前 cephadm 部署方式中, 调整该参数无效
+# ceph config set osd osd_objectstore bluestore
+# ceph config set osd osd_objectstore cyanstore
+# ceph config set osd osd_objectstore seastore
+
+# 导出正在运行的服务规范
+ceph orch ls --service-type osd --export > osd.yaml
+ceph orch ls --export > cluster.yaml
+
+# 应用新的服务规范
+ceph orch apply -i osd.new.yaml --dry-run
+
+# 销毁集群
+cephadm rm-cluster --force --zap-osds  --fsid 3fab7f2a-39d6-11f0-9b5b-005056854af3
+dnf remove "*ceph*"
+rm -rf /etc/ceph/*
+rm -rf /var/lib/ceph/*
+rm -rf /var/log/ceph/*
+
+# cephadm 重启组件
+ceph orch ps --daemon-type mon
+ceph orch daemon restart <daemon-name>
+```
+
+**Crimson 相关配置参数:**
++ `osd_objectstore`: 后端对象存储类型, 可选值为 filestore/memstore/bluestore/kstore/seastore/cyanstore, 默认值为 bluestore;
+  + 对应 osd 的配置为: filestore/memstore/bluestore;
+  + 对应 crimson osd 的配置为: cyanstore/seastore/bluestore, 在这里 bluestore 前端使用 alienstore 进行代理, 但是配置中并没有该参数;
++ `crimson_osd_obc_lru_size`: 缓存的 Object Context 数量, 默认值为 512;
++ `crimson_osd_scheduler_concurrency`: 并发 IO 操作的最大数量, 0 代表无限, 默认值为 0;
++ `crimson_alien_op_num_threads`: 为 alienized ObjectStore 提供服务的线程数, 默认值为 6;
++ `crimson_alien_thread_cpu_cores`: 以 cpuset(7) 格式运行 alienstore 线程的 CPU 核心, 无默认值;
++ `crimson_seastar_cpu_cores`: 以 cpuset(7) 格式运行 seastar reactor 线程的 CPU 核心, smp::count 从此选项推导, 无默认值;
++ `crimson_seastar_num_threads`: 不进行 CPU 绑定的情况下用于服务 seastar reactor 的线程数, 如果设置了 crimson_seastar_cpu_cores, 则会被覆盖, 默认值为 0;
++ `crimson_osd_stat_interval`: 定期报告 OSD 状态的时间间隔 (以秒为单位), 设置为 0 则禁用, 默认值为 0;
++ `osd_pool_default_crimson`: 默认使用 FLAG_CRIMSON 创建池, 默认值为 false;
++ `seastore_segment_size`: 用于分段管理器的片段大小, 默认值为 64M;
++ `seastore_device_size`: 创建时用于 SegmentManager 块文件的总大小, 默认值为 50G;
++ `seastore_block_create`: 如果不存在, 请创建 SegmentManager 文件, 默认值为 true;
++ `seastore_journal_batch_capacity`: 日志批处理中的记录数量限制, 默认值为 16;
++ `seastore_journal_batch_flush_size`: 强制清除日志批处理的大小阈值, 默认值为 16M;
++ `seastore_journal_iodepth_limit`: 用于提交日志记录的 IO 深度限制, 默认值为 5;
++ `seastore_journal_batch_preferred_fullness`: 清除日志批处理的记录完整阈值, 默认值为 0.95;
++ `seastore_default_max_object_size`: seastore 对象数据的默认逻辑地址空间保留, 默认值为 16777216;
++ `seastore_default_object_metadata_reservation`: seastore 对象的元数据的默认逻辑地址空间保留, 默认值为 16777216;
++ `seastore_full_integrity_check`: seastore 是否需要完全检查每个范围的完整性, 非完全完整性检查意味着在范围重映射期间可能会跳过完整性检查以提高性能, 禁用时需谨慎, 默认值为 false;
++ `seastore_max_data_allocation_size`: 范围可以达到的最大字节大小, 一旦子范围读取/校验和实现, seastore_max_data_allocation_size 应该被弃用. 默认值为 32K;
++ `seastore_cache_lru_size`: 要保留在缓存中的扩展大小 (以字节为单位), 默认值为 64M;
++ `seastore_obj_data_write_amplification`: 如果写入大小的总扩展大小超过这个值, 则分割扩展, 默认值为 1.25;
++ `seastore_max_concurrent_transactions`: seastore 允许的最大并发事务, 默认值为 8;
++ `seastore_main_device_type`: seastore 使用的主设备类型, 可选值为 SSD/RANDOM_BLOCK_SSD, 默认值为 SSD. 还有当前不支持的 HDD/ZBD 配置, 其中 ZBD 指的是 ZNS SSD 或者 SMR HDD;
++ `seastore_cbjournal_size`: 创建时用于 CircularBoundedJournal 的总大小, 只有在 seastore_main_device_type 是 RANDOM_BLOCK 时有效, 默认值为 5G;
++ `seastore_multiple_tiers_stop_evict_ratio`: 当主层使用的比率小于这个值时, 停止将冷数据驱除到冷层, 默认值为 0.5;
++ `seastore_multiple_tiers_default_evict_ratio`: 在使用主层使用比率达到这个值时, 开始将冷数据驱除到冷层, 默认值为 0.6;
++ `seastore_multiple_tiers_fast_evict_ratio`: 当主层使用比率达到这个值时, 立即开始驱除, 默认值为 0.7;
++ `seastore_data_delta_based_overwrite`: 如果覆盖大小小于或等于该值, 则基于增量覆盖现有数据块, 否则基于重映射进行覆盖, 设置为 0 强制使用基于重映射的覆盖. 默认值为 0;
++ `seastore_disable_end_to_end_data_protection`: 当为 false 时, 在 mkfs 时尝试发现 nvme 设备是否支持内部校验和功能而不使用服务器 CPU, 然后在可用时启用, 设置为 true 则无条件禁用. 默认值为 true;
+
+
+### 2.3.2 添加主机到集群
+
+**相关命令:**
+```bash
+# 添加主机到集群
+ceph orch host add ceph02 10.10.10.2
+ceph orch host add ceph03 10.10.10.3
+```
+
+
+### 2.3.3 添加 OSD 存储
+
+> **注意:** [pull/64323](https://github.com/ceph/ceph/pull/64323) 中支持了通过 cephadm 部署 seastore 类型的 osd, 详细操作方式如下.
+
+**相关命令:**
+```bash
+# 添加 OSD 存储
+ceph orch device ls
+ceph orch daemon add osd ceph01:data_devices=/dev/sdd,/dev/sde,objectstore=seastore
+ceph orch daemon add osd ceph02:data_devices=/dev/sdd,/dev/sde,objectstore=seastore
+ceph orch daemon add osd ceph03:data_devices=/dev/sdd,/dev/sde,objectstore=seastore
+
+# 查看 OSD 的存储类型
+ceph tell ceph.* config get osd_objectstore
+```
+
+## 2.4 集群测试
+
+### 2.4.1 测试 RBD 功能
+
+**相关命令:**
+```bash
+# 创建 rbd pool
+ceph osd pool create rbdpool 64 64
+ceph osd pool application enable rbdpool rbd
+ceph osd pool set rbdpool pg_autoscale_mode off
+
+# 创建 rbd image
+rbd create -p rbdpool --image rbdimg01 --size 10G
+
+# 删除 rbd image
+rbd rm --pool rbdpool --image rbdimg01
+
+# 查看 rbd image 信息
+rbd info rbdpool/rbdimg01
+
+# krbd 方式映射 rbd image (默认方式)
+# 由于 crimson osd 仅支持 message v2, 因此我们需要切换为 message v2进行连接通信
+# 详细支持的参数列表: https://github.com/ceph/ceph/blob/v19.2.1/src/tools/rbd/action/Kernel.cc#L120
+rbd device map -t krbd rbdpool/rbdimg01 -o mount_timeout=5,ms_mode=crc
+
+# nbd 方式映射 rbd image
+# 由于 crimson osd 仅支持 message v2, 因此我们需要切换为 message v2进行连接通信
+# 详细支持的参数列表: https://github.com/ceph/ceph/blob/v19.2.1/src/tools/rbd_nbd/rbd-nbd.cc#L2118
+rbd device map -t nbd rbdpool/rbdimg01
+
+# 格式化 krbd 方式映射的 rbd image 并挂载
+mkfs.xfs /dev/rbd0
+mkdir -p /mnt/cephrbd
+mount /dev/rbd0 /mnt/cephrbd
+
+# 格式化 nbd 方式映射的 rbd image 并挂载
+mkfs.xfs /dev/nbd1
+mkdir -p /mnt/cephrbd
+mount /dev/nbd1 /mnt/cephrbd
+
+# 压测 rbd image - 限速写
+cd /mnt/cephrbd
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=testfile status=progress
+
+# 压测 rbd image - 限速读
+cd /mnt/cephrbd
+dd if=testfile bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+
+# 在线调整 rbd image 格式化后的文件系统的大小
+xfs_growfs -d /mnt/cephrbd-01
+
+# 查看 rbd map devices
+rbd device list -t krbd
+rbd device list -t nbd
+
+# 取消挂载 rbd image
+umount /mnt/cephrbd
+rbd device unmap rbdpool/rbdimg01 -t krbd
+rbd device unmap rbdpool/rbdimg01 -t nbd
+```
+
+
+### 2.4.2 测试 FS 功能
+
+添加 MDS 组件并创建文件系统:  详见 [Deploy CephFS](https://docs.ceph.com/en/latest/cephadm/services/mds/#orchestrator-cli-cephfs);
+
+**相关命令:**
+```bash
+# 添加 MDS 组件并创建文件系统
+ceph fs volume create cephfs
+
+# kernel 方式挂载 cephfs
+# 详细支持的参数列表: https://github.com/ceph/ceph/blob/v19.2.1/src/mount/mount.ceph.c#L473
+mkdir -p /mnt/kernel-cephfs
+mount -t ceph 10.10.10.1:3300:/ /mnt/kernel-cephfs -o name=admin,secret=AQBVokZoak+LJRAAqgeJr6j77v729bfvBl/Z3g==,ms_mode=crc,mount_timeout=5
+
+# fuse 方式挂载 cephfs
+mkdir -p /mnt/fuse-cephfs
+ceph-fuse -c /etc/ceph/ceph.conf -n client.admin -m 10.10.10.1:3300 /mnt/fuse-cephfs --client_mountpoint /
+
+# 测试读写 - 限速写
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/kernel-cephfs/testfile status=progress
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/fuse-cephfs/testfile status=progress
+
+# 测试读写 - 限速读
+dd if=/mnt/kernel-cephfs/testfile bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+dd if=/mnt/fuse-cephfs/testfile bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+
+# 取消挂载 kernel 方式的 cephfs
+umount /mnt/kernel-cephfs
+
+# 取消挂载 fuse 方式的 cephfs
+fusermount -u /mnt/fuse-cephfs
+```
+
+
+
+# 3. 相关资料
++ https://ceph.io/en/news/blog/2025/crimson-T-release/
++ https://docs.ceph.com/en/latest/dev/quick_guide
++ https://docs.ceph.com/en/latest/dev/crimson/crimson
++ https://docs.ceph.com/en/latest/cephadm/install/#bootstrap-a-new-cluster
++ https://www.51cto.com/article/749735.html
++ https://zhuanlan.zhihu.com/p/667949613
++ https://docs.redhat.com/zh-cn/documentation/red_hat_ceph_storage/7/html/administration_guide/crimson
++ https://ceph.io/en/news/blog/2023/crimson-multi-core-scalability

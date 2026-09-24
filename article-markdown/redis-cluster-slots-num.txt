@@ -1,0 +1,191 @@
+# 为什么 RedisCluster 采用 16384 个槽位?
+
+# 1. 引言
+
+`RedisCluster` 目前使用的计算 `slot` 槽位的算法为 `CRC16`, 该算法本身会产生的 `hash` 值的大小为 `16bit`, 因此该算法可以产生 `2^16=65536` 个不同的值, 取值范围为 `0~65535` 之间, 从下面的代码中我们看到, 目前限制的 `slot` 槽位的个数为 `16384` (相关的代码为 `crc16(key+s+1,e-s-1) & 0x3FFF`);
+
+```c
+/* We have 16384 hash slots. The hash slot of a given key is obtained
+ * as the least significant 14 bits of the crc16 of the key.
+ *
+ * However if the key contains the {...} pattern, only the part between
+ * { and } is hashed. This may be useful in the future to force certain
+ * keys to be in the same node (assuming no resharding is in progress). */
+unsigned int keyHashSlot(char *key, int keylen) {
+    int s, e; /* start-end indexes of { and } */
+
+    for (s = 0; s < keylen; s++)
+        if (key[s] == '{') break;
+
+    /* No '{' ? Hash the whole key. This is the base case. */
+    if (s == keylen) return crc16(key,keylen) & 0x3FFF;
+
+    /* '{' found? Check if we have the corresponding '}'. */
+    for (e = s+1; e < keylen; e++)
+        if (key[e] == '}') break;
+
+    /* No '}' or nothing between {} ? Hash the whole key. */
+    if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
+
+    /* If we are here there is both a { and a } on its right. Hash
+     * what is in the middle between { and }. */
+    return crc16(key+s+1,e-s-1) & 0x3FFF;
+}
+```
+
+那么槽位个数的时候为什么不直接采用 65536 呢? 作者在 2015 年 5 月在相关的[issue#2576](https://github.com/antirez/redis/issues/2576)上就给出了答案, 作者的回复如下:
+
+![antirze的回复](/assets/images/posts/redis-cluster-slots-num/slotsNum.webp)
+
+作者这句话的翻译如下所示:
+
+> 原因是:
+>
+> 1. 正常的心跳包会携带着节点的完整配置, 通过使用与旧的配置信息幂等的配置来更新旧配置. 这意味着它们需要包含原始形式的节点的插槽配置信息, 使用 16384 个 slots 的话将会占用 2k 的空间, 但是如果使用 65536 个 slots 的话将会占用 8k 空间. 
+> 2. 同时, 由于其他设计权衡, RedisCluster 不太可能扩展到超过 1000 个 Master 节点.
+>
+> 所以 16384 在正确的范围内可以确保每个 Master 有足够的插槽, 最多 1000 个 Master, 但是足够小的 slots 数字可以很容易地将 slots 的配置作为原始位图数据进行传播. 请注意, 在小型集群中, 位图难以压缩, 因为当 N 很小时, 位图将设置 slots/N 位, 这个是一个很大的比特集.
+
+# 2. 分析
+
+依据作者给出的答案, 作者吧原因定位于 **带宽消耗** 以及 **使用现状** 方面, 接下来详细说明一下这样设置的原因, RedisCluster 使用 `cluster meet <ip> <port> [bus-port]` 指令将节点连接到工作集群中, 例如将两个 redis 实例 `10.0.0.1:6379` 和 ` 10.0.0.2:6379` 加入到集群中, 我们可以使用 `redis-cli` 连接上 `10.0.0.1:6379`, 执行 `cluster meet 10.0.0.2:6379` 使两个节点建立连接, 后续这两个节点就会定期发送 `ping/pong` 来交换数据信息.
+
+这里分析一下在节点数据交换的过程中的几个重点:
+
+- 节点交换的数据类型与大小;
+- 节点数据交换的频率;
+
+## 2.1 节点交换的数据类型与大小
+
+在 RedisCluster 的不同节点通信过程中, 会调用 `clusterSendPing(clusterLink *link, int type)`, 依据 `type` 区分类型, 然后调用 `clusterBuildMessageHdr();` 和 `clusterSendMessage();` 函数构建并发送消息, 下面是节点的消息类型:
+
+```c
+/* Message types.
+ *
+ * Note that the PING, PONG and MEET messages are actually the same exact
+ * kind of packet. PONG is the reply to ping, in the exact format as a PING,
+ * while MEET is a special PING that forces the receiver to add the sender
+ * as a node (if it is not already in the list). */
+#define CLUSTERMSG_TYPE_PING 0          /* Ping */
+#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
+#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
+#define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
+#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
+#define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
+#define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
+#define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
+#define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
+```
+
+### 2.1.1 消息头信息
+
+在节点通信过程中, 节点之间需要进行数据交换, 以下结构体是节点之间进行数据交换的基础信息:
+
+```c
+#define CLUSTER_SLOTS 16384
+
+typedef struct {
+    char sig[4];        /* 签名"RCmb"(Redis群集消息总线) */
+    uint32_t totlen;    /* 消息的总长度 */
+    uint16_t ver;       /* 协议版本,目前设置为1 */
+    uint16_t port;      /* TCP基本端口号r. */
+    uint16_t type;      /* 消息类型 */
+    uint16_t count;     /* 仅用于某种消息 */
+    uint64_t currentEpoch;  /* 相应于发送节点的纪元 */
+    uint64_t configEpoch;   /* 如果是主服务器的配置纪元,或者如果它是从
+    													 服务器则由其主服务器通告的最后一个纪元 */
+    uint64_t offset;    /* 如果节点是从属节点,则节点是主节点或已处理的
+    											 复制偏移量时,主复制偏移量 */
+    char sender[CLUSTER_NAMELEN]; /* 发件人节点的名称 */
+    unsigned char myslots[CLUSTER_SLOTS/8]; /* 发送节点负责的槽信息 */
+    char slaveof[CLUSTER_NAMELEN]; /* 如果发送节点是从节点,记录对应主节点的nodeId */
+    char myip[NET_IP_STR_LEN];    /* 发件人IP,如果不存在则为零 */
+    char notused1[34];  /* 34个保留字节供将来使用 */
+    uint16_t cport;      /* Sender TCP集群总线端口 */
+    uint16_t flags;      /* 发件人节点标志 */
+    unsigned char state; /* 来自发件人POV的集群状态 */
+    unsigned char mflags[3]; /* 消息标志:CLUSTERMSG_FLAG [012] _... */
+    union clusterMsgData data; /* 群集消息数据 */
+} clusterMsg;
+```
+
+这里只讨论与 slots 相关的 `unsigned char myslots[CLUSTER_SLOTS/8];` 这一项信息, 该项为一个 `char` 数组, 这个数组实际上是一个 `bitmap`, 这个 `bitmap` 的每一位表示一个槽, 如果对应的槽位为 `1`, 代表对应的槽位是属于该节点的.
+
+分析整个结构体可以看出其中空间占用最大的就是 `unsigned char myslots[CLUSTER_SLOTS/8];` 这一项, 占用空间 `16384/8/1024=2kb`, 因此, 如果槽位为 `65536`, 发送心跳信息的消息头达 `8k`, 发送的心跳包过于庞大;
+
+## 2.2 消息体信息
+
+在消息体中, 会携带一定数量的其他节点信息用于交换. 其他节点的信息的数量约为集群总节点数量的 1/10, 至少携带 3 个节点的信息,**节点数量越多, 消息体内容越大**, 10 个节点状态下的消息体的大小大概约为 1Kb 左右;
+
+具体消息体的信息是? ? ? 待分析
+
+# 3. 节点数据交换的频率
+
+`Cluster` 节点之间的 `ping/pong` 操作由 `clusterCron()` 函数不断触发, 该函数每秒执行 `10` 次, 在 `clusterCron()` 函数中, 每调用 `10` 次, 执行一次 `Cluster` 节点的 `ping` 操作, 相关代码如下:
+
+```c
+/* 每秒执行10次 */
+void clusterCron(void) {
+  	/* 省略部分代码... */
+  	/* 每10次迭代对一些随机节点进行1次ping操作,这样我们通常每秒ping一个随机节点 */
+    if (!(iteration % 10)) {
+        int j;
+
+      	/* 检查几个随机节点并使用最早的pong_received时间ping一个节点. */
+        for (j = 0; j < 5; j++) {
+            de = dictGetRandomKey(server.cluster->nodes);
+            clusterNode *this = dictGetVal(de);
+
+            /* Don't ping nodes disconnected or with a ping currently active.
+            /* 不要ping断开连接的节点或当前活跃的节点. */
+            if (this->link == NULL || this->ping_sent != 0) continue;
+            if (this->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
+                continue;
+            if (min_pong_node == NULL || min_pong > this->pong_received) {
+                min_pong_node = this;
+                min_pong = this->pong_received;
+            }
+        }
+        if (min_pong_node) {
+            serverLog(LL_DEBUG,"Pinging node %.40s", min_pong_node->name);
+            clusterSendPing(min_pong_node->link, CLUSTERMSG_TYPE_PING);
+        }
+    }
+    /* 省略部分代码... */
+  	di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+      	/* 省略部分代码... */
+      	/* 如果我们当前在此实例中没有活动的ping,并且收到的PONG早于
+      	 * 群集超时的一半,则立即发送新的ping,以确保所有节点都被ping,
+      	 * 而没有太大的延迟 */
+        if (node->link &&
+            node->ping_sent == 0 &&
+            (now - node->pong_received) > server.cluster_node_timeout/2)
+        {
+            clusterSendPing(node->link, CLUSTERMSG_TYPE_PING);
+            continue;
+        }
+      	/* 省略部分代码... */
+		}
+   	dictReleaseIterator(di);
+}
+```
+
+上述代码的大致逻辑是:
+
+- 每次 (秒) 会随机选取 `5个` 节点, 找出最久没有通信的节点发送 `ping` 消息;
+- 每 `100毫秒` (`1秒10次`) 都会扫描本地节点列表, 如果发现节点最近一次接受 `pong` 消息的时间大于 `cluster-node-timeout/2` 则立刻发送 `ping` 消息;
+
+**因此我们可以计算出每秒单节点发出的 ping 消息的数量为:**
+
+`1+10*numOf(node.pong_received>cluster_node_timeout/2)`
+
+针对于大致的带宽消耗,"Redis 的开发与运维" 中在第 10 章 集群的集群运维 - 带宽消耗小节中, 有这么一句话:
+
+> 例如, 一个总节点数为 200 的 Redis 集群, 部署在 20 台物理机上每台划分 10 个节点, cluster-node-timeout 采用默认 15 秒, 这时 ping/pong 消息占用带宽达到 25Mb. 如果把 cluster-node-timeout 设为 20, 对带宽的消耗降低到 15Mb 以下.
+
+
+
++ 相关链接:[面试官:知道为什么RedisCluster有16384个槽么?](https://mp.weixin.qq.com/s?__biz=MzIwMDgzMjc3NA==&mid=247484663&idx=1&sn=bffafa6cbaa2a0bdf8ab487901867932&utm_source=tuicool&utm_medium=referral)

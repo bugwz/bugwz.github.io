@@ -1,0 +1,80 @@
+# JSP 使用中问题汇总
+
+# 1. 说明:
+
+本篇主要说明在我学习 JSP 的相关过程中, 遇到的最凸显的一些问题, 肯定附带一些 IDE 工具 (这里主要是 Eclipse) 的一些问题, 为了方便查询, 特此记录. 我自身软件环境如下:
+
+1. Eclipse Java EE IDE for Web Developers. 
+  Version: Neon.1a Release (4.6.1);
+2. Apache Tomcat version: 8.5.8
+
+>###进入 Servlet 映射的虚拟路径的 404 错误问题
+
+我发现在使用 Eclipse 利用 servlet3.0 及以上的版本写虚拟路径映射的时候, 默认没有 web.xml 的时候 (当然与这无关), 在路径都书写正确的情况下始终无法进入对应的路径, Eclipse 的控制台提示错误为:
+
+`[SetPropertiesRule]{Server/Service/Engine/Host/Context} Setting property 'source' to 'org.eclipse.jst.jee.server:Test' did not find a matching property.`
+
+浏览器会提示 404 错误, 我系统默认浏览器与 Eclipse 的 Internal Web Browser 都是这个错误. 错误如下图所示:
+
+![404 Error in Chrome](/assets/images/posts/jsp-problem/jsp-pb-1.webp)
+![404 Error in Self Browser](/assets/images/posts/jsp-problem/jsp-pb-2.webp)
+
+然后我尝试选择附带 web.xml 的情况下重建工程, 依旧会出现这个错误, 最后经过一番查找, 发现原因应该是 Tomcat6.0 及以后的版本中的 server.xml 的 context 节点中不支持 source 属性, 我在官网找到如下信息:
+
+![Tomcat6.0 Not Support "Source"](/assets/images/posts/jsp-problem/jsp-pb-3.webp)
+
+其中最主要的一句好像是:
+
+`It is NOT recommended to place <Context> elements directly in the server.xml file. This is because it makes modifying the Context configuration more invasive since the main conf/server.xml file cannot be reloaded without restarting Tomcat.`
+
+解决方法为:
+这里通过修改 Tomcat server 配置, 首先关闭 server, 然后在 server 视图中双击 server, 打开配置界面, 选中下面的 "Publish module contexts to separate XML files", 保存退出. 如下图所示, 重启 Eclipse 即可!
+
+解决办法的网络参考:http://siruoxian.iteye.com/blog/1103347
+
+![Change Tomcat Server Config](/assets/images/posts/jsp-problem/jsp-pb-4.webp)
+
+---
+>###在 Servlet 使用过程中的编码问题
+
+这里不讨论各种编码方式的优缺点, 这里只是说明我们在日常使用过程中出现的编码问题, 这也是最让人头痛的问题. 我使用的 UTF-8 编码.
+我们在使用 Eclipse 进行项目的时候, 比如说吧, 我说一下我曾记出现的一个问题.
+
+响应为 http 的 post 响应请求, 当然这里 http 的响应请求方式无所谓, 然后是我的页面显示编码全部规定是 UTF-8, 即 `resp.setHeader("Content-type", "text/html;charset=UTF-8");`, resp 为 HttpServletResponse 对象类型, 但是我并没有设置 `req.setCharacterEncoding("UTF-8");`, 此处的 req 为 HttpServletRequest 对象, 然后我发现, 页面的显示就会出现乱码.
+
+这是我遇到的问题一, 还有一个更严重的问题就是页面实际使用的编码与你要求页面显示的编码方式不统一, 由于 Eclipse 本身默认的文本编码为 GBK, 并且我们在 Eclipse 中建立的各种工程全部是继承系统默认的文本编码方式, 但是我经常使用的页面编码显示为 UTF-8, 这就会出现意想不到的问题, 为了解决这一问题, 我强烈建议, 你想让页面以什么编码方式显示, 一定要用该编码编辑该文本, 其中 Eclipse 的编码设置位置, 如下图所示:
+
+![Change Text Coding](/assets/images/posts/jsp-problem/jsp-pb-5.webp)
+
+---
+>###Eclipse 的汉化方法
+
+虽然说使用英文的 IDE 可以不断的锻炼自己的英文水平, 并且能够避免很多错译, 或者语言文件本身存在的 bug 导致软件无法正常的运行等等问题.
+
+但是, 但是, 因为 Eclipse 本身软件的影响力, 其官方的汉化文件已经做得非常好了, IDE 本身的汉化比已经达到 80%多, 加上英文 IDE 本身给人的恐惧心理, 让我们没法深入探索这个 IDE 工具的有趣之处, 我们可能只是按需的在这款软件内依次点击那几个按钮, 完成老师交代的那一丁丁任务而已, 我们也只是稍微碰过这款软件, 也许是因为英文而没有那种想去探索的勇气, 一个英文不好的人去用, 的却会浪费很多时间, 最起码我是因为英文不想去接触, 说实话, 我有点怕麻烦, 进入正题, 汉化过程如下:
+
+访问 Eclipse 的官网语言下载链接:[这里](https://www.eclipse.org/babel/downloads.php); 然后我们选择对应我们 IDE 的语言包进行下载, 如下图所示:
+
+![IDE Language Pack](/assets/images/posts/jsp-problem/jsp-pb-6.webp)
+
+下载后, 接下, 记住解压后的文件的目录绝对路径, 然后我们打开 Eclipse 这个 IDE 工具, 依次选择 Help->Install New Software->Add... ->Local... ; 然后添加那个解压的文件的文件夹, 然后确定后, 进行等待, 然后展开下图中的一个语言包:
+
+![Install Language Pack](/assets/images/posts/jsp-problem/jsp-pb-7.webp)
+
+此处切记哈, 不要安装这个语言包中的所有插件, 因为有一些汉化的极其不好, 并且你全部安装后会发现 Eclipse 的有些功能莫名地无法使用, 就是因为有一些语言包插件有问题, 为了能最大的汉化并不影响我们的日常使用, 我推荐选择其中一款名字接近于 "for eclipse..." 的插件, 目前该插件汉化 Eclipse 的汉化率在 80%以上, 其他的操作一次进行即可.
+
+---
+>###Eclipse 中导入其他的工程时出错, 无法运行
+
+当我们从别人的机器中拷贝出一个工程项目并在我们的电脑中导入该工程后, 很容易出现的问题就是出错, 无法运行, 这其中有很大的原因在于工程项目的构建路径中的 JAR 和类文件夹出错.
+
+我们知道, 每个工程的构建依赖于电脑自身的 Java 与 Tomcat 环境, 如果一个人的电脑配置的环境是 Java1.7, 并且它的 Tomcat 环境是 7.0.73, 他新建一个工程的时候 Eclipse 自然在构建路径中配置这些信息, 但是由于我的系统环境为 Java1.8, Tomcat8.5.8, 这样就会因为找不到对应的配置环境而出错, 还有一种可能性是, 你环境的安装路径不对, 这里仅是推测. 出错可能如下图所示:
+
+![Path Error](/assets/images/posts/jsp-problem/jsp-pb-8.webp)
+
+然后我们的纠错步骤为, 修改该工程的构建路径中的的 JAR 和类文件夹信息, 删除出错的, 添加我们本机的 Java 环境以及 Tomcat 环境, 如下图所示:
+
+![Library Error](/assets/images/posts/jsp-problem/jsp-pb-9.webp)
+![Runtime Error](/assets/images/posts/jsp-problem/jsp-pb-10.webp)
+
+这样的话, 该工程的错误就回消失, 当然还有一点是可能是该工程的原始环境较现在的环境较新, 因此出错, 这样的话就具体针对错误提示就行排除.

@@ -1,0 +1,877 @@
+# Ceph Scrub 机制深入分析
+
+本文系统梳理 Ceph Scrub 的基础概念, 历史演进与内部实现, 说明 shallow scrub, deep scrub 和 repair 的职责与区别, 并围绕 PG 展开调度触发, 资源预约, 状态机协作, 分块扫描, 副本与 EC shard 比较, 错误判定及修复流程的分析. 最后汇总检查周期, 优先级, 读取与延迟控制等关键配置, 以及状态查询, 手动触发, 暂停恢复, 不一致对象排查和 repair 操作的常用命令, 帮助理解后台一致性检查的运行机制及其对集群性能的影响.
+
+# 1. scrub 基础信息
+
+## 1.1 scrub 定义
+
+scrub 是 Ceph OSD 对 RADOS 数据执行的后台一致性检查. 它按 PG 扫描对象, 收集各个 OSD 上的对象信息, 再比较副本或 EC shard 的状态, 发现对象缺失, 元数据不一致和数据损坏等问题.
+
+PG (Placement Group) 是 scrub 的基本处理单位. 客户端对象先映射到 PG, CRUSH 再为 PG 选择 acting set. 以三副本 replicated pool 为例, acting set 中有一个 primary OSD 和两个 replica OSD:
+
+```text
+client -> object -> PG
+                     |
+                     v
+       CRUSH selects acting set
+                     |
+                     v
+      acting set: primary, r1, r2
+                     |
+                     v
+               primary OSD
+                /         \
+               v           v
+          replica 1     replica 2
+```
+
+primary 负责协调 PG 的 scrub, 其他 OSD 提供本地对象或 shard 的检查结果. EC pool 使用 data shard 和 coding shard 保存对象, scrub 仍以 PG 为单位协调检查.
+
+scrub 按计划周期运行, 主动读取平时很少访问的对象, 及时发现潜在的数据问题.
+
+## 1.2 scrub 作用
+
+scrub 主要用于三件事:
+
+1. 检查副本或 shard 是否完整, 一致.
+2. 发现磁盘静默损坏, 对象元数据分叉和快照映射错误.
+3. 为健康告警和 repair 提供依据.
+
+检查结果由 primary 汇总. 发现问题后, Ceph 会记录不一致对象和错误类型, 管理员可以进一步查看并决定是否执行 repair.
+
+scrub 的检查范围是 Ceph 能读取和比较的对象, 元数据, 摘要及 shard 关系. 备份和数据库记录等业务语义校验由其他机制负责.
+
+## 1.3 shallow scrub, deep scrub 和 repair
+
+|操作|会做什么|主要用途|主要成本|
+|---|---|---|---|
+|shallow scrub|检查各副本上是否都能找到该对象, 并比较大小, 版本, 属性和其他元数据|发现对象缺失和元数据不一致|对象列表和元数据 I/O|
+|deep scrub|在 shallow scrub 基础上读取对象内容并比较 data/omap digest|发现静默数据损坏和内容摘要不一致|对象数据读取和 digest 计算|
+|repair|根据 scrub 结果选择修复来源并恢复异常 shard|处理已经确认的不一致|恢复读取, 写入和可能的回填|
+
+shallow scrub 和 deep scrub 是两种检查级别, repair 是根据检查结果采取的修复操作.
+
+scrub 发现差异后, 修复数据源还需要根据对象版本, 摘要和 backend 条件判断. 执行 repair 前应保存不一致对象明细和 OSD 日志.
+
+# 2. scrub 历史演进
+
+早期 scrub 由几组提交逐步形成. 2008 年完成了从 SnapSet 检查到 primary/replica 比较和 `pg repair` 的演进 ([`275a06b39dd`](https://github.com/ceph/ceph/commit/275a06b39dd), [`f51348dc8bd`](https://github.com/ceph/ceph/commit/f51348dc8bd), [`ac6e86a21c5`](https://github.com/ceph/ceph/commit/ac6e86a21c5)); 2012 年加入 chunky scrub 和 deep scrub ([`f5046798f4e`](https://github.com/ceph/ceph/commit/f5046798f4e), [`9013efd3a3c`](https://github.com/ceph/ceph/commit/9013efd3a3c)); 2013 年 deep scrub 增加 omap digest ([`2fd8db29ccf`](https://github.com/ceph/ceph/commit/2fd8db29ccf)). 这些能力随后分别进入 v0.5/v0.6 和 Bobtail v0.56, 构成后续 scrub 版本演进的基础. 早期开发阶段尚未使用现在的 GitHub PR 和 tracker issue 流程.
+
+版本比较采用每条发布线的首个稳定版. 现代版本使用 `v19.2.0..v20.2.0` 这样的相邻 GA 版本, 早期版本则使用 `v0.48argonaut`, `v0.56` 等首发 tag. 表格只比较新发布线 GA 时相对上一发布线已经具备的能力, 稳定周期内的 backport 不单独展开. v0.5 和 v0.6 属于正式稳定系列前的开发版本, 因此从 Argonaut 开始列出版本对比; 发布时间取对应 tag 的创建或标注日期.
+
+|版本|发布时间|主要变化|
+|---|---|---|
+|v0.48argonaut (Argonaut)|2012-07-02|第一个正式稳定系列, 已经包含 primary/replica ScrubMap 比较和非阻塞 scrub 工作队列.|
+|v0.56 (Bobtail)|2012-12-31|增加 chunky scrub 和读取对象内容的 deep scrub; repair 固定走 deep 路径.|
+|v0.61 (Cuttlefish)|2013-05-06|deep scrub 增加 omap digest; scrub 开始检查和修复 SnapMapper, 并把读取错误写入 ScrubMap; 增加集群级 noscrub 和 nodeep-scrub.|
+|v0.67 (Dumpling)|2013-08-13|deep scrub 的 chunk 数量可以配置; 补充 min/max interval 检查, 减少新 PG 过早进入 scrub.|
+|v0.72 (Emperor)|2013-11-07|完善 PG split 期间 recovery/backfill reservation 事件的排队和投递, 避免 split 期间错误处理 reservation 状态.|
+|v0.80 (Firefly)|2014-05-06|将 scrub 的通用逻辑移入 PGBackend, 为 replicated 和 EC 提供共同框架, 并完善 clone, snapdir 和 cache tier 的检查.|
+|v0.87 (Giant)|2014-10-29|删除为旧 Argonaut OSD 保留的 classic scrub, 统一使用 chunky/backend 路径; 增加 scrub sleep, reservation dump, 并自动 scrub 统计无效的 PG.|
+|v0.94 (Hammer)|2015-04-07|object_info 开始维护 data/omap digest, deep scrub 可以记录和验证 whole-object checksum; 增加 scrub 时间窗口并改进修复数据源的选择.|
+|v9.2.0 (Infernalis)|2015-11-03|scrub 纳入统一的 OpWQ 调度队列; chunky scrub 成为必需能力; 增加随机化调度以及 pool 级 noscrub, nodeep-scrub.|
+|v10.2.0 (Jewel)|2016-04-20|用 omap 持久化不一致对象和 snapset, 形成 list-inconsistent-* 查询接口; 增加 pool scrub interval/priority 和 EC 自动修复.|
+|v11.2.0 (Kraken)|2017-01-19|recovery 期间可以禁止启动新的普通 scrub; 普通 scrub 发现 deep error 后会安排 deep scrub; 增加直接触发 scrub 的 admin socket 命令.|
+|v12.2.0 (Luminous)|2017-08-28|BlueStore 成为新建 OSD 的默认 backend, 其 block checksum 为 deep scrub 提供介质层校验; 管理员请求获得更高优先级, scrub sleep 改为异步 timer.|
+|v13.2.0 (Mimic)|2018-05-31|客户端冲突操作可以抢占 scrub; 多次抢占时逐步缩小 chunk, 减少尾延迟; 增加按星期限制 scrub 的时间窗口.|
+|v14.2.0 (Nautilus)|2019-03-18|改进 data digest 不一致时的修复数据源选择和 repair; 增加 overdue scrub 处理, BlueStore deep scrub 修复, 以及 pool 级 scrub 命令.|
+|v15.2.0 (Octopus)|2020-03-23|增加 dump_scrub_reservations, extended sleep 和 purged snaps 周期检查; reservation 只向 acting set 申请, 自动 repair 与 scrub interval 变更处理更完整.|
+|v16.2.0 (Pacific)|2021-03-30|scrub 从 PG 中拆成 PgScrubber 和独立状态机; 设置 noscrub/nodeep-scrub 后可中止后台 scrub; mClock profile 开始改变 scrub 的调度和 sleep 行为.|
+|v17.2.0 (Quincy)|2022-04-18|scrub 调度与 PG 状态管理进一步解耦, 运行状态和统计信息更完整; replica 消息增加 stale event 识别.|
+|v18.2.0 (Reef)|2023-08-03|scrub backend 拆成独立类; shallow/deep 使用不同 chunk 范围; 验证 SnapMapper 一致性, reservation 使用实际 acting set, 并统一用 timer event 处理等待.|
+|v19.2.0 (Squid)|2024-09-18|调度项加入 not_before, 失败任务按原因延迟; replica reservation 进入状态机并支持排队; 只有 operator scrub 绕过 osd_max_scrubs; mClock cost 改按平均对象大小估算.|
+|v20.2.0 (Tentacle)|2025-10-30|移除 scrub job 的 deadline 模型并细化配置变化后的重排队; 允许管理员手动发起的 scrub 自动 repair, 明确 after-repair 不再自动修复; 改用 OMAP 迭代器并增加 scrub I/O/perf counters.|
+
+# 3. scrub 具体实现
+
+一次正常的 primary scrub 按以下顺序执行:
+
+```text
+calculate shallow/deep targets
+  -> select a runnable PG from ScrubQueue
+  -> check PG state and scrub flags
+  -> reserve primary and replica resources
+  -> select an object range
+  -> wait for recovery pushes and updates
+  -> build primary and replica ScrubMaps
+  -> compare all ScrubMaps on the primary
+  -> record errors and schedule repair if needed
+  -> release resources and schedule the next scrub
+```
+
+scrub 按对象顺序把 PG 划分为多个 chunk, 每次事件处理一个 chunk. 每个 chunk 都会建立一致性边界, 收集 map 并完成比较, 之后状态机再进入下一个 chunk.
+
+一次 scrub session 按以下顺序经过各个模块:
+
+- `注册 target`: PG 成为 active primary 后创建并登记 shallow/deep target.
+- `调度触发`: OSD 根据 target 的时间, 优先级和当前环境选择任务.
+- `启动检查`: 确认 PG 前置条件, scrub 标记和本地及 replica 资源满足条件.
+- `状态机并发`: 用状态机保存 primary, replica, chunk 和等待事件的处理进度.
+- `扫描比较`: 按 chunk 收集各 shard 的 `ScrubMap`, 执行 shallow 或 deep 检查.
+- `数据判定与修复`: 汇总比较结果, 选择修复数据源, 触发 replicated 或 EC 数据恢复, 并安排复核.
+
+## 3.1 注册 target
+
+每个 PG 在成为 active primary 时注册自己的 scrub target. 状态机进入 `PrimaryActive` 后, 构造函数调用 `PgScrubber::schedule_scrub_with_osd()`. 该函数标记 scrub job 已注册, 再调用 `update_scrub_job()`. `update_scrub_job()` 通过 `update_targets()` 读取配置, 计算 shallow/deep 两个 target 的时间, 最后把两个 target 放入 OSD 的 `ScrubQueue`:
+
+```text
+PG becomes active primary after peering
+  -> ScrubMachine::PrimaryActive
+  -> PgScrubber::schedule_scrub_with_osd()
+  -> update_scrub_job()
+       -> update_targets()
+            -> populate_config_params()
+            -> adjust_shallow_schedule()
+            -> adjust_deep_schedule()
+       -> ScrubQueue::enqueue_scrub_job()
+  -> shallow and deep targets enter the OSD queue
+```
+
+两个 target 始终属于同一个 `ScrubJob`. target 保存 `level`, `urgency`, `scheduled_at`, `not_before` 和 `last_issue`. 当前 OSD 不再担任该 PG 的 primary 时, `PrimaryActive` 析构函数调用 `rm_from_osd_scrubbing()`, 从队列移除两个 target. 配置变化, PG 的 primary 或 acting set 变化, scrub 完成, 管理员请求和 repair/recovery 事件也会重新计算或提升 target.
+
+## 3.2 调度触发
+
+OSD 的 heartbeat/tick 触发调度, 相关函数的调用关系如下:
+
+```text
+OSD heartbeat/tick
+  `-> OsdScrub::initiate_scrub(is_recovery_active)
+        |-> OsdScrub::restrictions_on_scrubbing()
+        |-> ScrubQueue::pop_ready_entry()
+        `-> OsdScrub::initiate_a_scrub()
+```
+
+`pop_ready_entry()` 从队列中挑选候选 target.target 需要先满足 `not_before` 和 OSD 环境条件, 才会进入候选集合. 候选 target 随后交给 `PG::start_scrubbing()` 和 `PgScrubber::start_scrub_session()` 做 PG 级别的启动检查.
+
+### 3.2.1 调度时间
+
+`ScrubJob` 同时保存 shallow target 和 deep target. 每个 target 有两个时间字段:
+
+- `scheduled_at`: 任务原计划执行的时间. 周期任务根据 scrub interval 和随机化参数计算, 手动请求或 repair 任务可以直接设置.
+- `not_before`: 任务下一次允许尝试的最早时间. 周期任务重新计算调度时间时, 两个字段通常一起更新; 任务暂时无法启动时, 系统会推迟 `not_before`, 而 `scheduled_at` 保留原计划时间.
+
+`scheduled_at` 记录原计划时间, `not_before` 控制任务最早何时可以再次尝试. 当前时间达到 `not_before` 后, target 才会进入候选集合.
+
+下面伪代码中的 `next_shallow` 和 `next_deep` 都是绝对时间, 分别写入 shallow 和 deep target 的 `scheduled_at`. 周期任务排期时, `not_before` 与 `scheduled_at` 使用同一时间; 如果本次启动失败, 系统只调整 `not_before`, 保留原计划时间.
+
+shallow target 在基础周期上增加均匀随机延迟. 下面是对应逻辑的伪代码, 具体实现请参考 `src/osd/scrubber/scrub_job.cc` 中的 `ScrubJob::adjust_shallow_schedule()`:
+
+```text
+shallow_delay = random(0, shallow_interval * osd_scrub_interval_randomize_ratio)
+next_shallow = last_scrub + shallow_interval + shallow_delay
+```
+
+其中, `shallow_delay` 是额外增加的随机延迟, 取值范围为 `0` 到 `shallow_interval * osd_scrub_interval_randomize_ratio`. `osd_scrub_interval_randomize_ratio` 的默认值为 `0.5`, 因此下一次 shallow scrub 的实际间隔范围为 `1.0` 到 `1.5` 倍 shallow interval.
+
+deep scrub 的下一次计划时间也会随机变化. 代码以 `deep_interval` 为平均间隔, 使用 `osd_deep_scrub_interval_cv` 控制随机变化的幅度. 这样可以把不同 PG 的 deep scrub 分散到不同时间, 避免集中执行. 下面是对应逻辑的伪代码, 具体实现请参考 `src/osd/scrubber/scrub_job.cc` 中的 `ScrubJob::adjust_deep_schedule()`:
+
+```text
+deep_stddev = deep_interval * osd_deep_scrub_interval_cv
+sampled_interval = normal(mean = deep_interval, stddev = deep_stddev)
+next_interval = clamp(sampled_interval, deep_interval - 2 * deep_stddev, deep_interval + 2 * deep_stddev)
+next_deep = last_deep_scrub + next_interval
+```
+
+`sampled_interval` 表示从上一次 deep scrub 到下一次 deep scrub 的候选间隔. 它通常接近 `deep_interval`, 偏离平均值越远, 出现的概率越低. `clamp()` 将最终间隔限制在平均值的正负两个标准差以内.
+
+默认配置下, `deep_interval` 为 7 天, `osd_deep_scrub_interval_cv` 为 `0.2`, 因此:
+
+```text
+deep_stddev = 7 days * 0.2 = 1.4 days
+next_interval = 7 days - 2 * 1.4 days ... 7 days + 2 * 1.4 days
+              = 4.2 days ... 9.8 days
+```
+
+也就是说, 下一次 deep scrub 通常安排在上一次完成后的 7 天附近, 最短间隔为 4.2 天, 最长间隔为 9.8 天. 计算出的 `next_deep` 会写入 deep target 的 `scheduled_at`.
+
+### 3.2.2 候选筛选与优先级
+
+`urgency` 用于队列排序, 也决定 target 是否遵守各项 OSD 调度限制. 优先级从低到高排列如下:
+
+|urgency|来源|
+|---|---|
+|periodic_regular|正常周期任务|
+|must_scrub|PG 没有有效的 last scrub 信息|
+|after_repair|recovery 或 repair 后的复核|
+|repairing|shallow scrub 发现可修复错误后安排的 deep scrub|
+|operator_requested|管理员手动发起的 scrub 或 deep scrub|
+|must_repair|管理员明确请求 repair|
+
+一个 OSD 上可能同时有很多 PG 的 target. `ScrubQueue::pop_ready_entry()` 调用 `not_before_queue_t::advance_time()`, 按照 `not_before` 将条目分到等待队列和可选队列. 可选队列使用 `Scrub::operator<()` 排序, 该运算符在 `src/osd/scrubber/scrub_queue_entry.h` 中调用 `cmp_ripe_entries()`, 依次比较 `urgency`, `scheduled_at` 和 `scrub level`; 前面字段相同时, 再按 `not_before` 的时间先后排序. 随后, `not_before_queue_t::dequeue_by_pred()` 按这个顺序调用 `is_sched_target_eligible()`, 返回第一个通过当前 OSD 限制的 target. 尚未达到 `not_before` 的 target 留在等待队列中, 该队列按 `not_before` 排序.
+
+`OsdScrub::restrictions_on_scrubbing()` 在本次 tick 开始时收集 OSD 的并发, backoff, 负载, 时间窗口和 recovery 状态. `ScrubJob::observes_*()` 再根据 urgency 判断每项限制是否适用于当前 target:
+
+|OSD 环境条件|当前默认值|对 target 的影响|
+|---|---|---|
+|osd_max_scrubs|3|本地并发达到上限后, periodic_regular, must_scrub, after_repair 和 repairing 会延迟; operator_requested 和 must_repair 不受此限制|
+|osd_scrub_backoff_ratio|0.66|当前 tick 按概率跳过任务; 仅 periodic_regular 和 must_scrub 受影响|
+|osd_scrub_load_threshold|10.0|getloadavg()/在线 CPU 数 超过阈值时不启动; 仅 periodic_regular 和 must_scrub 受影响|
+|osd_scrub_during_recovery|false|OSD 有 recovery 时不启动 operator_requested 和 must_repair 以外的任务; 已经运行的任务继续|
+|hour/week day 窗口|全天, 全周|窗口外不启动遵守时间限制的任务; operator_requested 和 must_repair 可以绕过|
+
+每个 OSD tick 只取出一个 `SchedEntry`. 一个 `SchedEntry` 对应一个 PG 的一个 scrub level, 因此一次只尝试一个 PG 的一个 target, 可能是 shallow target, 也可能是 deep target. `OsdScrub::initiate_a_scrub()` 将这个 target 交给对应的 PG; 其他 PG 的 target, 以及同一 PG 的另一个 target, 都等待后续 tick. 候选 target 的启动检查和失败重试在下一节处理.
+
+## 3.3 启动检查
+
+`OsdScrub::initiate_a_scrub()` 把候选 target 交给 PG, 后续启动检查的调用关系如下:
+
+```text
+OsdScrub::initiate_a_scrub()
+  `-> PG::start_scrubbing()
+        `-> PgScrubber::start_scrub_session()
+```
+
+`PG::start_scrubbing()` 读取集群和 pool 的 `noscrub`, `nodeep-scrub` 标记, 并确认当前 backend 是否支持自动修复, 再把这些结果传给 `start_scrub_session()`. 后者检查 PG 是否仍由当前 OSD 担任 primary, PG 是否 clean, 是否正在 snap trimming, 以及 target 是否允许绕过对应的 scrub 标记.
+
+如果 PG 仍由当前 OSD 担任 primary, 但暂时不满足启动条件, 例如 PG 尚未 clean, 正在 snap trimming 或本地资源不足, `start_scrub_session()` 会根据失败原因推迟 target 的 `not_before`, 再将它放回队列. PG 已不再由当前 OSD 担任 primary 时, 任务会退出当前 OSD 的 scrub 管理. 检查通过后, 函数设置本次 session 的 scrub level, repair 和自动修复标志, 把 PG 放入 scrub 操作队列, 状态机随后进入 `Session`.
+
+### 3.3.1 资源检查与预约
+
+启动检查通过后, `start_scrub_session()` 先调用 `reserve_local()` 占用 primary 所在 OSD 的 scrub 资源. 需要副本预约的后台 target (`periodic_regular` 和 `must_scrub`) 再由 primary 按固定顺序向 acting set 中的其他 OSD 逐个发送预约请求. 每个副本 OSD 通过 `AsyncReserver` 排队处理请求, 并受本地 scrub 并发上限限制. 任一副本返回 `REJECT` 时, primary 会释放已经获得的预约, 并将 target 延后重试.
+
+`osd_scrub_disable_reservation_queuing=false` 是当前默认值, 表示允许副本 reservation 排队. 这个选项用于 mixed-version 集群和调试, 源码说明它会在后续版本删除, 不适合作为长期调优手段.
+
+## 3.4 状态机并发
+
+scrub 整体是由事件驱动的异步流程. 对一个 PG 来说, 多个 chunk 按顺序处理; 对同一个 chunk 来说, primary 和 replica 可以在各自的 OSD 上同时构建 `ScrubMap`. 每个 PG 都有一个基于 Boost.Statechart 的 `ScrubMachine`, 用状态记录当前处理到哪一步, 以及正在等待什么条件.
+
+状态机同时覆盖 primary 和 replica 两种角色. 当 OSD 上下线或 CRUSH 重映射导致 PG 的 primary, acting set 发生变化时, 两条路径都会回到 `NotActive`. Ceph 会结束当前 scrub session, 清理原副本集合的 reservation 和扫描状态, 并忽略随后到达的旧消息. PG 完成 peering 后, 再按照新的副本集合执行 scrub.
+
+### 3.4.1 状态层级
+
+状态机由状态和事件两部分组成. `PrimaryActive`, `PrimaryIdle` 是状态; `PrimaryActivate`, `StartScrub` 是触发状态转换的事件. 下面先介绍状态层级, 事件和转换在 `3.4.2` 中说明.
+
+|状态|适用角色或层级|含义|
+|---|---|---|
+|NotActive|通用|PG 当前没有以 active primary 或 replica 身份参与 scrub.|
+|PrimaryActive|primary 父状态|PG 是 active primary, 负责管理 shallow/deep target; 处于空闲子状态时 target 位于 OSD scrub queue.|
+|PrimaryIdle|primary|没有正在执行的 session, 等待 StartScrub.|
+|Session|primary 父状态|持有一次 scrub session 的资源和运行状态, 下面包含 reservation 和扫描状态.|
+|ReservingReplicas|primary / session|按 acting set 顺序申请 replica OSD 的 scrub reservation.|
+|ActiveScrubbing|primary / session|执行对象范围扫描和 map 比较的父状态.|
+|PendingTimer|primary / active|等待 chunk 间 sleep, 或等待 OSD 重新调度下一个 chunk.|
+|NewChunk|primary / active|选择下一个 [m_start, m_end) 范围并检查它是否可扫描.|
+|RangeBlocked|primary / active|当前范围内的对象被其他操作占用, 等待解除锁定.|
+|WaitPushes|primary / active|等待 recovery push 写入本地 ObjectStore.|
+|WaitLastUpdate|primary / active|等待范围涉及的最新 PG 更新完成, 使各 shard 读取同一逻辑时刻的数据.|
+|BuildMap|primary / active|构建 primary 在当前 chunk 的 ScrubMap, backend 分段未完成时会重新调度.|
+|DrainReplMaps|primary / active|当前 chunk 被抢占后, 等待已经发出的 replica map 返回并丢弃这些结果.|
+|WaitReplicas|primary / active|等待 acting set 中所需的 replica map 全部到达.|
+|WaitDigestUpdate|primary / active|等待当前 chunk 的 digest 更新事务完成.|
+|ReplicaActive|replica 父状态|PG 作为 replica 参与 scrub, 处理 reservation 请求和 chunk 扫描请求.|
+|ReplicaIdle|replica|没有处理 chunk 请求, 等待 primary 的 reservation 或扫描消息.|
+|ReplicaActiveOp|replica 父状态|正在处理 primary 发来的一个 chunk 请求.|
+|ReplicaWaitUpdates|replica / active op|等待本地 recovery push 完成.|
+|ReplicaBuildingMap|replica / active op|构建当前 chunk 的 replica map, 完成后发送 MOSDRepScrubMap.|
+
+状态层级在源码中对应以下结构:
+
+```text
+ScrubMachine
+|-- NotActive
+|-- PrimaryActive (primary)
+|   |-- PrimaryIdle
+|   `-- Session
+|       |-- ReservingReplicas
+|       `-- ActiveScrubbing
+|           |-- PendingTimer
+|           |-- NewChunk
+|           |-- RangeBlocked
+|           |-- WaitPushes
+|           |-- WaitLastUpdate
+|           |-- BuildMap
+|           |-- DrainReplMaps
+|           |-- WaitReplicas
+|           `-- WaitDigestUpdate
+`-- ReplicaActive (replica)
+    |-- ReplicaIdle
+    `-- ReplicaActiveOp
+        |-- ReplicaWaitUpdates
+        `-- ReplicaBuildingMap
+```
+
+### 3.4.2 事件驱动与并发
+
+状态机接收的主要事件如下:
+
+|事件|来源或适用角色|状态转换与作用|
+|---|---|---|
+|PrimaryActivate|PG peering, primary|状态转换: NotActive -> PrimaryActive/PrimaryIdle. 当前 OSD 成为 active primary, 并将 PG 放入 scrub 队列.|
+|ReplicaActivate|PG peering, replica|状态转换: NotActive -> ReplicaActive/ReplicaIdle. 当前 OSD 作为 replica 参与该 PG.|
+|StartScrub|OSD 调度器, primary|状态转换: PrimaryActive/PrimaryIdle -> PrimaryActive/Session/ReservingReplicas. 开始一次 scrub session 并申请 replica reservation.|
+|RemotesReserved|primary reservation 流程|状态转换: Session/ReservingReplicas -> Session/ActiveScrubbing. 所需 replica reservation 全部获得, 开始处理 chunk.|
+|ReplicaGrant|replica OSD 返回 primary|状态转换: 仍在 Session/ReservingReplicas, 继续申请下一个 replica; 收到最后一个有效 grant 时转为 Session/ActiveScrubbing. 过期或非预期响应被丢弃, 状态不变.|
+|ReplicaReject|replica OSD 返回 primary|有效拒绝时状态转换: Session/ReservingReplicas -> PrimaryActive/PrimaryIdle, 释放已取得的 reservation 并结束本次 session; 过期或非预期响应被丢弃, 状态不变.|
+|ReplicaReserveReq|primary 发给 replica|状态不变: ReplicaActive (当前子状态保持不变). 处理 primary 的 reservation 请求, 并在本地排队或立即回复.|
+|ReserverGranted|replica OSD 本地 AsyncReserver|状态不变: ReplicaActive (当前子状态保持不变). 确认本地 reservation 已获得, 并向 primary 发送 grant.|
+|StartReplica|primary 发给 replica|状态转换: ReplicaActive/ReplicaIdle -> ReplicaActive/ReplicaActiveOp/ReplicaWaitUpdates, 开始扫描指定对象范围; 若已有请求, 则 ReplicaActiveOp 重启当前请求.|
+|ReplicaPushesUpd|replica recovery 回调|push 清空时状态转换: ReplicaActiveOp/ReplicaWaitUpdates -> ReplicaActiveOp/ReplicaBuildingMap; 仍有 push 时留在 ReplicaWaitUpdates.|
+|SchedReplica|replica OSD 操作队列|map 构建完成或被抢占时状态转换: ReplicaActiveOp/ReplicaBuildingMap -> ReplicaActive/ReplicaIdle; backend 仍在处理时留在 ReplicaBuildingMap.|
+|ReplicaRelease|primary 发给 replica|中止当前请求时状态转换: ReplicaActive/ReplicaActiveOp -> ReplicaActive/ReplicaIdle, 同时释放 reservation; 若 replica 已空闲, 则状态不变.|
+|InternalSchedScrub|primary OSD 操作队列|状态转换: Session/ActiveScrubbing/PendingTimer -> Session/ActiveScrubbing/NewChunk, 开始选择下一个范围; backend 尚未完成时在 BuildMap 内部保持 BuildMap.|
+|SelectedChunkFree|primary 范围检查|状态转换: ActiveScrubbing/NewChunk -> ActiveScrubbing/WaitPushes. 当前范围可扫描, 开始等待本地 recovery push 清空.|
+|ChunkIsBusy|primary 范围检查|状态转换: ActiveScrubbing/NewChunk -> ActiveScrubbing/RangeBlocked. 当前范围被其他操作占用, 等待解除锁定.|
+|Unblocked|PG 对象解锁回调|状态转换: ActiveScrubbing/RangeBlocked -> ActiveScrubbing/PendingTimer, 重新排队选择范围.|
+|ActivePushesUpd|primary recovery 回调|push 清空时状态转换: ActiveScrubbing/WaitPushes -> ActiveScrubbing/WaitLastUpdate; 仍有 push 时留在 WaitPushes.|
+|UpdatesApplied|PG update applied 回调|状态保持在 ActiveScrubbing/WaitLastUpdate; 若最新 update 已可读, 则随后产生 InternalAllUpdates, 再转为 BuildMap.|
+|InternalAllUpdates|primary 内部事件|状态转换: ActiveScrubbing/WaitLastUpdate -> ActiveScrubbing/BuildMap, 向 replica 请求 map 并构建本地 map.|
+|IntLocalMapDone|primary map 构建完成|状态转换: ActiveScrubbing/BuildMap -> ActiveScrubbing/WaitReplicas, 标记本地 map 已准备好并等待 replica map.|
+|IntBmPreempted|primary map 构建被抢占|状态转换: ActiveScrubbing/BuildMap -> ActiveScrubbing/DrainReplMaps, 放弃当前 chunk 并等待在途 map 返回.|
+|GotReplicas|replica map 消息到达 primary|正常路径收齐 map 时状态转换: WaitReplicas -> WaitDigestUpdate; 抢占路径收齐 map 时 DrainReplMaps -> PendingTimer; 尚未收齐时保持原状态.|
+|DigestUpdate|ObjectStore 事务回调|状态保持在 ActiveScrubbing/WaitDigestUpdate; digest 更新未全部完成时继续等待, 归零后由后续 NextChunk 或 ScrubFinished 事件推进.|
+|NextChunk|当前 chunk 完成|状态转换: ActiveScrubbing/WaitDigestUpdate -> ActiveScrubbing/PendingTimer, 等待后选择下一个 chunk.|
+|ScrubFinished|最后一个 chunk 完成|状态转换: ActiveScrubbing/WaitDigestUpdate -> PrimaryActive/PrimaryIdle, 结束 primary scrub session.|
+|IntervalChanged|PG primary/acting set 变化|状态转换: 当前 PrimaryActive, Session 或 ReplicaActive 状态 -> NotActive. 终止旧 interval, 清理或放弃旧副本集合的状态.|
+|FullReset|session 结束或中止|primary 状态转换: Session -> PrimaryActive/PrimaryIdle; 若 primary 已在 PrimaryIdle, 则只清理状态标志. replica 在 ReplicaActive 中忽略该事件, 当前请求由 ReplicaRelease 或 IntervalChanged 清理.|
+
+replica 收到 `MOSDRepScrub` 后, `StartReplica` 事件使它进入 `ReplicaActiveOp`, 初始子状态是 `ReplicaWaitUpdates`. 本地 recovery push 清空后进入 `ReplicaBuildingMap`, map 构建完成后发送 `MOSDRepScrubMap` 给 primary, 再回到 `ReplicaIdle`.
+
+一次状态转换是同步的: 某个 OSD worker 取出事件后, `ScrubMachine::process_event()` 在当前调用中执行该状态对应的短步骤. 遇到计时器, 远端消息, recovery, 对象解锁或后续扫描时, 处理函数会返回, 不会在 worker 中持续等待. 条件满足后, 回调或消息处理路径产生新事件, 状态机再从保存的状态继续执行.
+
+```text
+one event cycle
+
+OSD operation queue
+  -> worker dequeues a PGScrub/PGScrubResched/... event
+  -> ScrubMachine::process_event()
+  -> execute one short state-machine step
+       |-- completed -> transition immediately
+       `-- waiting   -> arm timer / send message / requeue
+  -> return to the OSD operation queue
+                    |
+                    `-> condition met -> process next event
+```
+
+状态机接收的事件来自不同的异步路径:
+
+|事件来源|代表事件|作用|
+|---|---|---|
+|OSD 操作队列|InternalSchedScrub, SchedReplica|继续选择 chunk, 或继续构建尚未完成的 map|
+|定时回调|SleepComplete, RangeBlockedAlarm|结束 chunk 间 sleep, 或报告范围长时间被占用|
+|OSD 间消息|ReplicaGrant, ReplicaReject, StartReplica, GotReplicas|推进 reservation, 启动 replica 扫描, 通知 replica map 到达|
+|recovery 和 ObjectStore 回调|ActivePushesUpd, UpdatesApplied, DigestUpdate|通知 recovery push, 对象更新或 digest 更新已经完成|
+|PG peering|PrimaryActivate, ReplicaActivate, IntervalChanged|设置当前角色, 或终止旧 interval 的 scrub 流程|
+
+一个 scrub session 由多个事件分段推进. 每次事件由 OSD worker 执行当前状态能够完成的一小段, 状态对象保存处理进度, 消息和回调在等待条件满足后继续推进后续步骤.
+
+串行和并行发生在不同层次:
+
+|层次|执行方式|说明|
+|---|---|---|
+|不同 OSD|并行, 异步通信|每个 OSD 有自己的调度器和操作队列, scrub reservation, MOSDRepScrub 和 MOSDRepScrubMap 通过网络异步传递.|
+|同一 OSD 的不同 PG|可并发, 可交错|多个 PG 可以同时处于 scrub session, 数量受 osd_max_scrubs 和 reservation 限制; 具体 worker 并行度还取决于 OSD 操作队列和 shard 配置.|
+|同一 PG 的 shallow/deep target|串行|is_queued_or_active() 阻止同一 PG 同时启动两个 scrub session; 一个 target 启动后, 另一个 target 会从 OSD 队列移除.|
+|replica reservation|串行申请|primary 按排序后的 acting set 逐个请求 replica; 收到当前 replica 的 GRANT 后才请求下一个, 避免多个 PG 以不同顺序争抢相同 OSD.|
+|同一 chunk 的 primary/replica 扫描|跨 OSD 并行|primary 发出 MOSDRepScrub 后构建本地 map, 各 replica 在自己的 OSD 上构建 map; primary 在 WaitReplicas 等待全部返回.|
+|单个 shard 的对象扫描|顺序执行, 分段让出|build_scrub_map_chunk() 按对象列表推进. 一次调用会同步执行当前可完成的 stat/getattrs/read; backend 返回 -EINPROGRESS 后重新入队, 稍后从保存的位置继续.|
+|同一 PG 的多个 chunk|串行|当前 [m_start, m_end) 完成比较后才推进 m_start, 等待相关更新完成后再选择下一个 chunk.|
+|map 比较|primary 串行执行|Classic OSD 在处理 GotReplicas 事件时调用 maps_compare_n_cleanup(), 逐对象完成当前 chunk 的比较; 比较期间不会开始该 PG 的下一个 chunk.|
+|digest 写回|异步提交, 状态机等待|需要更新的对象 digest 通过事务提交, num_digest_updates_pending 记录未完成数量. 回调产生 DigestUpdate, 计数归零后才调度下一 chunk 或结束 scrub.|
+
+Classic OSD 在 `GotReplicas` 事件中同步完成当前 chunk 的 map 比较和错误分类. 错误记录通过 ObjectStore transaction 加入队列; 需要修正 SnapMapper 时, `apply_snap_mapper_fixes()` 会等待本地事务 applied. 对象 digest 的更新则由 `PrimaryLogScrub::submit_digest_fixes()` 异步提交, 状态机在 `WaitDigestUpdate` 中等待完成回调.
+
+单个 chunk 的时序如下. primary 和两个 replica 在各自的 OSD 上并行构建 map, primary 收齐结果后继续比较:
+
+```mermaid
+sequenceDiagram
+    participant P as primary OSD
+    participant R1 as replica OSD 1
+    participant R2 as replica OSD 2
+    P->>R1: MOSDRepScrub
+    P->>R2: MOSDRepScrub
+    par 构建当前 chunk 的 map
+        P->>P: build_primary_map_chunk()
+    and replica 1
+        R1-->>P: MOSDRepScrubMap
+    and replica 2
+        R2-->>P: MOSDRepScrubMap
+    end
+    P->>P: WaitReplicas
+    P->>P: maps_compare_n_cleanup()
+    P->>P: WaitDigestUpdate
+```
+
+两个 replica 的返回都发送给 primary. 返回顺序不影响比较, primary 必须等 acting set 中所需的 map 全部到齐.
+
+## 3.5 扫描比较
+
+通过启动检查和资源预约后, 状态机进入 `ActiveScrubbing`. 一个 PG 可能包含大量对象, scrub 按对象顺序将其划分成多个 chunk. 当前 chunk 由 `m_start` 和 `m_end` 表示, 范围是左闭右开的 `[m_start, m_end)`:
+
+```text
+ordered PG object space
+
+PG_MIN                                                        PG_MAX
+  |                                                              |
+  v                                                              v
+  +-------------+---------------+---------------+----------------+
+  |   chunk 1   |    chunk 2    |    chunk 3    |   last chunk   |
+  +-------------+---------------+---------------+----------------+
+  ^             ^
+  m_start       m_end
+  [m_start, m_end)
+
+after one chunk completes: m_start = m_end
+```
+
+`PgScrubber::select_range()` 调用 `objects_list_partial()` 选择下一批对象. shallow scrub 和 deep scrub 分别使用自己的 chunk min/max 配置; 发生抢占后, chunk 大小还会按 `chunk_divisor` 缩小.
+
+这里的 "对象" 需要区分逻辑对象和 ObjectStore 中的实际对象. 一个逻辑对象 (例如 `foo`) 可能同时有一个当前版本 head 和多个历史快照版本 clone. 它们是不同的 `hobject_t`, 但 `get_head()` 相同, 属于同一个对象族; head 的属性中还保存 SnapSet, 用来描述这些 clone 及其快照关系. 简化后的有序对象列表如下:
+
+```text
+ordered by hobject_t from low to high
+
+... other objects ...
+  |
+  v
+  +----------------+----------------+----------------+
+  | foo@snap_1     | foo@snap_7     | foo (head)     |
+  | clone          | clone          | current/live   |
+  +----------------+----------------+----------------+
+  All three entries share get_head() == foo and form one object family.
+
+... next object ...
+```
+
+clone 通常排在 head 前面是 `hobject_t` 的排序约定, 而不是说 clone 一定比 head 更早创建: 比较器在对象名, hash 等身份字段相同后, 最后按 `snap` 升序比较; 普通 clone 使用普通的 snap ID, head 使用特殊的 `CEPH_NOSNAP` 哨兵值 (`-2` 转成无符号数后非常大), 因此正常的 snap ID 会排在 head 前面. `CEPH_SNAPDIR` 是更大的特殊目录标记, 不属于普通对象扫描范围.
+
+chunk 使用左闭右开范围 `[m_start, m_end)`, 所以不能让某个对象的 head 成为 chunk 边界. 否则同一对象的 head 和相邻 clone 之间会出现一个可被写入的时间窗口:
+
+```text
+T0: incorrect boundary
+
+  object order from left to right
+  +----------------+----------------+----------------+
+  | foo@snap_old   | foo(head)      | next object    |
+  +----------------+----------------+----------------+
+  |     chunk A    |     chunk B    |                |
+  | [start, head)  | [head, next)   |                |
+  +----------------+----------------+----------------+
+
+T1: a new clone is created after chunk A and before chunk B
+
+  +----------------+----------------+----------------+
+  | foo@snap_old   | foo@snap_new   | foo(head)      |
+  +----------------+----------------+----------------+
+
+chunk A is complete, and chunk B starts at foo(head).
+foo@snap_new belongs to neither range and is missed by this scrub.
+```
+
+在 T0 中, `m_end` 和下一个 chunk 的 `m_start` 都是 `foo(head)`. T1 中新建的 `foo@snap_new` 会插入到 head 前面, 但前一个范围已经结束, 后一个范围又从 head 开始, 因此它不属于任何一个范围.
+
+因此 `select_range()` 发现候选结束位置是 head 时, 会把边界向前调整到 clone 或整个对象族的边界, 确保新 clone 要么仍在当前受保护的范围内, 要么随同 head 由下一个 chunk 一起处理. 源码中的 `get_object_boundary()` 就是为此返回同一对象族的起始边界.
+
+如果 `[m_start, m_end)` 中有对象正被写操作占用, `_range_available_for_scrub()` 返回 false, 状态机进入 `RangeBlocked`. 范围可用后, primary 会在发送 replica 扫描请求前等待 recovery push 和最新 update applied, 使所有 shard 针对同一个逻辑时刻生成 `ScrubMap`.
+
+单个 chunk 的 primary/replica 协作过程如下:
+
+```mermaid
+sequenceDiagram
+    participant P as primary OSD
+    participant R1 as replica OSD 1
+    participant R2 as replica OSD 2
+    P->>P: NewChunk [m_start, m_end)
+    Note over P: WaitPushes -> WaitLastUpdate
+    P->>R1: MOSDRepScrub
+    P->>R2: MOSDRepScrub
+    par 并行构建 map
+        P->>P: BuildMap
+    and replica 1
+        R1->>R1: WaitUpdates -> BuildMap
+        R1-->>P: MOSDRepScrubMap
+    and replica 2
+        R2->>R2: WaitUpdates -> BuildMap
+        R2-->>P: MOSDRepScrubMap
+    end
+    P->>P: WaitReplicas -> maps_compare_n_cleanup()
+    P->>P: m_start = m_end
+    P->>P: WaitDigestUpdate
+
+    alt 还有对象范围
+        P->>P: PendingTimer
+        P->>P: NewChunk
+    else 已到达 PG_MAX
+        P->>P: ScrubFinished
+    end
+```
+
+primary 先选择当前范围并等待 recovery push, 最新 update applied. 随后, 它向两个 replica 发送 `MOSDRepScrub`; 三方分别构建本地 map, replica 通过 `MOSDRepScrubMap` 返回结果. primary 收齐本地和 replica map 后执行比较, 等待 digest 更新完成, 再选择下一个 chunk 或结束本次 scrub.
+
+`NewChunk` 选择范围, `WaitPushes` 和 `WaitLastUpdate` 建立一致性边界, `BuildMap` 构建 primary map, `WaitReplicas` 等待 replica map. 所有 map 到齐后, `maps_compare_n_cleanup()` 调用 backend 比较并清理当前 chunk; `WaitDigestUpdate` 等待相关更新完成, 然后进入下一个 chunk 或结束本次 scrub. 各状态的进入条件和事件处理见 `3.4 状态机并发`.
+
+客户端 I/O 抢占当前范围时, primary 不会使用只完成了一部分的 map. 如果 replica 请求已经发出, `DrainReplMaps` 会先收完这些请求对应的返回, 随后丢弃整个 chunk 的扫描结果. 状态机再次进入 `NewChunk` 时仍从原来的 `m_start` 开始, 并缩小 chunk 范围. 这样可以避免旧请求的返回混入下一次扫描.
+
+### 3.5.1 shallow scrub
+
+shallow scrub 进入 `BuildMap` 后, 以 `deep=false` 调用 `build_scrub_map_chunk()`. 每个 shard 都在本地扫描相同的 `[m_start, m_end)`, 但不读取完整对象数据:
+
+```text
+build_primary_map_chunk() / build_replica_map_chunk()
+  -> build_scrub_map_chunk(deep=false)
+       -> objects_list_range(m_start, m_end)
+       -> scan objects in the current shard
+            -> PGBackend::be_scan_list()
+                 -> ObjectStore::stat()       read object size
+                 -> ObjectStore::getattrs()   read object attributes
+                 -> skip be_deep_scrub()
+       -> create the current shard ScrubMap
+```
+
+`objects_list_range()` 先得到当前 shard 在该范围内实际存在的对象. `PGBackend::be_scan_list()` 对每个对象执行 `stat()` 和 `getattrs()`, 将对象大小, 属性以及属性中的 `object_info` 等内容写入 `ScrubMap::object`. 读取失败会记录为 `stat_error`, 扫描过程中对象消失则从当前 map 删除.
+
+primary 收到所有 map 后, 先合并各 map 中的对象名称, 得到当前 chunk 应检查的对象全集. 随后逐对象检查哪些 shard 缺少对象, 并选择一份有效的对象信息作为比较基准:
+
+```text
+primary ScrubMap --------+
+replica 1 ScrubMap ------+-> merge object names
+replica 2 ScrubMap ------+        |
+                                  v
+                         all objects in chunk
+                                  |
+                    +-------------+-------------+
+                    |                           |
+             object missing               object exists
+              from a shard               on every shard
+                    |                           |
+              missing error            compare size / attrs /
+                                         object_info / version
+                                                  |
+                                      check SnapSet / clone /
+                                      overlap / SnapMapper
+```
+
+`ScrubBackend::scrub_compare_maps()` 负责 map 比较, 随后 `scrub_snapshot_metadata()` 和 `scan_snaps()` 检查 `SnapSet`, clone, overlap 和 SnapMapper. 对象在各 shard 都存在, 并且 size, 属性, `object_info`, 版本和快照关系均一致时, shallow scrub 才认为该对象没有 shallow error.
+
+shallow scrub 不读取完整对象数据, 也不计算当前数据内容的 digest. 因此 "没有 shallow error" 只表示各副本都能找到对象, 并且对象元数据一致, 不能证明各副本的用户数据字节一致. 对象缺失, size 或版本不同, 属性分叉, 快照关系错误和 PG 统计不匹配都会计入 shallow error. 若启用了自动修复并且错误数量没有超过阈值, 代码会设置 `deep_scrub_on_error`, 在 shallow scrub 结束后安排 deep scrub 进一步检查并修复.
+
+### 3.5.2 deep scrub
+
+deep scrub 复用相同的调度, 启动检查, range 选择和跨 shard map 比较, 但在 `build_scrub_map_chunk()` 中设置 `deep=true`. `PGBackend::be_scan_list()` 完成 `stat/getattrs` 后, 还会调用具体 backend 的 `be_deep_scrub()`:
+
+```text
+build_primary_map_chunk() / build_replica_map_chunk()
+  -> build_scrub_map_chunk(deep=true)
+       -> objects_list_range(m_start, m_end)
+       -> scan objects in the current shard
+            -> PGBackend::be_scan_list()
+                 -> stat() + getattrs()
+                 -> be_deep_scrub()
+                      -> read object data in strides
+                      -> calculate data digest
+                      -> read OMAP header
+                      -> scan OMAP key/value batches
+                      -> calculate OMAP digest and stats
+       -> write metadata and digests to the shard ScrubMap
+```
+
+以 replicated pool 为例, `ReplicatedBackend::be_deep_scrub()` 按 `osd_deep_scrub_stride` 分段读取对象, 默认每次 `512_K`. 读满一个 stride 时返回 `-EINPROGRESS`, OSD 将任务重新放入操作队列, 从上次 `data_pos` 继续读取, 避免单个大对象长期占用线程. 数据读完后生成 data digest.
+
+OMAP 也采用分批处理. backend 先读取 OMAP header, 再按 `osd_deep_scrub_keys` 每批遍历 key/value, 默认每批 `1024` 个 key. 遍历完成后生成 OMAP digest, 并记录 key 数量和 value 总字节数. 任一大 OMAP 阈值被超过时, 对象会被计入 large OMAP object.
+
+```text
+deep scan for one object
+
+data_pos = 0
+   |
+   +-> read(stride) -> update data hash -> more data --+
+   |                                                   |
+   +<--------------------------------------------------+
+   |
+   `-> end of data -> save data digest
+                       |
+                       +-> read OMAP header
+                       +-> scan a key/value batch --+
+                       |                            |
+                       +<-- more keys --------------+
+                       |
+                       `-> save OMAP digest and stats
+```
+
+ObjectStore 读取会同时验证底层存储提供的校验信息. BlueStore checksum 不匹配或读取失败时, backend 在当前 `ScrubMap::object` 中记录 `read_error`. replicated 和 EC backend 的 deep scan 不完全相同: replicated pool 计算完整对象内容和 OMAP 的 digest; EC pool 读取本地 shard, 并检查 shard size, chunk hash 和 hinfo 等编码信息.
+
+所有 shard 的 deep map 到齐后, primary 先检查对象是否缺失并比较元数据, 再比较 deep 字段:
+
+```text
+primary deep ScrubMap --------+
+replica 1 deep ScrubMap ------+-> compare shallow metadata
+replica 2 deep ScrubMap ------+              |
+                                             v
+                                  compare shard data digests
+                                             |
+                                  compare OMAP digests
+                                             |
+                                  compare current digest with
+                                  object_info whole-object digest
+                                             |
+                              +--------------+--------------+
+                              |                             |
+                       match without errors          mismatch or read error
+                              |                             |
+                         no deep error               record deep error
+```
+
+在同一状态机中, `scrub_level_t::deep` 会让 `PgScrubber::set_op_parameters()` 设置 `PG_STATE_DEEP_SCRUB`. map 比较可能产生需要写回的 digest 更新, 状态机在 `WaitDigestUpdate` 中等待这些更新完成, 然后才推进 `m_start` 或结束本次 scrub.
+
+deep scrub 的额外检查包括:
+
+- 各 shard 当前读取内容的 data digest 是否一致.
+- omap 内容的 digest 是否一致.
+- `object_info` 中保存的 whole-object digest 是否与当前读取结果一致.
+- BlueStore block checksum 是否报告介质层读取错误.
+- EC pool 的 shard size, EC hash, hinfo 和编码布局是否满足恢复条件.
+
+deep scrub 会受到对象读取量, OMAP key 数, chunk 大小和客户端 I/O 抢占影响. 客户端请求抢占当前 range 后, 本 chunk 的结果会被放弃并重新选择; 每次抢占还会缩小后续 chunk. 抢占次数达到 `osd_scrub_max_preemptions` 后, scrub 不再允许抢占, 后续冲突 I/O 可能等待当前 range 完成. 缺少历史 digest 时, 代码仍能比较各 shard 当前读取结果, 但不能据此证明某一份内容绝对正确.
+你作为一个 ceph 分布式存储专家, 分析下面的描述是否有问题:
+
+
+## 3.6 数据判定与修复
+
+scrub 先完成当前 chunk 的副本比较, 再根据错误类型判断是否存在可用的修复数据源. repair 模式下, 可修复的不一致会触发 recovery; 恢复完成后, Ceph 再通过 after-repair deep scrub 检查修复结果.
+
+### 3.6.1 chunk 结果判定
+
+primary 收齐当前 chunk 的所有 map 后, `PgScrubber::maps_compare_n_cleanup()` 调用 `ScrubBackend::scrub_compare_maps()`. 比较过程先合并对象集合, 再逐对象选择比较基准, 匹配各 shard, 最后检查快照关系:
+
+```text
+maps_compare_n_cleanup()
+  -> ScrubBackend::scrub_compare_maps()
+       -> merge_to_authoritative_set()   merge shard object names
+       -> omap_checks()                  aggregate deep OMAP stats
+       -> update_authoritative()
+            -> compare_smaps()
+                 -> select a baseline for each object
+                 -> mark missing shards
+                 -> compare size / attrs / object_info / digest
+       -> clean_meta_map()
+       -> scrub_snapshot_metadata()      check SnapSet / clone / overlap
+       -> scan_snaps()                   check SnapMapper
+  -> accumulate shallow/deep errors for the chunk
+  -> save inconsistent objects and SnapMapper fixes
+  -> m_start = m_end
+```
+
+如果某个对象无法找到有效的比较基准, 或者任一 shard 与选定基准不一致, 代码会生成 inconsistent object 记录. 错误会按类型计入 shallow error 或 deep error: 对象缺失, size, 属性, `object_info` 和快照关系通常属于 shallow error; 数据读取, data digest, OMAP digest 和 EC hash 等内容校验错误属于 deep error.
+
+一个 chunk 完成后还不能代表整个 PG 已经检查完毕. `WaitDigestUpdate` 先等待当前 chunk 的更新完成, 再根据 `m_end` 决定下一步:
+
+```text
+current chunk comparison complete
+  -> m_start = m_end
+  -> wait for digest updates
+  -> is m_end equal to PG_MAX?
+       |-- no  -> select the next chunk
+       `-- yes -> ScrubFinished -> PgScrubber::scrub_finish()
+                                      |
+                                      +-> update last_scrub_stamp
+                                      +-> update last_deep_scrub_stamp if deep
+                                      +-> write shallow/deep error counters
+                                      +-> aggregate num_scrub_errors
+                                      +-> evaluate repair or reschedule
+```
+
+shallow scrub 和 deep scrub 对 "没有错误" 的含义不同:
+
+|检查类型|没有错误表示|不能据此确认|
+|---|---|---|
+|shallow scrub|各 shard 都能找到对象, 且 size, 属性, object_info, 版本和快照关系一致|各 shard 的用户数据字节一致|
+|deep scrub|shallow 项目一致, 并且对象读取, data/OMAP digest 和 backend 校验没有发现差异|数据符合应用自身的业务语义|
+
+所有 chunk 完成后, `num_scrub_errors` 等于 shallow error 与 deep error 之和. 该值大于零时, PG 在发布统计信息时设置 `inconsistent`; 值为零时清除 `inconsistent` 和 `failed_repair`. 一次 shallow scrub 即使没有发现 shallow error, 也不会重新验证已有的 deep error.
+
+### 3.6.2 修复数据源
+
+`ScrubBackend` 是按对象选择 `authoritative shard`, 它首先是 "比较基准", 不等于后续 recovery 必然只从这一个 OSD 读取数据. 选择过程不是多数表决, 而是以下两步:
+
+1. **过滤候选**: `possible_auth_shard()` 只接受能在 `ScrubMap` 中找到对象, 没有读取错误, EC hash/size 没有错误, `object_info` 存在且可解码, `object_info.soid` 与对象匹配, 逻辑大小与该 shard 的落盘大小相符的候选. 对象是 head 时, 潜在 primary 还必须有可解码的 SnapSet; 需要 hinfo 的 EC 配置还要检查 `hinfo`. EC 中标记为 non-primary 的 shard 即使数据可读, 也不能作为 authoritative, 因为它可能保存旧版本且不能成为 primary.
+2. **在可用候选中选择**: 比较 `object_info.version`, 版本最大的候选胜出; 版本相同时, 记录了更多 data/omap digest 的候选胜出. 候选按 primary, 其他 shard 的顺序遍历, 所以 primary 只在版本和 digest 数量都相同的平局中优先; 一个有效 replica 如果版本更新, 可以取代 primary 成为比较基准.
+
+这里的 data/omap digest 不是 "多数投票": 候选选择不会因为 digest 值与其他 shard 不同就直接淘汰它. 选出基准后, 代码再把所有 shard 与它比较, 检查对象信息, 属性, SnapSet, data digest 和 OMAP digest, 并把没有错误的 shard 收集为 `ok_peers`. 因此需要区分:
+
+```text
+auth_shard  -> comparison baseline for the current object
+ok_peers    -> shards matching the baseline and usable for recovery
+bad_peers   -> missing or mismatched shards that need recovery
+```
+
+primary 负责协调并且是第一个候选, 但它不会无条件成为基准. replicated pool 中, 如果 primary 合格且没有更高版本的候选, 通常会选择 primary; EC pool 还要排除不能作为 authoritative 的 non-primary shard.repair 时, 代码把 `bad_peers` 标记为 missing, 并把基准对象的版本交给 PG recovery; 实际数据可能从任一 `ok_peers` 恢复, EC 则可能根据编码从多个有效 shard 重建, 并不等于固定从 primary 读取.
+
+如果没有任何候选通过上述检查, `ScrubBackend` 无法建立比较基准, 也就不能安全地生成修复计划; 该对象会记录为无法选择合适的 object info, PG 保留 `inconsistent` 状态, 等待人工处理.
+
+### 3.6.3 修复执行
+
+repair 从比较结果进入 Ceph recovery 流程:
+
+```text
+scrub error
+  -> select authoritative shard
+  -> is the error repairable?
+       |-- no  -> keep inconsistent for manual handling
+       `-- yes -> mark shards that need recovery
+                    -> run recovery/backfill
+                    -> schedule after-repair deep scrub
+```
+
+replicated pool 中, repair 通常把错误副本标记为 missing, 后续 recovery 从选定的可信副本重建. repair 负责识别问题并安排恢复, 实际数据恢复仍由 Ceph recovery 流程完成.
+
+EC pool 还要处理 shard index, 编码布局, EC hash, hinfo 和可恢复集合. 某个 data shard 错误时, 恢复内容可能需要由其他多个 data/coding shard 解码得到, 因此修复条件比 replicated pool 更复杂.
+
+### 3.6.4 自动修复与复核
+
+后台自动修复需要 `osd_scrub_auto_repair=true`, 并要求 PG backend 支持相应修复. 当前默认关闭.
+
+普通 shallow scrub 发现可修复错误时, 可以设置 `deep_scrub_on_error`, 结束 shallow scrub 后再启动 deep repair. 对普通后台任务, 如果损坏对象数超过 `osd_scrub_auto_repair_num_errors`, 默认 `5`, 代码会取消自动 repair, 保留错误供管理员处理.
+
+管理员手动发起的 scrub 和 `must-repair` 不受这个对象数阈值限制; `after_repair` 禁止再次自动修复, 以免复核过程重复进入 repair.
+
+# 4. 配置和命令
+
+## 4.1 周期与 pool 覆盖
+
+|配置|默认值|含义|
+|---|---|---|
+|osd_scrub_min_interval|1_day|shallow scrub 的期望周期|
+|osd_scrub_max_interval|7_day|shallow overdue/健康告警使用的最大周期|
+|osd_deep_scrub_interval|7_day|deep scrub 的期望周期|
+|osd_scrub_interval_randomize_ratio|0.5|shallow target 的均匀随机延迟比例|
+|osd_deep_scrub_interval_cv|0.2|deep target 正态分布的变异系数|
+|osd_deep_scrub_randomize_ratio|0.15|已废弃, 对当前调度没有作用|
+
+pool 可以用 `scrub_min_interval`, `scrub_max_interval` 和 `deep_scrub_interval` 覆盖对应值, 值为 `0` 时使用 OSD 级配置值. 还可以设置 `scrub_priority`, `noscrub` 和 `nodeep-scrub`.
+
+这几个 interval 同时被 mgr/Monitor 健康检查使用, 源码要求设置在 `global`, 或者同时设置到 `mgr` 和 `osd`. 只改某个 OSD 可能造成调度和健康告警采用不同数值.
+
+## 4.2 chunk, 读取与延迟
+
+|配置|默认值|含义|
+|---|---|---|
+|osd_scrub_chunk_min / osd_scrub_chunk_max|5 / 15|deep scrub 单个 chunk 的对象数范围|
+|osd_shallow_scrub_chunk_min / osd_shallow_scrub_chunk_max|50 / 100|shallow scrub 单个 chunk 的对象数范围|
+|osd_deep_scrub_stride|512_K|deep scrub 每次读取对象数据的大小|
+|osd_deep_scrub_keys|1024|每批读取的 omap key 数|
+|osd_scrub_sleep|0|chunk 之间的普通 sleep, mClock 下忽略|
+|osd_scrub_extended_sleep|0|任务跨出允许时段后的额外 sleep, mClock 下忽略|
+|osd_scrub_max_preemptions|5|deep scrub 被客户端 I/O 抢占的最大次数|
+
+增大 chunk 可以提高扫描吞吐量, 也会扩大一次锁定和读取的范围. 减小 chunk 或增加 sleep 通常能降低尾延迟, 但会拉长整个集群完成一轮 scrub 的时间. mClock 下应先检查 `osd_op_queue` 和 profile, 因为两个 sleep 配置会被忽略.
+
+## 4.3 错误, omap 与状态
+
+|配置|默认值|含义|
+|---|---|---|
+|osd_scrub_auto_repair|false|是否允许后台自动 repair|
+|osd_scrub_auto_repair_num_errors|5|后台自动修复允许的最大损坏对象数|
+|osd_deep_scrub_update_digest_min_age|2_hr|对象达到这个修改年龄后才更新 whole-object digest|
+|osd_deep_scrub_large_omap_object_key_threshold|200000|大 omap 对象 key 数告警阈值|
+|osd_deep_scrub_large_omap_object_value_sum_threshold|1_G|大 omap 对象 value 总量告警阈值|
+|osd_blocked_scrub_grace_period|120 秒|scrub 等待对象锁多久后写 cluster log|
+|osd_stats_update_period_scrubbing|15 秒|scrub 期间发布 PG 状态的周期|
+|osd_stats_update_period_not_scrubbing|120 秒|非 scrub 期间发布 PG 状态的周期|
+
+## 4.4 重试与健康告警
+
+|配置|默认值|含义|
+|---|---|---|
+|osd_scrub_retry_delay|30 秒|通用 scrub 失败或本地资源不足后的重试间隔|
+|osd_scrub_retry_after_noscrub|60 秒|遇到 noscrub/nodeep-scrub 后的重试间隔|
+|osd_scrub_retry_pg_state|60 秒|PG 非 active+clean 时的重试间隔|
+|osd_scrub_retry_trimming|10 秒|PG 正在 snap trimming 时的重试间隔|
+|osd_scrub_retry_new_interval|10 秒|PG 的 primary 或 acting set 变化导致 scrub 中止后的重试间隔|
+|mon_warn_pg_not_scrubbed_ratio|0.5|shallow scrub 超过最大间隔后触发告警的比例|
+|mon_warn_pg_not_deep_scrubbed_ratio|0.75|deep scrub 超过最大间隔后触发告警的比例|
+
+Monitor 对 shallow scrub 的告警 cutoff 大致是 `osd_scrub_max_interval * (1 + ratio)`; deep scrub 使用 pool 或 OSD 的 deep interval 计算. 调大 interval 或 ratio 可以让告警消失, 但不会解决 reservation 被拒, PG 长期不 clean 或队列拥塞.
+
+## 4.5 状态查看
+
+```bash
+# 集群级告警
+ceph health detail
+
+# 单个 PG 的状态,时间戳,错误数和当前 scrub 阶段
+ceph pg <pgid> query
+
+# 当前 OSD 的 scrub 调度项
+ceph daemon osd.<id> dump_scrubs
+
+# 当前 OSD 持有或等待的 local/remote reservation
+ceph daemon osd.<id> dump_scrub_reservations
+```
+
+`dump_scrubs` 中最有用的字段是 `pgid`, `sched_time`, `orig_sched_time`, `level`, `urgency`, `eligible` 和 `last_issue`:
+
+- `eligible=false` 只表示尚未到 `not_before`. `eligible=true` 也不保证立即启动, 时间窗口, load, recovery, 并发限制和 PG 条件会在取任务与启动时另行检查.
+- `urgency` 说明它是 periodic, repair, operator request 还是其他来源.
+- `last_issue` 记录最近一次因 flags, PG state, snap trimming, replica 或 local resource 延迟的原因.
+
+## 4.6 发起 scrub
+
+优先使用公开的 mgr 命令:
+
+```bash
+# 单个 PG
+ceph pg scrub <pgid>
+ceph pg deep-scrub <pgid>
+
+# 整个 pool
+ceph osd pool scrub <pool-name>
+ceph osd pool deep-scrub <pool-name>
+
+# 某个 OSD 上作为 primary 的 PG
+ceph osd scrub <osd-id>
+ceph osd deep-scrub <osd-id>
+```
+
+单个 PG 也可以通过 `ceph tell <pgid> scrub` 和 `ceph tell <pgid> deep-scrub` 直接路由到 PG. 管理员手动发起的任务不会按后台 periodic scrub 的规则执行, 不能用来证明周期调度没有受到时间窗口或资源竞争影响.
+
+源码还注册了 `schedule-scrub` 和 `schedule-deep-scrub`, 但 `PrimaryLogPG.cc` 和 `OSD.cc` 明确把它们标为 test/debug 命令. 它们通过修改时间戳模拟周期调度, 不应写进生产运维流程.
+
+## 4.7 暂停和恢复后台 scrub
+
+```bash
+# 集群级
+ceph osd set noscrub
+ceph osd set nodeep-scrub
+ceph osd unset noscrub
+ceph osd unset nodeep-scrub
+
+# pool 级
+ceph osd pool set <pool-name> noscrub 1
+ceph osd pool set <pool-name> nodeep-scrub 1
+ceph osd pool set <pool-name> noscrub 0
+ceph osd pool set <pool-name> nodeep-scrub 0
+```
+
+这些标记主要控制后台任务. 管理员手动发起的 scrub 和高 urgency repair 可能绕过标记. 长时间设置标记会触发 `PG_NOT_SCRUBBED` 或 `PG_NOT_DEEP_SCRUBBED`, 所以维护结束后要确认标记已经清除.
+
+## 4.8 查看 inconsistent 细节
+
+```bash
+ceph pg <pgid> query
+rados list-inconsistent-obj <pgid> --format=json-pretty
+rados list-inconsistent-snapset <pgid> --format=json-pretty
+```
+
+常见错误类型包括 missing, data/omap digest mismatch, size mismatch, object-info mismatch, snapset mismatch 和 EC hinfo/hash 错误. 先确定错误位于哪个 shard, 哪些字段不同, 再判断是否存在可信的修复数据源.
+
+## 4.9 执行 repair
+
+```bash
+# 单个 PG,最常用也最容易控制范围
+ceph pg repair <pgid>
+
+# 范围更大,执行前应确认影响面
+ceph osd pool repair <pool-name>
+ceph osd repair <osd-id>
+```
+
+建议按以下顺序操作:
+
+1. 保存 `ceph pg <pgid> query`, inconsistent object/snapset 输出和相关 OSD 日志.
+2. 确认 PG 的 acting set, primary, 错误 shard 和可用 digest.
+3. 评估是否存在多个副本都可能损坏, 没有可信摘要或需要从业务侧恢复的情况.
+4. 执行 `ceph pg repair <pgid>`.
+5. 等待 recovery/backfill 完成, 再运行 deep scrub 验证.
+6. 如果 PG 进入 `failed_repair` 或错误仍存在, 停止重复 repair, 转入人工数据恢复分析.
+
+`ceph-bluestore-tool repair` 是离线 BlueStore 元数据工具, 不能替代 PG scrub repair. 它要求停止 OSD, 处理的是 ObjectStore 层问题, 使用条件和风险完全不同.

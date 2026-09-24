@@ -1,0 +1,166 @@
+# 利用 Ngrok 搭建私有的内网穿透服务器
+
+# 1. 关于 Ngrok
+
+Ngrok 是用 Go 语言写的一个反向代理软件, Ngrok 服务可以分配给你一个域名让你本地的 web 项目可供外网访问, Ngrok 解决了内网穿透这十分棘手的问题, 可以让我们不需要公网 IP 的情况下, 轻松向他人展示本机的 Web Demo 等信息. Ngrok 官网本身还提供了公共服务, 只需要注册一个帐号, 运行它的客户端, 就可以快速把内网映射出去, 不过这么好的服务, 没多久就被墙了, 幸运的是, Ngrok 的 1.x 的源码被公布了出来, 我们可以利用它的源码去构建属于我们自己的 Ngrok 内网穿透服务器.
+
+据官方所说由于 Ngrok 存在一些已知的问题, 例如内存泄漏等对稳定使用影响较大, 原文内容如下:
+> DO NOT RUN THIS VERSION OF NGROK (1.X) IN PRODUCTION. Both the client and server are known to have serious reliability issues including memory and file descriptor leaks as well as crashes. There is also no HA story as the server is a SPOF. 
+
+不过, 当你使用了 Ngrok 之后, 你绝对会对他赞不绝口, 当你内网中的一台机器开着 Ngrok 时, 即使那台机器突然断网了, 只要电脑之后连接上了网络, Ngrok 就会立马自动开始工作, 很人性化.
+
+# 2. Linux 下 Ngrok 服务器的搭建及客户端的生成
+
++ 服务器环境: CentOS 7.2 64 位/Ubuntu Server 16.04.1 LTS 64 位
++ 客户端环境: Windows 10 版本 10.0.14393
+
+## 2.1 搭建 Ngrok 服务器所必需的环境条件
+
++ CentOS 下的命令:
+  更新系统软件环境, 并安装所需要的 mercurial git gcc golang 软件包:
+```bash
+yum update
+yum install mercurial git gcc golang
+```
++ Ubuntu Server 下的命令:
+```bash
+sudo apt-get install build-essential golang mercurial git
+```
+## 2.2 下载 Ngrok 的源码
+
+假如我们当前处于/root 目录, 然后我们需要从 GitHub 上面下载下来 Ngrok 的源码文件, 下面提供三个 link, 一个官方地址 (可能会报错), 一个第三方地址, 一个是我 Fork 别人的. 由于访问 github 不太顺畅, 有可能下载的时候链接会中断, 所以如果出错了就再运行一遍. 执行完
+```bash
+git clone https://github.com/inconshreveable/ngrok.git
+git clone https://github.com/tutumcloud/ngrok.git
+git clone https://github.com/CUBEGWZ/ngrok.git
+```
+执行完上面的代码后, 我们 `ls` 就可以发现/root/目录下存在一个 ngrok 目录.
+
+## 2.3 生成证书
+
+我们在此之前需要确定已经有一个域名可以成功的泛解析映射到目标服务器上了. 由于我们下载的 Ngrok 源码是官方提供的, 所以其中的 SSL 证书当然不是针对目前我们所拥有的域名的, 所以我们需要为当前域名配置 SSL 证书, 并把信息写入服务器文件中去, 还有一点, 我们之后编译客户端的时候也会将这些信息编译进客户端, 客户端内的信息必须与服务器端的信息相一致.
+
+此处假设我想让使用我的 Ngrok 服务的人们那里获得的域名形似为 "*. ngrok.testbug.top", 那么接下来我的设置如下所示:
+```bash
+cd /root/ngrok
+#这里修改为自己想要设置的域名变量,便于后面使用
+NGROK_DOMAIN="ngrok.testbug.top"
+
+openssl genrsa -out rootCA.key 2048
+openssl req -x509 -new -nodes -key rootCA.key -subj "/CN=$NGROK_DOMAIN" -days 5000 -out rootCA.pem
+openssl genrsa -out device.key 2048
+openssl req -new -key device.key -subj "/CN=$NGROK_DOMAIN" -out device.csr
+openssl x509 -req -in device.csr -CA rootCA.pem -CAkey rootCA.key -CAcreateserial -out device.crt -days 5000
+```
+
+然后我们会发现/root/ngrok 目录下会多出六个文件, 他们分别是 "rootCA.key","rootCA.pem","rootCA.srl","device.key","device.csr","device.crt", 然后我们将 "rootCA.pem","device.crt","device.key" 这三个文件复制替换/root/ngrok/assets/images/client/tls/目录下的三个文件, 代码如下所示:
+```bash
+\cp rootCA.pem assets/images/client/tls/ngrokroot.crt -f
+\cp device.crt assets/images/server/tls/snakeoil.crt  -f
+\cp device.key assets/images/server/tls/snakeoil.key -f
+```
+
+## 2.4 生成服务器端 ngrokd 与编译客户端的 ngrok
+
+进入/root/ngrok 目录后创建服务器端的 ngrokd, 代码如下所示:
+```bash
+cd /root/ngrok
+make release-server
+```
+
+如果提示下载失败, 可能是因为链接国外的服务器会断线的问题, 可重新运行一遍 make release-server . 执行成功后, 我们可以在/root/ngrok/bin/目录下看到 ngrokd 这个文件, 这个就是我们后面要开启的服务器端, 现在先不要运行.
+
+然后我们在/root/ngrok/目录中使用交叉编译, 编译出几个常用平台的客户端软件, 代码如下所示:
+```bash
+GOOS=linux GOARCH=amd64 make release-client
+GOOS=windows GOARCH=amd64 make release-client
+GOOS=linux GOARCH=arm make release-client
+```
+编译后的文件存在于/root/ngrok/bin/目录中, 他们分别在以自己的操作系统名命名的目录中. 我们把生成的文件下载下来存在客户端即可.
+
+需要注意的是, 不同平台使用不同的 GOOS 和 GOARCH, 其中 GOOS 是指编译出来的操作系统 (windows, linux, darwin) ; GOARCH 是指对应的构架 (386, amd64, arm), 列表如下:
+
++ Linux 平台 32 位系统: GOOS=linux GOARCH=386
++ Linux 平台 64 位系统: GOOS=linux GOARCH=amd64
++ Windows 平台 32 位系统: GOOS=windows GOARCH=386
++ Windows 平台 64 位系统: GOOS=windows GOARCH=amd64
++ MAC 平台 32 位系统: GOOS=darwin GOARCH=386
++ MAC 平台 64 位系统: GOOS=darwin GOARCH=amd64
++ ARM 平台: GOOS=linux GOARCH=arm
+
+## 2.5 服务器端 ngrokd 与客户端的 ngrok 的运行测试
+
+首先我们让服务器端的 ngrok 开始运行, 代码如下所示 (三选一即可):
+```bash
+#cd /root/ngrok
+#NGROK_DOMAIN="ngrok.testbug.top"
+#只启用http连接
+/root/ngrok/bin/ngrokd -domain="ngrok.testbug.top" -httpAddr=":6060" -httpsAddr=":6061" -tunnelAddr=":6062"
+#启用http和https连接
+/root/ngrok/bin/ngrokd -domain="ngrok.testbug.top" -httpAddr=":6060" -httpsAddr=":6061" -tunnelAddr=":6062" -tlsKey=/root/ngrok/device.key -tlsCrt=/root/ngrok/device.crt
+#如果想让服务器端在我们关闭了终端后依旧可以后台运行,选择下面这句代码,后台运行,启用http和https连接
+/usr/bin/nohup /root/ngrok/bin/ngrokd -domain="ngrok.testbug.top" -httpAddr=":6060" -httpsAddr=":6061" -tunnelAddr=":6062" -tlsKey=/root/ngrok/device.key -tlsCrt=/root/ngrok/device.crt > /root/ngrok/out.file 2>&1 &
+```
+上面代码中的一些说明:
+
++ httpAddr 是访问普通的 http 使用的端口号, 客户端用 <a href="#">http://*.ngrok.testbug.top:6060</a> 来访问服务
++ httpsAddr 是访问的 https 使用的端口号, 客户端用 <a href="#">https://*.ngrok.testbug.top:6060</a> 来访问服务
++ tunnelAddr 是通道的端口号, 这个端口是 Ngrok 用来通信的, 所以这个端口在服务器上和客户端上设置必须要对应才可以正常的链接, 默认不填写好像是 4433
+
+如果想要开机启动 Ngrokd 服务, 并开启 http 和 https 连接服务, 可以执行下面的操作:
+
++ 针对于 CentOS 中, 在 "/etc/rc.d/rc.local" 文件最后加入下面的代码:
++ 针对于 Ubuntu Server, 在 "/etc/rc.local" 文件的最后加入下面的代码:
+```bash
+/usr/bin/nohup /root/ngrok/bin/ngrokd -domain="ngrok.testbug.top" -httpAddr=":6060" -httpsAddr=":6061" -tunnelAddr=":6062" -tlsKey=/root/ngrok/device.key -tlsCrt=/root/ngrok/device.crt > /root/ngrok/out.file 2>&1 &
+```
+
+
+接下来我们配置客户端, 以便于我们在客户端可以成功建立与服务器的连接, 并且最终完成内网穿透的需求;
+
+我们客户端的环境是 Windows 10 版本 10.0.14393, 把下载下来的 ngrok.exe 文件放在绝对路径中没有中文的文件夹中, 然后在该文件夹中新建一个 "ngrok.cfg", 页面编码选择为 "UTF-8 无 BOM 格式", 然后里面输入如下内容并保存:
+```bash
+server_addr: "ngrok.testbug.top:6062"
+trust_host_root_certs: false
+```
++ 如果想要在外网访问内网中的 Web 服务, 则可以使用下面的代码:
+```bash
+ngrok.exe -log=ngrok_log.txt -subdomain=test -config="ngrok.cfg" 80
+```
++ 如果想要在外网访问内网中的 TCP 服务, 则可以使用下面的代码 (例如访问内网中机器的 TCP 协议的 3389 端口):
+```bash
+ngrok.exe -log=ngrok_log.txt -subdomain=test -config="ngrok.cfg" -proto=tcp 3389
+```
+
+上面代码的解释为:
+
++ 日志: -log=ngrok_log.txt 是记录 ngrok 的日志, 如果前期调试的时候加上这个参数, 如果不能访问就可以查看到底是什么问题
++ 子域名: -subdomain=test 是定义访问的时候的子域名, 现在访问 ngrok.testbug.top: 6060 就可以访问到这一台机器上 80 端口的服务
+
+***备注  常用的工作在 TCP 协议上的端口列表如下:***
+
++ 53 : MTP, 邮件传输协议
++ 80 : HTTP(超文本传输协议)- 用于传输网页
++ 110 : POP3,"邮局协议", 第 3 版 - 用于接收电子邮件
++ 115 : SFTP, 简单文件传输协议
++ 3389 : 远程桌面协议 (RDP)
++ 8008/8080 : HTTP 替代端口
++ 8080 : Apache Tomcat
+
+# 3. 一些基于的 Ngrok 的免费内网穿透服务
+
+## 3.1 <a href="https://natapp.cn/" target="_blank">NATAPP 基于 ngrok 高速内网穿透</a>
+
+第一次使用需要注册, 竟然只能用手机号注册, 注册后可以在个人页面看到存在免费隧道可用, 阿里云国内服务器, 不支持绑定自己的域名, 不支持 Https, 1M 的带宽 (估计也是共享带宽), 一分钟 60 个连接数的限制, 最大 TCP 连接数五个, 分配的三级域名以及端口还不定时强制更换, 更恶心的是使用这个免费隧道还需要实名认证, 不推荐! 极不推荐!
+
+## 3.2 <a href="http://qydev.com/" target="_blank">Ngrok 国内免费服务器</a>
+
+这是我使用的第一个 Ngrok 内网穿透服务, 这应该是一个学生免费提供的的 Ngrok 内网穿透服务, 当初应该是为了贡献闲置资源, 现在我感觉用起来越来越舒服, 一不需要注册, 二不需要实名, 三不需要花钱, 简直就是 Ngrok 内网穿透的福音呀! 并且还十分稳定, 十分良心, 建议大家如果觉的好用, 给人家捐赠点维护费用, 利人利己. 强烈推荐这款服务!
+
+## 3.3 <a href="https://www.ngrok.cc/" target="_blank">Sunny-Ngrok 内网转发</a>
+
+这也是一个体验性挺好的 Ngrok 内网穿透服务, 第一个看到这网站的界面我就猜到了他应该是基于 ThinkCMF 写的, 虽然如果你要使用这个也需要注册, 但是人家的注册就不想某些人那样, 人家直接使用邮箱就可以注册, 还不用邮箱验证, 估计邮箱也就是为了找回密码用的, 后台界面很简洁, 提供两种隧道供选择, 一种是香港 100M 服务器, 10 元/月, 一种是香港 10M 免费的, 它的免费隧道可以固定自己的三级域名, 也可以把自己的域名 CNAME 解析到 server.ngrok.cc 从而使用自定义域名, 还有一个有意思的是, 它可以设置在 http 映射的时候是否需要访问认证, 这有加了一层安全保障, 关键是这些都是免费的, 更好的是, 似乎我们可以建很多的免费的隧道, 这就很好了, 也是值得推荐的!
+
+## 3.4 <a href="http://mofasuidao.cn/" target="_blank">魔法隧道</a>
+
+据说 (知乎上一个人说的) 是所谓的最稳定的 Ngrok, 注册也是需要手机号码的, 好吧, 我不计较是不是需要用手机号了, 登进去管理界面才发现, 好嘛~签到送流量, 我点击了签到, 好嘛~送了我 0.90M , 果断关了.

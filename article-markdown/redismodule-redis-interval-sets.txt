@@ -1,0 +1,90 @@
+# RedisModule 剖析 - RedisIntervalSet
+
+`RedisIntervalSet` 是一款用于记录不同间隔集合 (IntervalSet) 的 Redis 模块, 按照官方文档给出的示例, 我们可以记录从学前班, 中学到大学的不同阶段的信息, 每个阶段都有一个最小和最大值的分数 (这里含义为年龄), 最后可以通过查询不同的分数 (年龄) 来查询对应的学习阶段, 通过这种方式能够快速的得到对应数据值所在的区间信息, 这种设计思路有些类似于 `ZSet`.
+
+# 1. 简介
+
++ GitHub 地址:https://github.com/danitseitlin/redis-interval-sets
+
+# 2. 架构设计
+
++ 该模块使用 `Rust` 进行编写, 依赖于 [redismodule-rs](https://github.com/RedisLabsModules/redismodule-rs/) 版本 [0.26.0](https://github.com/RedisLabsModules/redismodule-rs/releases/tag/v0.26.0);
+
+## 2.1 相关命令
+
++ iset.add : 在特定的 key 中增加一个间隔集合 (IntervalSet), 必须带有最小及最大分数, 可同时指定多个;
++ iset.del : 删除特定 key 或者删除其中的特定的间隔集合;
++ iset.get : 获取特定 key 中的所有间隔集合或者指定的间隔集合;
++ iset.score : 获取指定 key 中包含特定分数的集合列表;
++ iset.not_score : 获取指定 key 中不包含特定分数的集合列表;
+
+## 2.2 数据结构
+
+```rust
+// 自定义的数据类型
+static REDIS_INTERVAL_SETS: RedisType = RedisType::new(
+    "IntervlSt",
+    0,
+    raw::RedisModuleTypeMethods {
+        version: raw::REDISMODULE_TYPE_METHOD_VERSION as u64,
+        rdb_load: Some(rdb_load),
+        rdb_save: Some(rdb_save),
+        aof_rewrite: None,
+        free: Some(free),
+
+        // Currently unused by Redis
+        mem_usage: None,
+        digest: None,
+
+        // Aux data
+        aux_load: None,
+        aux_save: None,
+        aux_save_triggers: 0,
+
+        free_effort: None,
+        unlink: None,
+        copy: None,
+        defrag: None,
+    },
+);
+
+// 存储所有间隔集合的数据结构
+pub struct Sets(pub Vec<Set>);
+
+// 单个间隔集合的数据结构
+pub struct Set {
+    pub member: String,     // 间隔集合的名称
+    pub min_score: i64,     // 间隔集合的范围最小值
+    pub max_score: i64,     // 间隔集合的范围最大值
+}
+```
+
+## 2.3 持久化
+
+### 2.3.1 RDB 的持久化
+
+RDB 的存储过程比较简单, 直接把 Rust 的数据结构转换为 string 持久化到 RDB 文件中.
+
+```rust
+unsafe extern "C" fn rdb_save(rdb: *mut raw::RedisModuleIO, value: *mut c_void) {
+    let i_sets =  {&*(value as *mut IntervalSet) };
+    println!("Saving: {}", &i_sets.to_string());
+    raw::save_string(rdb, &i_sets.to_string());
+}
+```
+
+### 2.3.2 AOF 的持久化
+
+无 AOF 相关的持久化逻辑. 
+
+# 3. 问题与思考
+
+## 3.1 问题
+
++ 直接使用 `pub Vec<Set>` 来存储间隔集合, 当存储的间隔集合较多时是否会出现性能问题, 每次都需要遍历所有的集合, 这里是否会有一些优化手段? 简单的想法是通过跳表存储间隔集合的最小值, 查询时首先查询跳表找到符合条件的初始值, 避免前半部分无效的遍历;
+
+## 3.2 思考
+
++ 罗列了一些关于这种数据模型的适用场景:
+  + 体检健康指标判断: 体检健康指标的参数通常可用于分析多种疾病的可能性, 而这种医学上的健康指标通常是固定可分析的, 因此可用于健康指标的推测与分析;
+  + 经纬度国家/地区筛选: 国家/地区的地理位置信息基本也是固定不变的, 通常可以用于筛选某个经纬度下的国家与地区信息;

@@ -1,0 +1,1 @@
+(()=>{let i;window.runThemeTransition=n=>{if(window.matchMedia("(prefers-reduced-motion: reduce)").matches||"function"!=typeof document.startViewTransition)return void n();i&&i.skipTransition();const t=document.startViewTransition(n);i=t,t.finished.catch(()=>{}).then(()=>{i===t&&(i=void 0)})}})();

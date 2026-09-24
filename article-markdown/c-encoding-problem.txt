@@ -1,0 +1,49 @@
+# C 语言中有趣的烫烫烫
+
+在学校使用 Windows 下的 Visual Studio 2017 进行课堂 C 的学习过程中遇到过很多类似于 烫烫烫烫烫烫 , 锟斤拷, 屯屯屯 等比较有意思的乱码, 也闹出了一些比较有意思的事情.
+
+# 1. 现象
+
+以下是部分乱码在不同的编码类型下的编码值:
+
+|字符|简体中文 (GB2312)|Unicode|Unicode (UTF-8)|
+|:--:|:--------------:|:-----:|:-------------:|
+|烫|CCCC|EB70|E783AB|
+|锟|EFBF|1F95|E9949F|
+|斤|BDEF|A465|E696A4|
+|拷|BFBD|F762|E68BB7|
+|屯|CDCD|6F5C|E5B1AF|
+|锘|EFBB|1895|E99498|
+|傻|C9B5|BB50|E582BB|
+
+# 2. 分析
+
+以上比较有意思的乱码情况仅出现在使用 Visual Studio 或者 VC6.0 自带的 MSVC 编译器进行编译时才会出现, 也就是说通常只有在 Windows 环境下使用 Visual Studio 或者 VC6.0 进行代码开发, 并且处于 Debug 的运行模式才会出现.
+
+## 2.1 烫 (0xCCCC)
+
+MSVC 编译器会将 **未被初始化的栈内存** 使用 `0XCC` 进行填充, 导致我们在使用为初始化的栈内存时便会出现 `烫烫烫` 的错误提示;
+
+![烫(0xCCCC)](/assets/images/posts/c-encoding-problem/0xcccc.webp)
+
+## 2.2 屯 (0xCDCD)
+
+**MSVC 编译器会将** 未被初始化的堆内存使用 `0XCD` 进行填充, 导致我们在使用为初始化的栈内存时便会出现 `屯屯屯` 的错误提示;
+
+![屯(0xCDCD)](/assets/images/posts/c-encoding-problem/0xcdcd.webp)
+
+## 2.3 锟斤拷
+
+**锟斤拷** 涉及 `Unicode` 字符集转换问题, 在编码转化你的过程中, 当 Unicode 无法表示一个字符的时候, 它会用一个占位符 (U+FFFD REPLACEMENT CHARACTER) 来表示这些文字. U+FFFD 的 UTF-8 编码是 `0xEFBFBD`, 如果重复多次形成 **锟斤拷** 的盛状.
+
+![锟斤拷](/assets/images/posts/c-encoding-problem/0xefbfbdefbfbd.webp)
+
+## 2.4 锘
+
+微软在 `UTF-8` 文件头部加上了 `EF BB BF BOM` 标志. 在不支持 BOM 的环境下对其停止 UTF-8 解码失掉 **锘** 字,
+
+`BOM` 是 `Byte Order Mark` 的缩写. 是 UTF 编码方案里用于标识编码的标准标记, 在 `UTF-16` 里本来是 `FF FE`, 变成 `UTF-8` 就成了 `EF BB BF`. 这个标记是可选的, 因为 `UTF8` 字节没有顺序, 所以它可以被用来检测一个字节流是否是 `UTF-8` 编码的.
+
+![锘](/assets/images/posts/c-encoding-problem/0xefbb.webp)
+
+参考地址:https://zhuanlan.zhihu.com/p/27253604

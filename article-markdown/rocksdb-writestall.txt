@@ -1,0 +1,126 @@
+# RocksDB 学习 - WriteStall (写停顿)
+
+# 1. WriteStall 介绍
+
+当 RocksDB 中的 Flush 或 Compaction 赶不上写入速度时, RocksDB 会降低写的速率, 极端情况下会停止写入, 通过使用这个策略来避免出现以下问题:
++ 空间放大, 导致耗尽磁盘空间;
++ 读放大, 导致降低读性能;
+
+
+# 2. WriteStall 触发场景
+
+可能有以下的场景会触发 WriteStall :
++ Memtable 过多 
++ L0 层的 SST 文件过多
++ 等待进行 Compaction 的字节太大
+
+## 2.1 Memtable 过多
+
++ **触发条件**:
+	+ **慢写**: 当 `max_write_buffer_number` 大于 `3`, 并且等待进行 Flush 的 MemTables 的个数大于等于 `max_write_buffer_number - 1` , 则会触发慢写;
+	+ **阻写**: 当等待进行 Flush 的 MemTables 的个数大于等于 `max_write_buffer_number` , 则会触发阻写, 直到等到 Flush 完成;
++ **异常感知**:
+	+ **监控**:
+		+ `io_stalls.memtable_slowdown` 
+		+ `io_stalls.memtable_compaction`
+	+ **日志**:
+		+ `[%s] Stalling writes because we have %d immutable memtables (waiting for flush), max_write_buffer_number is set to %d rate % PRIu64`
+		+ `[%s] Stopping writes because we have %d immutable memtables (waiting for flush), max_write_buffer_number is set to %d`
+
+## 2.2 L0 层的 SST 文件过多
+
++ **触发条件**:
+	+ **慢写**: 当 L0 层的文件数量达到了 `level0_slowdown_writes_trigger` , 则触发慢写;
+	+ **阻写**: 当 L0 层的文件数量达到了 `level0_stop_writes_trigger` , 则触发停写, 直到 L0 层到 L1 层的 Compaction 减少了 L0 层的文件数量;
++ **异常感知**:
+	+ **监控**:
+		+ `io_stalls.level0_slowdown`
+		+ `io_stalls.level0_numfiles`
+	+ **日志**:
+		+ `[%s] Stalling writes because we have %d level-0 files rate % PRIu64`
+		+ `[%s] Stopping writes because we have %d level-0 files` 
+
+## 2.3 等待进行 Compaction 的字节太大
+
++ **触发条件**:
+	+ **慢写**: 当需要进行 Compation 的字节数达到了 `soft_pending_compaction_bytes` , 则触发慢写;
+	+ **阻写**: 当需要进行 Compation 的字节数达到了 `hard_pending_compaction_bytes` , 则触发阻写;
++ **异常感知**:
+	+ **监控**:
+		+ `io_stalls.slowdown_for_pending_compaction_bytes`
+		+ `io_stalls.stop_for_pending_compaction_bytes`
+	+ **日志**:
+		+ `[%s] Stopping writes because of estimated pending compaction bytes % PRIu64`
+		+ `[%s] Stalling writes because of estimated pending compaction bytes % PRIu64 rate %`
+
+
+# 3. WriteStall 实现细节
+
+## 3.1 WriteStall 速率计算规则
+
++ **`SetupDelay 函数` 速率计算逻辑**:
+	+ 最小的写入速率为 `kMinWriteRate` (默认为 `16KB/s`);
+	+ 最大的写入速率为 `max_delayed_write_rate_` (默认为 `32MB/s`);
+	+ **以下三种情况选其一**:
+		+ 需要进行 `惩罚性写限速 (Penalize Stop)` (为了避免直接进行阻写而产生的影响), 则本次的写速率设置为上一次写速率的 `kNearStopSlowdownRatio 倍` (默认为 `0.6 倍`) ;
+		+ 本次需要进行 Compation 的字节大小比上一次的要大, 则本次的写速率设置为上一次写速率的 `kIncSlowdownRatio 倍` (默认为 `0.8 倍`) ;
+		+ 本次需要进行 Compation 的字节大小比上一次的要小, 则本次的写速率设置为上一次写速率的 `kDecSlowdownRatio 倍` (默认为 `1.25 倍`) ;
++ **不同场景下的新的写入速率设置**:
+	+ **Memtable 过多**: 遵循以上规则;
+	+ **L0 层的 SST 文件过多**: L0 层触发 Delay 的计数大于 `level0_stop_writes_trigger - 2`, 则触发 `惩罚性写限速`;
+	+ **等待进行 Compaction 的字节太大**: 如果到硬限制的距离小于软字节限制和硬字节限制之间的间隙的 `1/4`, 我们认为它接近停止并加速了减速, 则触发 `惩罚性写限速`;
+		+ **计算规则**:`mutable_cf_options.hard_pending_compaction_bytes_limit > 0 && (compaction_needed_bytes - mutable_cf_options.soft_pending_compaction_bytes_limit) > 3 * (mutable_cf_options.hard_pending_compaction_bytes_limit - mutable_cf_options.soft_pending_compaction_bytes_limit) / 4` ;
+
+## 3.2 WriteStall 影响
+
++ 如果触发 WriteStall, 执行 Put/Merge/Delete 等的应用程序线程将阻塞;
++ 如果触发 **慢写**, 则每次写入都会在继续之前休眠一段时间 (通常为 1 毫秒);
++ 如果触发 **阻写**, 则线程可以无限期地阻塞;
++ 如果某个 CF 触发了 WriteStall, 整个 DB 都会 Stall (延缓);
++ 如果不希望阻塞线程, 应用程序可以通过设置 `no_slowdown = true` 来避免 WriteStall;
+
+## 3.3 WriteStall 动态调整
+
+根据不同的 WriteStall 的触发场景, 我们可以通过调整一些参数来控制 WriteStall 的触发概率或者直接禁止 WriteStall 的出现, 不同的触发场景的处理手段如下:
++ **Memtable 过多**:
+	+ 增加 `max_background_flushes` 使更多的 Thread 用来 Flush;
+	-  增加 `max_write_buffer_number` 使有更小的 MemTable 来 Flush;
++ **L0 层的 SST 文件过多** 或者 **等待进行 Compaction 的字节太大**:
+	+ 增加 `max_background_jobs` 以拥有更多的压缩线程;
+	-  增加 `write_buffer_size` 有大内存表, 以减少写放大;
+	-  增加 `min_write_buffer_number_to_merge` ;
+
+
+## 3.4 相关代码
+
++ **相关函数**:
+	+ `ColumnFamilyData::RecalculateWriteStallConditions`
+		+ 含义: 判断当前的是否需要进行写控制;
+	+ `SetupDelay`
+		+ 含义: 慢写入的情况下, 设置下一次的写速率;
++ **相关变量**:
+	+ `write_stall_condition` :
+		+ 含义: 局部变量, 标记当前最新的 WriteStall 的状态;
+		+ 可选值:
+			+ `WriteStallCondition::kNormal` : 初始状态;
+			+ `WriteStallCondition::kDelayed` : 触发软限制, 对写入执行限速;
+			+ `WriteStallCondition::kStopped` : 触发硬限制, 阻止写入请求;
+	+ `write_stall_cause` :
+		+ 含义: 局部变量, 标记触发 WriteStall 的原因;
+		+ 可选值:
+			+ `WriteStallCause::kNone` : 初始状态;
+			+ `WriteStallCause::kMemtableLimit` : 由 Memtable 过多触发;
+			+ `WriteStallCause::kL0FileCountLimit` : 由 L0 层的 SST 文件过多触发;
+			+ `WriteStallCause::kPendingCompactionBytes` : 由 等待进行 Compaction 的字节太大触发;
+	+ `write_controller_token_` :
+		+ 含义:`ColumnFamilyData` 类的成员变量, 写控制令牌;
++ **相关类**:
+	+ `WriteController` :
+		+ 含义: 控制写入请求;
+		+ 重点函数:
+			+ `NeedsDelay` : 判断是否需要进行慢写;
+			+ `WriteController::IsStopped` : 判断是否需要进行阻写;
+
+# 4. 参考资料
++ [RocksDB Wiki - WriteStalls](https://github.com/facebook/rocksdb/wiki/Write-Stalls)
++ [rocksdb系列之write stall](https://www.jianshu.com/p/2e28b1453642)

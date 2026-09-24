@@ -1,0 +1,774 @@
+# Ceph 写路径: 从客户端请求到 OSD 提交
+
+本文根据 Ceph 源码, 追踪一次写请求从应用发出, 到 OSD 提交数据并返回的过程. 客户端部分覆盖 RBD, CephFS, RGW 和直接使用 librados; 服务端部分跟踪 Objecter, OSD, PG, 复制或纠删码后端, 以及 BlueStore 的事务提交.
+
+# 1. 一次写请求经过哪些环节
+
+读写路径的差异主要在于完成时机, 以及 OSD 需要完成的工作量. 应用的 `write()` 返回时, 数据可能仍在客户端缓存中. 副本池写入时, primary 还要把事务发送给副本; EC 写入则要按 stripe 编码, 未对齐写入还可能先读旧数据, 再执行 read-modify-write. 因此, 客户端写入 4 MiB 时, 集群内部实际产生的 OSD 请求, 磁盘写和网络流量都可能更多.
+
+本文聚焦 RADOS 数据写入. MON 处理 map, 认证和控制面, MDS 处理 CephFS 元数据与 capability, RGW 处理 HTTP 语义和对象 manifest. 普通对象的数据请求仍由客户端直接发往目标 OSD.
+
+读请求的完整链路见 [Ceph 读路径](/2026/01/10/ceph-read/).
+
+先把一次写请求的主流程列出来:
+
+```text
+应用 write / PUT / image write
+  -> 上层缓存, 布局拆分或对象封装
+  -> librados Objecter
+  -> OSDMap + CRUSH 计算 PG 和 acting set
+  -> MOSDOp 发给 acting primary
+  -> OSD Messenger 解码和调度
+  -> PrimaryLogPG 检查 PG, 对象, 权限和锁
+  -> ReplicatedBackend 或 ECBackend 组织后端写入
+  -> ObjectStore::Transaction
+  -> BlueStore 数据写入, checksum, 分配和 KV 元数据提交
+  -> replica / shard 达到所需状态
+  -> MOSDOpReply(ACK/ONDISK 等阶段)
+  -> Objecter completion
+  -> 上层缓存或应用收到完成结果
+```
+
+这里要区分两个时间点:
+
+- 提交请求: Objecter 发出 `MOSDOp`, 或者上层先把数据放进客户端缓存.
+- 写完成: 请求达到调用方要求的确认级别. 安全完成通常还要等副本或 EC shard 提交.
+
+`write(2)`, `librbd` 的异步写和 RGW 的 HTTP 成功响应不一定对应同一个持久化边界. 具体边界由接口, 缓存, `fsync`/flush, RBD journal/PWL, OSD 写策略和存储池类型共同决定.
+
+# 2. 整体执行图
+
+下图只展示各类写入共有的部分, RBD, CephFS 和 RGW 的差异放在后文分别说明.
+
+- 客户端通常使用本地 OSDMap 和 CRUSH map 计算 primary, 正常数据写不会先发给 MON.
+- 一个上层写可能被拆成多个 RADOS 对象写, 而这些对象可能落在不同 PG. 它们不会自动组成跨对象事务.
+- 副本池的写入由 primary 负责协调; EC 池的 primary 负责按 stripe 计算和编码, 并向多个 shard OSD 发起内部写入.
+- BlueStore 的数据块和 RocksDB 元数据可能分开完成; 客户端何时收到安全完成回复, 由 OSD 的 commit 状态和消息标志位决定.
+
+```mermaid
+sequenceDiagram
+    participant A as 应用
+    participant U as RBD / CephFS / RGW
+    participant C as 客户端缓存与布局
+    participant O as librados / Objecter
+    participant MON as MON
+    participant MDS as MDS
+    participant MS as Messenger v2
+    participant P as acting primary OSD
+    participant PG as PrimaryLogPG
+    participant B as ReplicatedBackend / ECBackend
+    participant R as replica 或 shard OSD
+    participant ST as BlueStore
+
+    A->>U: 发起写请求
+    opt 上层缓存, journal 或 PWL 接收数据
+        U->>C: 写入缓存/日志
+    end
+    opt CephFS 缺少 layout, Fw 或 Fb
+        U->>MDS: 获取 layout, capability 或扩展 max_size
+        MDS-->>U: 返回控制面信息
+    end
+    U->>C: 按 object extent 拆分
+    C->>O: 提交一个或多个 RADOS object write
+    opt OSDMap/CRUSH map 缺失或过期
+        O->>MON: 获取最新 map
+        MON-->>O: 返回 map
+    end
+    O->>MS: 发送 MOSDOp
+    MS->>P: 网络传输到 acting primary
+    P->>PG: 收包, 排队并分派
+    PG->>PG: 检查 PG, 对象, snapshot, 权限和锁
+    PG->>B: 创建 PGTransaction 并组织写入
+    alt replicated pool
+        B->>R: MOSDRepOp
+        B->>ST: primary 本地 ObjectStore transaction
+        R->>R: 本地 PG/事务处理
+        R-->>B: subop ACK/commit
+    else EC pool
+        B->>B: full-stripe encode 或 partial-stripe RMW
+        B->>R: MOSDECSubOpWrite
+        R-->>B: shard ACK/commit
+        B->>ST: primary shard transaction
+    end
+    ST-->>PG: transaction committed
+    PG-->>MS: MOSDOpReply(ACK/ONDISK)
+    MS-->>O: 返回写结果
+    O-->>C: 触发 completion
+    C-->>A: 返回写完成或错误
+```
+
+# 3. 客户端: 把上层写转换成 RADOS 对象写
+
+对 RADOS 来说, 最终处理的是某个 pool/namespace 中的对象写入: 请求会指定对象名, 对象内偏移, 写入长度和数据. RBD, CephFS, RGW 都要先把各自的逻辑地址换算成一个或多个 object extent; 直接使用 librados 时, 这个转换由应用完成.
+
+## 3.1 块存储: RBD
+
+对应用来说, RBD image 是一段连续的块地址; 客户端再根据 image layout, 把它拆成对 RADOS 对象的写入. 用户态程序可以调用 `librbd`, 也可以通过 `krbd` 使用内核块设备.
+
+在 RADOS 中, 一个 image 实际上由许多对象组成. 创建 image 时, RBD 会把 image id, layout 等信息记录在 `rbd_header` 等元数据对象中. 客户端拿到这些信息后, 就能把 image 偏移换算成对象序号, 对象名, 对象内偏移和长度. 数据对象通常以 `rbd_data.<image-id>` 为前缀, 再拼接格式化后的 `object_no`, 例如 `rbd_data.abc123.0000000000000000`. `Striper::file_to_extents()` 完成这次换算, 客户端算出目标后就能直接发起请求, 不需要遍历数据池查找对象.
+
+假设 `object_size=4 MiB`, 应用从 image 偏移 3 MiB 的位置写入 2 MiB. 在最简单的布局下, 这段写入会拆成两个 object extent:
+
+- 对象 0: 对象内偏移 3 MiB, 写入 1 MiB;
+- 对象 1: 对象内偏移 0, 写入 1 MiB.
+
+启用 striping 后, 连续的 image 数据还会按 `stripe_unit` 和 `stripe_count` 分散到多个对象. 例如 `stripe_unit=4 KiB`, `stripe_count=2` 时, 前两个 4 KiB 分别写入对象 0 和对象 1, 后续条带仍按这个顺序轮转. 因此, 一次连续的块写入可能要拆成多个对象请求.
+
+用户态 `librbd` 的异步写大致经过这些步骤:
+
+1. `librbd::api::Io::aio_write()` 先经过 image dispatcher, 检查 image cache, PWL, journal, QoS, 加密和 flush 语义.
+2. `ImageWriteRequest::send_request()` 按 layout 计算 object extent, 并将跨对象的范围拆分.
+3. 每个 extent 创建 `ObjectWriteRequest`, 编码为 RADOS object write, 通过 `neorados::WriteOp`/Objecter 提交.
+4. 所有对象请求完成后, RBD 更新统计, 缓存或 journal 状态, 并触发 image 层 completion.
+
+RBD 的 image cache, Persistent Write Log (PWL) 和 journal 作用不同. 缓存可能让应用较早返回, PWL 或 journal 可以先记录可恢复的写入, 再异步提交对象; 是否等待它们由配置和调用接口决定. 克隆 image 第一次写入时, 还可能先从父 image 读取未覆盖的内容, 再把新旧数据合并后写入当前 image.
+
+```mermaid
+sequenceDiagram
+    participant A as 应用或虚拟机
+    participant R as librbd / krbd
+    participant C as image cache/PWL/journal
+    participant IR as ImageWriteRequest
+    participant OR as ObjectWriteRequest
+    participant O as Objecter
+    participant S as RADOS primary OSD
+
+    A->>R: image write
+    R->>C: 查询缓存, PWL 或 journal
+    alt 由缓存或日志接收
+        C-->>R: 记录写入并按策略完成
+        opt 异步 flush
+            C->>IR: 后台提交 dirty extent
+        end
+        R-->>A: 返回接口允许的完成状态
+    else 直接提交数据对象
+        R->>IR: 根据 image layout 拆分 extent
+        IR->>OR: 创建对象写请求
+        OR->>O: 提交 RADOS write
+        O->>S: 发送 MOSDOp
+        S-->>O: 返回 ACK/ONDISK 结果
+        O-->>OR: 触发 completion
+        OR-->>R: 汇总对象写结果
+        R-->>A: 返回 image write 结果
+    end
+```
+
+`krbd` 还会经过 Linux 页缓存, 块层请求合并和 writeback. 应用写入块设备成功, 可能只表示数据进入了内核脏页; `REQ_OP_FLUSH`, `fsync` 或设备同步请求才会等待写回达到 RADOS 的完成边界.
+
+## 3.2 文件存储: CephFS
+
+对应用来说, CephFS 就像普通文件系统, 但文件内容仍然拆成 data pool 中的 RADOS 对象. MDS 管理 inode, 目录项, layout, 文件大小和 capability; 文件数据由客户端直接写入 data pool 的 OSD.
+
+普通 buffered 写入通常走这条路径:
+
+```text
+write(2)
+  -> VFS write_iter
+  -> ceph_write_iter
+  -> 获取 Fw, 尽量获取 Fb
+  -> generic_perform_write
+  -> 客户端页缓存 dirty folio
+  -> ceph_writepages_start
+  -> ceph_calc_file_object_mapping
+  -> CEPH_OSD_OP_WRITE
+```
+
+上面这条内核路径中的 `ceph_calc_file_object_mapping()` 来自 Linux 内核的 `net/ceph/striper.c`, 不在 Ceph 主仓库中. 它和 Ceph 用户态代码里的 `Striper::file_to_extents()` 作用相近, 但属于两套实现.
+
+客户端拿到 `Fb` 后, `write(2)` 通常只把数据复制到客户端页缓存. 后台回写, `fsync`, 内存回收, 或者 MDS 撤销 capability 时, 客户端才会生成 OSD 请求. 客户端没有拿到 `Fb` 时, 普通写入会改走同步路径. 挂载 `nopagecache` 后, CephFS 会关闭该挂载的文件页缓存, 让普通写入进入 `ceph_sync_write()`; 使用 direct I/O 时, 写入则进入 `ceph_direct_read_write()`, 同样绕过文件页缓存.
+
+文件的 layout 由 data pool, `stripe_unit`, `stripe_count` 和 `object_size` 决定. Linux Kernel Client 会根据文件偏移计算对象名和对象内范围; 写入跨越对象边界时, 会拆成多个 OSD 请求. 不同对象之间没有统一事务, 所以前一个对象成功, 后一个失败时, 应用可能收到 short write, 或者在异步 writeback 时看到错误.
+
+CephFS 还要单独写元数据. 客户端会把脏 inode 的 size, mtime, capability 状态和目录项变更发送给 MDS, MDS 再通过 journal 和 metadata pool 持久化. metadata pool 保存 inode, 目录项和 omap 状态, 通常使用复制池; data pool 则可以按业务选择 replicated 或 EC. MDS 不转发文件数据, 但一次文件操作可能同时写 data pool 和 metadata pool.
+
+```mermaid
+sequenceDiagram
+    participant A as 应用
+    participant K as VFS / CephFS client
+    participant M as MDS
+    participant P as page cache/ObjectCacher
+    participant O as Objecter
+    participant D as data pool primary OSD
+    participant MD as metadata pool
+
+    A->>K: write(2)
+    opt 缺少 Fw/Fb 或需要扩展 max_size
+        K->>M: 请求 capability/layout
+        M-->>K: 返回 Fw/Fb 和 layout
+    end
+    alt buffered write
+        K->>P: 写入 dirty folio
+        P-->>A: write 返回
+        P->>O: writeback 生成 object write
+    else direct/sync write
+        K->>O: 直接生成 object write
+    end
+    O->>D: 写入 data pool 对象
+    D-->>O: ACK/ONDISK
+    O-->>K: 完成对象写
+    K->>M: 发送 size/mtime/cap metadata 更新
+    M->>MD: journal/metadata pool 写入
+```
+
+## 3.3 对象存储: RGW
+
+RGW 接收 S3/Swift 的 `PUT`, multipart upload 和 COPY 请求, 负责认证和权限检查, 并处理校验和, 压缩, 加密及对象元数据, 最后通过 librados 写入 data pool 和 metadata/index 对象.
+
+小对象通常放在一个 head object 中; 大对象则由 head object 和多个 tail stripe 组成, manifest 记录每一段对应的 RADOS 对象, 逻辑偏移和长度. 上传 8 MiB 对象时, RGW 可能先写临时 tail objects, 最后再更新 head object 的 manifest 和元数据. multipart upload 的每个 part 可以单独写入, `CompleteMultipartUpload` 再提交最终 manifest. 单个 part 上传成功, 并不等于用户已经能看到最终对象.
+
+一次普通 PUT 大致经过以下步骤:
+
+1. RGW 解析 HTTP body, 验证 bucket/object 权限, Content-Length, checksum 和条件请求.
+2. `RGWRados::Object::Write` 及其 processor 根据对象大小和配置决定 head/tail 布局, stripe 大小和临时对象.
+3. 数据流被切成一个或多个 RADOS object write, 通过 librados/Objecter 发给相应 PG.
+4. RGW 等待所有数据对象写入完成, 再更新 head metadata, manifest, xattrs 和 bucket index. 必要的元数据也写入完成后, RGW 才向 HTTP 客户端返回成功. 这里通常是协程等待异步 I/O, 不一定一直占用线程, 但 HTTP 请求不会提前结束.
+
+RGW 的 head, tail, bucket index 和 metadata 可能属于不同 PG. RGW 在应用层协调这些写入, RADOS 不会为这些对象提供跨 PG 事务. 版本化 bucket, 写后读一致性和异步 multisite replication 还会增加对象或 journal 写入.
+
+```mermaid
+sequenceDiagram
+    participant A as HTTP client
+    participant R as RGW
+    participant F as checksum/compress/encrypt filter
+    participant O as librados/Objecter
+    participant D as data pool OSD
+    participant I as metadata/index pool OSD
+
+    A->>R: PUT object / UploadPart
+    R->>R: 认证, 权限, 条件和长度检查
+    R->>F: 流式处理 body
+    F->>O: 提交 head/tail object write
+    O->>D: MOSDOp 写 data pool
+    D-->>O: ACK/ONDISK
+    O-->>R: 数据对象完成
+    R->>O: 更新 head manifest, xattrs 和 index
+    O->>I: MOSDOp 写 metadata/index pool
+    I-->>O: ACK/ONDISK
+    O-->>R: 元数据完成
+    R-->>A: HTTP 2xx
+```
+
+## 3.4 直接使用 librados
+
+直接使用 `librados::IoCtx` 时, 应用自行指定 pool, namespace, 对象名, 对象内偏移和数据. 调用链可以简化为:
+
+```text
+IoCtxImpl::write()/aio_write()
+  -> ObjectOperation::write
+  -> Objecter::prepare_write_op
+  -> Objecter::op_submit
+  -> MOSDOp
+```
+
+一个 `ObjectOperation` 可以包含 write, write_full, truncate, setxattr, omap 或 cls call 等多个子操作. PG 会把它们放进同一个对象级 `ObjectStore::Transaction`, 同一对象内的组合操作因此共享事务边界. 应用若提交多个对象操作, 它们之间仍没有跨对象原子性.
+
+`aio_write()` 不会等待 OSD 完成后再返回, 但提交阶段仍可能因为 Objecter 预算不足而短暂阻塞. 请求完成后, completion 所表示的阶段取决于 flags 和调用接口, 可能是请求已被接受, 已在 primary 上应用, 或者已经达到 safe/ondisk 条件. 排查 "写返回但重启后数据不见" 时, 要一起检查客户端 flags, flush 行为和上层缓存, 不能只看系统调用返回值.
+
+# 4. Objecter: 预算, 路由和 MOSDOp
+
+上层把一个逻辑写拆成 object extent 后, Objecter 负责把每个 extent 变成可发送的 OSD 操作. 与读路径类似, 写请求也受到客户端并发预算, OSDMap epoch 和会话状态的约束.
+
+一次直接对象写可以拆成这些步骤:
+
+1. `prepare_write_op()` 根据对象名, offset, length 和 bufferlist 创建 `CEPH_OSD_OP_WRITE`, `WRITEFULL`, `TRUNCATE` 或相关子操作.
+2. `_op_submit_with_budget()` 根据请求的数据量, 申请当前 Objecter 的在途字节和操作数预算. librados 启用 balanced budget 后, 如果达到 `objecter_inflight_op_bytes` 或 `objecter_inflight_ops` 上限, 提交方会在 `Throttle` 中等待; 取得预算后, 请求才会进入 `_op_submit()`.
+3. `_calc_target()` 使用本地 OSDMap, pool, namespace, object locator 和 CRUSH 计算 raw PG, 实际 PG, acting set 及 primary.
+4. `_prepare_osd_op()` 编码 `MOSDOp`, 记录 tid, attempt, map epoch, snap context 和 flags.
+5. `_send_op()` 通过 AsyncMessenger 发送请求. OSDMap 变化, 连接重置或 PG remap 时, Objecter 更新 map 并重试.
+6. `Objecter::handle_osd_op_reply()` 按 tid 找到原请求, 处理 ACK, ONDISK, 重定向和错误, 再释放预算并触发上层 completion.
+
+```mermaid
+sequenceDiagram
+    participant U as 上层客户端
+    participant O as Objecter
+    participant M as MON
+    participant P as primary OSD
+    participant R as replica/shard OSD
+
+    U->>O: write(object, offset, data)
+    O->>O: prepare_write_op()
+    O->>O: 等待 op/byte budget
+    opt OSDMap 缺失或过期
+        O->>M: 获取 OSDMap/CRUSH map
+        M-->>O: 返回 map
+    end
+    O->>O: _calc_target() 得到 PG/acting set
+    O->>P: MOSDOp
+    P-->>O: ACK(请求已由 primary 接收/应用)
+    opt 需要等待安全持久化
+        P->>R: subop write
+        R-->>P: subop committed
+        P-->>O: ONDISK reply
+    end
+    O->>O: 处理 tid, attempt, map epoch
+    O-->>U: completion
+```
+
+写请求发给 acting primary. primary 负责分配版本, 维护 PG log, 并协调副本或 shard. 如果请求误投到非 primary, 或者 PG 正在 peering, 对象处于 backoff, OSD 会等待, 重定向或重试.
+
+# 5. 服务端入口: 网卡收包和 OSD 调度
+
+## 5.1 Messenger 解码和快速分派
+
+客户端发送的 `MOSDOp` 到达 OSD 主机后, 会依次经过这些步骤:
+
+1. 网卡通过 DMA 把网络数据写入主机内存, 内核网络栈把数据交给 OSD 连接的 socket/transport.
+2. AsyncMessenger 处理 msgr2 framing, 连接认证, 会话状态和消息完整性, 解码出 `MOSDOp` 及其 data bufferlist.
+3. OSD 的 `OSD::ms_fast_dispatch()` 创建或更新 `OpRequest`, 检查客户端实例, map epoch 和连接状态.
+4. 请求按 `spg_t` 放入对应 `ShardedOpWQ`. 如果 map 太旧, PG 尚未创建, 或连接需要等待 map, 请求会进入等待队列.
+
+写请求携带的数据通常比读请求多. Messenger 的分片, checksum, 加密和 socket buffer 会影响 CPU 和内存带宽; 大请求在进入 PG 前就可能受到传输层或客户端预算的限制.
+
+## 5.2 OSD 分片队列, mClock/WPQ 和写入背压
+
+OSD 将 PG 分配到多个调度 shard, 由 `ShardedOpWQ` 管理请求. mClock 或 WPQ 按客户端, 恢复, 回填, scrub 等类别分配资源. 写请求除了等待调度器, 还可能等待:
+
+- PG 尚未 active, peering 或正在处理 map 更新;
+- 同一对象已有写事务, 必须等待对象锁或前序版本;
+- primary 到 replica/shard 的 subop 队列拥塞;
+- BlueStore 的 `op_sequencer`, KV 提交队列, 设备队列或 deferred write 受限;
+- pool full, nearfull, OSD backoff 或客户端 inflight budget 限制.
+
+工作线程从队列取出请求后, `OSD::dequeue_op()` 找到 PG 并调用 `pg->do_request()`. 请求离开调度队列时还未落盘, 后面仍要经过 PG 检查, 事务构造, 复制或编码, 以及 ObjectStore 提交.
+
+```mermaid
+sequenceDiagram
+    participant N as NIC/RX queue
+    participant M as AsyncMessenger
+    participant O as OSD::ms_fast_dispatch
+    participant Q as ShardedOpWQ
+    participant W as OSD worker
+    participant P as PG
+    N->>M: msgr2 frames + write payload
+    M->>M: framing, 认证, 校验, 解码
+    M->>O: MOSDOp
+    O->>O: OpTracker, epoch, session 检查
+    O->>Q: enqueue_op(spg, PGOpItem)
+    Q->>W: mClock/WPQ 选出请求
+    W->>P: dequeue_op() / do_request()
+```
+
+# 6. PG 处理: 从 OSD 操作到事务
+
+## 6.1 PG 状态, 权限和空间检查
+
+`PrimaryLogPG::do_request()` 和后续 `do_op()` 会检查当前 primary 能否处理写入:
+
+- OSDMap epoch 是否满足请求, PG 是否属于当前 acting primary;
+- PG 是否已创建, 完成 peering 并处于 `active`, 是否处于 `degraded`, `backfill_wait` 或 backoff;
+- 客户端 CephX auth caps 是否允许访问存储池, namespace 和对象;
+- OSD 是否 blocklist 了客户端, 存储池是否 full/nearfull, 是否触发 quota 或应用级限制;
+- 请求中的 snap context, object locator, 版本断言和 `CEPH_OSD_OP_FLAG_*` 是否有效;
+- 对象是否存在, 是否需要创建 object, 是否有 manifest, clone 或 cache tier 重定向.
+
+条件不满足时, 请求会进入 `waiting for peered`, `waiting for active`, `waiting for map` 或对象 backoff 队列. PG 未准备好时不能修改本地对象, 否则 PG log 和副本会失去一致性.
+
+## 6.2 ObjectContext, 快照和对象锁
+
+PG 为目标对象获取或创建 `ObjectContext`. 它保存 `object_info_t`, SnapSet, watch, 对象版本和等待队列. 写操作通常取得 `RWWRITE` 锁, 与同一对象的读, 写, clone, scrub 操作按规则排序.
+
+RADOS 快照会改变写入方式. 如果旧版本仍被快照引用, PG 要先把即将被覆盖的旧数据保存为 clone, 再把新数据写到 head object. 这样一来, 即使应用只修改很小的范围, 也可能增加读, 写和元数据事务.
+
+PG 随后创建 `OpContext` 和 `PGTransaction`. `do_osd_ops()` 遍历消息中的各个 `OSDOp`, 把 write, truncate, setxattr, omap 等修改逐项记录到 `PGTransaction`. 准备完成后, replicated 或 EC backend 再根据它构造需要提交的 `ObjectStore::Transaction`.
+
+```text
+PrimaryLogPG::do_request
+  -> do_op
+  -> prepare_transaction
+  -> do_osd_ops
+  -> backend->submit_transaction
+  -> ObjectStore::queue_transaction
+```
+
+## 6.3 写范围, 对象大小和版本
+
+`CEPH_OSD_OP_WRITE` 只覆盖对象的一段范围, `WRITEFULL` 用新的 buffer 替换对象内容, `TRUNCATE` 调整逻辑大小. PG 会根据当前对象大小, 写入偏移, truncate sequence 和 snapshot 状态更新 `object_info_t`.
+
+写入同一对象的多个范围可以在一个 `ObjectOperation` 中执行, 但不同对象通常由不同 PG 独立处理. RBD, CephFS 或 RGW 即使在上层把结果拼起来, 也不会因此获得全局事务. 使用 `assert_version`, compare-and-write 或 cls call 可以在对象级提供条件更新, 但不能替代跨对象事务.
+
+# 7. PG 按存储池类型写入数据
+
+PG 完成请求检查并构造事务后, 会根据存储池的数据布局选择后端. 副本池由 `ReplicatedBackend` 把完整对象写到 primary 和各个 replica; EC 池由 `ECBackend` 按 stripe 编码, 再把各个 shard 写入对应的 OSD.
+
+## 7.1 副本池的写入流程
+
+副本池在 acting set 的每个 OSD 上保存完整对象. 写请求先到 primary. primary 分配版本, 写入 PG log, 向 replica 发送 subop, 再根据写策略向客户端返回.
+
+### 7.1.1 Primary 构造 repop 和本地事务
+
+`ReplicatedBackend::submit_transaction()` 接收 PG 准备好的事务和对象上下文, 主要完成以下工作:
+
+1. 生成本次操作的版本, `pg_log_entry_t` 和事务序列信息.
+2. 根据 acting set 创建 primary 本地事务和 replica subop.
+3. 通过 `generate_subop()`/`issue_op()` 向其他副本发送 `MOSDRepOp`, 携带对象范围, 数据和事务信息.
+4. 将同一变更提交到 primary 的 `ObjectStore`, 等待本地提交和副本回复.
+5. 副本达到所需的 ack/commit 状态后, 执行 `repop_commit()`, 更新 PG log, 统计信息和客户端回复.
+
+副本收到 subop 后不会重新决定 PG 的逻辑版本, 而是按 primary 发来的 repop 事务执行本地 ObjectStore 写入, 然后返回状态. 副本 subop 的网络, 调度和设备延迟都会计入 primary 的写完成时间.
+
+```mermaid
+sequenceDiagram
+    participant C as 客户端
+    participant P as primary OSD/PG
+    participant S1 as replica OSD 1
+    participant S2 as replica OSD 2
+    participant B as primary BlueStore
+    participant B1 as replica BlueStore 1
+    participant B2 as replica BlueStore 2
+
+    C->>P: MOSDOp WRITE
+    P->>P: 分配版本, 写 PG log, 构造事务
+    par replica OSD 1 写入
+        P->>S1: MOSDRepOp
+        S1->>B1: queue_transaction
+        B1-->>S1: subop committed
+        S1-->>P: subop reply
+    and replica OSD 2 写入
+        P->>S2: MOSDRepOp
+        S2->>B2: queue_transaction
+        B2-->>S2: subop committed
+        S2-->>P: subop reply
+    and primary 本地写
+        P->>B: queue_transaction
+        B-->>P: primary commit
+    end
+    P->>P: repop_commit()
+    P-->>C: ACK/ONDISK reply
+```
+
+图中只画了两个副本, 实际数量由 pool size 决定. 一次普通副本写会产生 primary 发往各 replica 的 subop, 以及 replica 返回的控制消息; 客户端另外收到 primary 的最终 reply. 副本越多, 设备和内部网络的工作越多, 但客户端数据仍只发送到 primary.
+
+### 7.1.2 ACK, ONDISK 和完成语义
+
+OSD 回复中的 flags 表示操作所处的阶段. 当前写路径中, 和持久化提交直接相关的是 `CEPH_OSD_FLAG_ONDISK`:
+
+- ACK: primary 已接收并应用请求, 表示逻辑操作已由 primary 处理, 但不代表所有副本都已持久化.
+- ONDISK: 某个 OSD 已完成本地 ObjectStore commit. replica 会向 primary 返回带 `CEPH_OSD_FLAG_ONDISK` 的 `MOSDRepOpReply`; primary 收齐当前参与写入的 OSD 的提交结果后, 再向客户端返回带 `ACK | ONDISK` 的 `MOSDOpReply`.
+- RETRY/REDIRECT 等状态: 请求要按新的 map, primary 或 attempt 重试, 这次回复不能算写成功.
+
+`safe` 主要是 librados API 层的 completion 语义, 不是一个独立的 OSD 协议 flag. 上层是否在 ACK 阶段收到 completion, 取决于 librados, librbd, CephFS 或 RGW 的调用语义. 要保证重启后仍能看到数据, 应使用相应的 `fsync`/flush 或 safe completion, 并确认客户端缓存, RBD journal/PWL 和 RGW processor 已经完成.
+
+### 7.1.3 副本缺失, 超时和恢复
+
+如果某个 replica 已下线或 subop 超时, primary 可能在满足当前存储池写策略后向客户端返回, 同时把 PG 标记为 degraded, 缺失副本由后续 recovery/backfill 补齐. 剩余副本不足时, 请求会等待或返回错误.
+
+写请求重试时, OSD 会用 tid, attempt, epoch, 对象版本和 PG log 识别旧 subop 及迟到消息. 客户端在连接重建或 map 更新后也可能重新提交同一逻辑操作. 需要幂等语义的应用应使用对象版本断言, 唯一请求标识或上层去重, 不能假定任意组合写都幂等.
+
+## 7.2 EC 池的写入流程
+
+EC 池把对象按 stripe 编码成 `k` 个 data shard 和 `m` 个 coding shard. 写请求到达 acting primary 后, 如果覆盖了完整 stripe, primary 可以直接调用 EC plugin 生成各个 shard; 如果只修改 stripe 的一部分, 就要先读取未被覆盖的旧数据, 把新旧数据合并后再编码, 最后向多个 shard OSD 写入.
+
+### 7.2.1 完整 stripe 写入
+
+写入范围与完整 EC stripe 对齐时, primary 可以直接把新数据拆成 data shard 并计算 coding shard, 不用读取旧数据. 流程如下:
+
+1. `ECBackend` 根据 object offset 和 stripe width 生成 write plan.
+2. primary 将客户端数据按 `k` 个 data shard 重排.
+3. EC plugin 计算 `m` 个 coding shard.
+4. primary 为每个 acting shard 生成 `MOSDECSubOpWrite` 和本地事务.
+5. 收到足够的 shard commit 后, 更新 PG log 和客户端回复.
+
+客户端写入 `L` 字节时, 按完整 stripe 写入产生的 shard 数据量可能接近 `L * (k+m)/k`, 还要加上 subop header, PG log 和 BlueStore checksum/元数据开销. 是否发送所有 coding shard, 是否有本地 shard, 以及 `k`/`m` 的值由 EC profile 和实现决定.
+
+### 7.2.2 部分 stripe 写入与 read-modify-write
+
+如果只修改 stripe 的一部分, 未覆盖的数据仍要参与新 stripe 的计算. 一个常见流程是:
+
+```text
+客户端 partial write
+  -> 计算受影响 stripe
+  -> 读取旧 data/coding shard (或使用可用的增量更新算法)
+  -> 把新数据合并到旧 stripe
+  -> EC encode / xor
+  -> 写回受影响的 data 和 coding shard
+```
+
+旧数据可能来自 primary 本地 shard, 也可能通过 `MOSDECSubOpRead` 从其他 shard OSD 读取. 因此, 一次小范围写入可能先触发内部读取, 再写入多个 shard. 未对齐范围, 缺失 shard, 插件能力和 `osd_ec_fast_read`/partial-read 相关配置都会改变读写放大.
+
+如果 profile 或实现支持差分更新, primary 可以用旧 data/coding shard 和新 data 计算增量 parity; 否则就要读取更完整的 stripe. 排查 EC 小随机写延迟时, 可以分别观察 "读取旧 stripe" 和 "编码/写回新 stripe" 这两个阶段.
+
+```mermaid
+sequenceDiagram
+    participant C as 客户端
+    participant P as EC primary
+    participant S1 as data shard OSD
+    participant S2 as coding shard OSD
+    participant E as EC plugin
+    C->>P: partial MOSDOp WRITE
+    P->>P: 计算受影响 stripe
+    P->>S1: MOSDECSubOpRead 旧 shard
+    P->>S2: MOSDECSubOpRead 旧 parity
+    S1-->>P: old data shard
+    S2-->>P: old coding shard
+    P->>P: 合并新数据
+    P->>E: encode / xor 生成新 shard
+    par shard write
+        P->>S1: MOSDECSubOpWrite
+        P->>S2: MOSDECSubOpWrite
+    end
+    S1-->>P: commit
+    S2-->>P: commit
+    P-->>C: ACK/ONDISK
+```
+
+### 7.2.3 EC primary 如何决定完成
+
+EC primary 需要保证一组 shard 的版本和事务状态一致. 某个 shard 暂时不可用时, primary 可能把 PG 标记为 degraded, 并在满足 `min_size` 和当前写入条件时完成请求; 可写 shard 不足时, 写会等待或失败. 缺失 shard 之后由 recovery/backfill 重建.
+
+EC 的 `min_size` 决定写入能否继续. primary 仍要按 EC backend 的提交规则等待足够的 shard, 并维护 PG log, 对象版本和未完成事务. 客户端到 primary 的一次网络 RTT 不能说明 EC 写已经安全.
+
+
+# 8. ObjectStore 和 BlueStore: 事务如何持久化
+
+PG backend 最终把一个或多个对象修改转换成 `ObjectStore::Transaction`. 传统 OSD 可以使用 BlueStore, KStore, MemStore 或其他实现; 生产环境通常使用 BlueStore. EC 的每个 shard 也可以使用这些后端.
+
+## 8.1 ObjectStore 事务
+
+事务中可能同时包含:
+
+- 对象数据的 write, writefull, truncate, zero 或 discard;
+- 对象属性, xattr, `object_info_t` 和 snapshot 信息更新;
+- omap key/value, bucket index 或 cls class 产生的键值修改;
+- collection, 对象创建/删除和 PG log 相关元数据.
+
+ObjectStore 向 PG 提供统一的 queue/commit 接口, 不暴露设备布局. PG 等待的是整组事务达到当前后端要求的提交状态, 而不是某一次 `write()` 系统调用返回.
+
+## 8.2 BlueStore 写入
+
+以 BlueStore 为例, 事务处理大致经过以下步骤:
+
+1. 根据 collection 和 object id 获取或创建 Onode, 加载需要的 extent map.
+2. `_do_write()` 判断这是 small write, big write, 覆盖已有 blob, 还是需要分配新 blob.
+3. 分配器选择物理空间; 未对齐写入可能需要 padding 或预读, 压缩策略可能将逻辑数据编码为 compressed blob.
+4. 计算或更新 blob checksum, 把数据写入 `IOContext`, 由 block device 的 AIO/同步接口提交.
+5. 更新 Onode, extent map, xattr/omap 等 KV 元数据, 形成 RocksDB transaction.
+6. 通过 `_txc_aio_submit()` 提交数据设备 I/O, 通过 `_txc_apply_kv()` 应用 KV transaction; 完成回调按 `TransContext` 和 `OpSequencer` 的顺序推进.
+
+BlueStore 的数据和元数据走不同路径. 数据可能写入 block device 的新 blob, Onode 和 extent map 写入 RocksDB, RocksDB 再由 BlueFS 管理 WAL, SST 和日志空间. 因此一次逻辑写可能同时产生数据设备写, RocksDB WAL/compaction 相关写和元数据更新.
+
+```mermaid
+sequenceDiagram
+    participant P as PG/ObjectStore
+    participant O as Onode/extent map
+    participant A as allocator/blob
+    participant D as BlockDevice
+    participant DB as RocksDB/BlueFS
+    participant T as TransContext
+    P->>O: get_onode() / fault extent map
+    P->>A: 分配 blob 和物理 extent
+    P->>T: 构造 ObjectStore transaction
+    T->>D: aio_write(data blob)
+    T->>T: checksum, 压缩, padding
+    T->>DB: Onode/extent map/xattr/omap KV transaction
+    D-->>T: data I/O complete
+    DB-->>T: KV commit complete
+    T->>T: 按 OpSequencer 更新提交状态
+    T-->>P: ObjectStore transaction committed
+```
+
+## 8.3 覆盖写, 小写入和大写入
+
+BlueStore 会分别处理覆盖写和追加写. 大范围顺序写通常可以分配新的 blob, 并把数据直接写入新空间; 小范围或未对齐覆盖写可能需要:
+
+- 读取旧 blob 的头尾内容, 补齐设备 block 或 blob chunk;
+- 在 BufferSpace 中合并 dirty/clean buffer;
+- 生成 padding, 避免未写区域破坏已有内容;
+- 更新 checksum, extent map 和对象大小.
+
+应用写入 `P` 字节时, 设备实际写入的字节数可能不同. 对齐, 压缩, 覆盖比例, hole, discard, checksum chunk 和 allocator 碎片都会影响实际设备 I/O.
+
+## 8.4 缓存与回写
+
+BlueStore 维护自己的 Onode, extent-map 和 BufferSpace, 与 Linux page cache 分开. 设备 I/O 尚未完成时, 后续读取仍必须看到刚提交的数据; 命中 clean cache 可以避免再次读设备. `bluestore_default_buffered_read` 的 buffered 指 BlueStore 用户态 clean cache, 不是普通 Linux page cache.
+
+启用 deferred write 或设备队列时, PG 事务, BlueStore 数据 I/O, RocksDB KV 提交和客户端 ONDISK reply 可能异步完成. 排查延迟时, 要分别观察 `ObjectStore`, BlueStore, 设备和网络.
+
+# 9. OSD 返回写结果
+
+## 9.1 Primary 组装 reply
+
+副本或 EC backend 达到完成条件后, PG 会做以下处理:
+
+- 检查 primary 本地事务和 replica/shard subop 的结果;
+- 更新对象 user version, PG log, 统计和 degraded 状态;
+- 将每个 OSD subop 的 `rval`, 版本和 flags 写入 `MOSDOpReply`;
+- 根据 ACK/ONDISK 语义决定是否已经可以通知客户端;
+- 释放对象写锁, `OpContext` 和事务引用.
+
+如果请求还在等待较慢的 replica, BlueStore commit 或 EC shard, PG 不会发送表示安全完成的 reply. 客户端收到 ACK 后, 如果某个副本失败, 后续仍可能由 recovery/backfill 修复; primary 无法满足提交条件时, 最终返回错误或超时.
+
+## 9.2 Objecter 和上层完成
+
+```mermaid
+sequenceDiagram
+    participant P as PG/backend/BlueStore
+    participant M as AsyncMessenger
+    participant N as NIC/TX
+    participant O as client Objecter
+    participant U as RBD/CephFS/RGW/librados
+    participant A as 应用
+    P->>P: commit, 更新版本和 PG log
+    P->>M: MOSDOpReply
+    M->>N: msgr2 encode/send
+    N-->>O: client NIC RX
+    O->>O: handle_osd_op_reply(tid)
+    O->>O: 检查 attempt, epoch, redirect, 错误
+    O->>O: claim data, 释放 budget, 触发 completion
+    O-->>U: object write complete
+    U-->>A: write/PUT/io completion
+```
+
+`Objecter::handle_osd_op_reply()` 会丢弃旧 attempt 的迟到回复, 遇到 PG remap 或连接失败时按新 map 重发. 收到成功回复后, 它按每个 object operation 的结果通知上层. RBD 等所有 object extent 都完成后, 才会结束 image 请求; CephFS 结束 page writeback 或报告 mapping error; RGW 等数据对象和 manifest/index 都完成后才返回 HTTP 成功.
+
+# 10. flush, fsync 和 "写成功" 的边界
+
+"函数返回" 不等于 "数据已经落到介质". 可以按以下几层理解写入状态:
+
+| 层次 | 可能表示的状态 | 仍可能发生的动作 |
+|---|---|---|
+| 应用 buffer | 数据仍在应用内存 | 尚未进入任何 Ceph 请求 |
+| 客户端缓存 | RBD cache, CephFS page cache, RGW buffer 已接收 | 后台 flush, writeback 或 journal replay |
+| primary ACK | primary 已处理逻辑请求 | replica/shard 还未全部提交 |
+| ObjectStore commit | 某个 OSD 的事务达到后端提交点 | 其他副本或 shard 仍可能追赶 |
+| ONDISK | 当前参与者达到持久化提交点 | recovery/backfill 仍可能修复冗余副本 |
+| 上层 fsync/PUT 完成 | 上层接口认为本次操作完成 | 异步 multisite, scrub, compaction 等后台工作仍会继续 |
+
+常见的同步动作有:
+
+- `fsync`/`fdatasync`: 等待 CephFS 数据对象和所需 inode 状态; 具体等待范围由内核 client 和 MDS 状态决定.
+- RBD flush: 推动 librbd cache/PWL/journal 和对象写入达到配置要求; 虚拟机发出的 flush 是否被透传也取决于 krbd/librbd 配置.
+- RGW PUT/CompleteMultipartUpload: 通常等待其应用层需要的数据对象, head/manifest 和 index 元数据完成后才返回成功.
+- librados safe completion: 等待 OSD 返回表示持久化/安全提交的阶段, 而不是仅收到 ACK.
+
+分析崩溃或断电后的可见性时, 要先区分客户端进程退出, OSD 进程退出, 整机断电和存储设备掉电. 不同故障点对应的日志和持久化边界不同.
+
+# 11. 故障, 重试, 缓存和延迟定位
+
+## 11.1 常见故障分支
+
+| 位置 | 现象 | 典型行为 |
+|---|---|---|
+| 上层缓存 | `write()` 很快返回, OSD 暂时没有请求 | 后台 flush, writeback 或 journal 异步提交 |
+| Objecter/map | OSDMap 过旧, PG remap, 目标 OSD down | 获取新 map, 重建 target, 按 attempt 重发 |
+| Messenger/session | 连接重置, 消息校验/认证失败 | 重建 session; 未完成请求等待或重发 |
+| OSD queue | mClock/WPQ, recovery, backfill 争用 | 请求长时间排队, 尚未进入 PG |
+| PG state | peering, inactive, backoff | 等待 active/peered 或解除 backoff |
+| pool 空间 | nearfull/full, quota 或应用限制 | 拒绝, 节流或等待空间 |
+| replicated subop | replica down, commit 超时 | degraded 后继续, 等待, 或返回错误 |
+| EC shard | 可写 shard 少于要求, 编码失败 | 等待/失败; 后续 recovery 重建 |
+| snapshot/version | 需要 clone, 断言失败, 对象被并发修改 | copy-on-write, `-EEXIST`/`-ECANCELED` 等错误 |
+| BlueStore metadata | Onode/extent map 未命中 | 访问 RocksDB/BlueFS, 增加延迟 |
+| BlueStore data | 对齐, 分配, checksum, 设备 I/O 失败 | 重试, 回滚事务或返回 `-EIO` |
+
+写请求比读请求更难重试. 客户端可能已经收到 ACK, 而副本还在恢复; 带版本断言或会产生 cls 副作用的操作也不一定幂等. 排障时要一起检查 tid, attempt, PG log, 对象 version 和 recovery 状态.
+
+## 11.2 缓存层次
+
+| 层次 | 缓存或日志内容 | 未命中/刷出后的位置 |
+|---|---|---|
+| 应用/内核 | 应用 buffer, Linux page cache, krbd request queue | RBD/CephFS 客户端 |
+| RBD | image cache, PWL, journal | object write / journal replay |
+| CephFS | page cache, ObjectCacher, dirty folio | data pool object write |
+| RGW | HTTP buffer, multipart 临时对象, processor state | head/tail object 和 index |
+| PG | ObjectContext, object_info, SnapSet, 事务等待队列 | ObjectStore transaction |
+| BlueStore | Onode, extent map, BufferSpace, deferred write | RocksDB/BlueFS 或 block device |
+| 设备 | controller cache, NVMe queue, 持久化 cache | 物理介质 |
+
+如果设备侧看不到写入, 可能是请求还停在客户端缓存, OSD 调度队列, BlueStore BufferSpace 或设备写回队列. 即使逻辑写入很小, 也可能先读取 RocksDB 元数据, 旧 blob 和 EC stripe, 再产生多条设备 I/O.
+
+## 11.3 延迟分解
+
+```mermaid
+sequenceDiagram
+    participant A as 应用
+    participant U as 上层 client
+    participant O as Objecter
+    participant N as 网络
+    participant Q as OSD queue
+    participant P as PG/backend
+    participant B as BlueStore
+    participant R as replica/shards
+
+    A->>U: 拷贝数据, 检查缓存和布局<br/>T_upper_prepare
+    U->>O: 创建 object write, 申请 Objecter 预算<br/>T_client_prepare
+    O->>N: 发送 MOSDOp<br/>T_request_network
+    N->>Q: Messenger 解码并入队<br/>T_osd_receive_queue
+    Q->>P: 调度出队, PG 状态和对象锁<br/>T_pg_prepare
+    P->>B: 构造 ObjectStore transaction<br/>T_transaction_prepare
+    opt replicated
+        P->>R: replica subop<br/>T_replica_subop
+    end
+    opt EC
+        P->>R: partial read / shard write / encode<br/>T_ec_rmw_encode
+    end
+    B->>B: 数据 AIO, checksum, KV commit<br/>T_bluestore
+    P-->>N: ACK/ONDISK reply<br/>T_reply_network
+    N-->>O: Objecter completion
+    O-->>U: 拼装 image/file/object 结果<br/>T_upper_complete
+    U-->>A: write/PUT 返回
+```
+
+各段时间可以这样理解:
+
+- `T_upper_prepare`: RBD/CephFS/RGW 拆分请求, 查缓存, 等待 capability 下发和准备校验和的时间.
+- `T_client_prepare`: Objecter 申请在途操作数和字节预算, 计算 PG, 建立 session 的时间. 预算达到上限时, 这一阶段还包括 `Throttle` 的等待时间.
+- `T_osd_receive_queue`: 从 Messenger 收包, 解码, 到请求进入 OSD 调度队列的时间.
+- `T_pg_prepare`: PG 检查状态, 权限, 对象信息, snapshot 和对象锁的时间.
+- `T_transaction_prepare`: 把 OSD ops 转成事务, 生成版本和 PG log 的时间.
+- `T_replica_subop`: 副本池向副本发送 subop 并等待结果的时间.
+- `T_ec_rmw_encode`: EC 部分 stripe 写入时, 读取旧数据, 编码和写入 shard 的时间.
+- `T_bluestore`: Onode/extent map, 空间分配, BufferSpace, 设备 AIO, checksum, 压缩和 RocksDB 提交的时间.
+- `T_reply_network`: primary 向客户端返回 reply 以及数据或控制消息的时间.
+- `T_upper_complete`: 上层汇总多个对象的结果, 结束 page writeback, 以及更新 RBD/RGW 状态的时间.
+
+OSD 的 `osd.op_w_latency` 和 `osd.op_w_process_latency` 可以区分调度等待与出队后的处理. BlueStore 的 transaction, KV, AIO, 分配和 checksum 计数器能进一步定位后端阶段. EC 的总写延迟还要包含 shard subop 和编码时间.
+
+## 11.4 现场排障命令
+
+先确认对象所在的 PG 和 acting set:
+
+```bash
+ceph osd map <pool> <object-name>
+ceph osd pool get <pool> size
+ceph osd pool get <pool> min_size
+```
+
+查看 OSD 当前正在处理和历史写请求:
+
+```bash
+ceph daemon osd.<id> dump_ops_in_flight
+ceph daemon osd.<id> dump_historic_ops
+ceph daemon osd.<id> dump_historic_ops_by_duration
+ceph daemon osd.<id> counter dump
+ceph daemon osd.<id> perf dump
+```
+
+查看客户端 Objecter 中仍未完成的请求:
+
+```bash
+ceph daemon <client-admin-socket> objecter_requests
+```
+
+如果怀疑 PG, 复制或 EC:
+
+```bash
+ceph pg <pgid> query
+ceph pg dump pgs_brief
+ceph health detail
+```
+
+在短时间的复现窗口内, 可以提高 `debug_ms`, `debug_osd`, `debug_objecter`, `debug_pg`, `debug_bluestore` 和 `debug_bluefs`, 把 tid, PG, 版本, subop, 事务和设备 I/O 关联起来. 高 debug level 会增加日志和 I/O, 不宜长期打开.
+
+# 12. 写链路和读链路的关键区别
+
+| 方面 | 读路径 | 写路径 |
+|---|---|---|
+| primary 的工作 | 读取本地对象, EC 时汇总并解码 | 分配版本, 构造事务, 协调副本或 shard |
+| 副本池内部 | 默认只读一个 acting OSD | primary 通常要向多个 replica 写入 |
+| EC 内部 | 读取足够 shard 并 decode | full-stripe encode, partial 写可能 RMW |
+| 客户端完成 | 收到数据即可完成 | 取决于 ACK, ONDISK, flush 和缓存语义 |
+| 设备 I/O | 读 extent, checksum, 解压 | 分配空间, 写 blob, checksum, KV commit |
+| 重试风险 | 通常较容易安全重试 | 需要处理版本, 事务, 迟到 subop 和非幂等副作用 |
+| 上层缓存 | 命中时跳过 OSD read | 可能先返回, 再由 writeback/journal 发起 OSD write |
+
+分析写延迟或数据持久化时, 要把客户端缓存, primary 的版本和事务处理, 副本或 shard 的提交, 以及 ObjectStore 的后端写入结合起来看.

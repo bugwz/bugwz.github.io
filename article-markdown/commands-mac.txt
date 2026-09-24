@@ -1,0 +1,14 @@
+# MacOS 下的常用指令
+
+记录了一些 MacOS 下的常用的指令组合方式, 比如重置 Launchpad 等.
+
+# 1. 系统操作相关
+
+```bash
+# 重置 Launchpad
+cd ~/Library/Application\ Support/Dock/
+rm ~/Library/Application\ Support/Dock/*.db && killall Dock
+defaults write com.apple.dock ResetLaunchPad -bool true && killall Dock
+```
+
+###
