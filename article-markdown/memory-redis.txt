@@ -1,0 +1,319 @@
+# Redis 的 Memory 命令讲解
+
+# 1. 简述
+
+`Memory` 指令是 Redis4.0 版本更新的特性, 可用于详细的分析内存的使用情况, 内存使用诊断, 内存碎片回收等工作;
+
+可以通过 `memory help` 指令打印出 `memory` 指令的信息, 详细信息如下所示:
+
+```bash
+1) MEMORY <subcommand> arg arg ... arg. Subcommands are:
+2) DOCTOR - Return memory problems reports.
+3) MALLOC-STATS -- Return internal statistics report from the memory allocator.
+4) PURGE -- Attempt to purge dirty pages for reclamation by the allocator.
+5) STATS -- Return information about the memory usage of the server.
+6) USAGE <key> [SAMPLES <count>] -- Return memory in bytes used by <key> and its value. Nested values are sampled up to <count> times (default: 5).
+```
+
+具体的指令相关解释为:
+
+- `MEMORY DOCKER`: 返回内存问题报告;
+- `MEMORY MALLOC-STATS`: 从内存分配器返回内部统计信息报告;
+- `MEMORY PURGE`: 尝试通过分配器清除脏页以进行回收;
+- `MEMORY STATS`: 返回有关服务器内存使用情况的信息;
+- `MEMORY USAGE key [SAMPLES count]`: 返回 key 使用的字节数及其值, 嵌套值最多采样 count 次 (默认值: 5);
+
+# 2. 具体的指令解析
+
+## 2.1 MEMORY DOCKER
+
+**使用方式:**
+
+```bash
+memory doctor
+```
+
+该指令主要列举条件判断, 满足条件的给出检查结果和建议, 主要包含以下几点, 满足其中一点, 就给出诊断结果和建议, 检测报告会提示所有检测出的问题, 检测结构主要为一下几种情况:
+
+- `无异常`: 并没有检测出问题;
+- `空实例/内存占用小`: 示例实际分配内存小于 5M, 无法进一步进行检测 (代码:`mh->total_allocated < (1024*1024*5)`);
+- `历史内存与当前内存比例过大`: redis 自启动以来分配的内存峰值/当前的内存大小结果大于 1.5(代码:`((float)mh->peak_allocated / mh->total_allocated) > 1.5`);
+- `内存碎片率`: 内存碎片率大于 1.4(代码:`mh->fragmentation > 1.4`);
+- `一般客户端单实例内存`: 非从库客户端的单实例内存占用大于 200KB(代码:`mh->clients_normal / numclients > (1024*200)`);
+- `从库客户端单实例内存`: 在有从库的前提下, 从库客户端的单实例内存占用大于 10M(代码:`numslaves > 0 && mh->clients_slaves / numslaves > (1024*1024*10)`);
+
+**执行结果示例:**
+
+```bash
+Sam, I detected a few issues in this Redis instance memory implants:
+
+ * High fragmentation: This instance has a memory fragmentation greater than 1.4 (this means that the Resident Set Size of the Redis process is much larger than the sum of the logical allocations Redis performed). This problem is usually due either to a large peak memory (check if there is a peak memory entry above in the report) or may result from a workload that causes the allocator to fragment memory a lot. If the problem is a large peak memory, then there is no issue. Otherwise, make sure you are using the Jemalloc allocator and not the default libc malloc. Note: The currently used allocator is "jemalloc-3.2.0".
+
+I'm here to keep you safe, Sam. I want to help you.
+```
+
+## 2.2 MEMORY MALLOC-STATS
+
+**使用方式:**
+
+```bash
+memory malloc-stats
+```
+
+打印内存分配器状态, 只在使用 jemalloc 时有用;
+
+**执行结果示例:**
+
+```bash
+___ Begin jemalloc statistics ___
+Version: 3.2.0-0-g87499f6748ebe4817571e817e9f680ccb5bf54a9
+Assertions disabled
+Run-time option settings:
+  opt.abort: false
+  opt.lg_chunk: 22
+  opt.dss: "secondary"
+  opt.narenas: 128
+  opt.lg_dirty_mult: 3
+  opt.stats_print: false
+  opt.junk: false
+  opt.quarantine: 0
+  opt.redzone: false
+  opt.zero: false
+  opt.tcache: true
+  opt.lg_tcache_max: 15
+CPUs: 32
+Arenas: 128
+Pointer size: 8
+Quantum size: 16
+Page size: 4096
+Min active:dirty page ratio per arena: 8:1
+Maximum thread-cached size class: 32768
+Chunk size: 4194304 (2^22)
+Allocated: 5948968, active: 6402048, mapped: 20971520
+Current active ceiling: 12582912
+chunks: nchunks   highchunks    curchunks
+              5            5            5
+huge: nmalloc      ndalloc    allocated
+            0            0            0
+
+Merged arenas stats:
+assigned threads: 2
+dss allocation precedence: N/A
+dirty pages: 1563:0 active:dirty, 5 sweeps, 4 madvises, 386 purged
+            allocated      nmalloc      ndalloc    nrequests
+small:         501288        12362         1272       283989
+large:        5447680           12            4           14
+total:        5948968        12374         1276       284003
+active:       6402048
+mapped:      12582912
+bins:     bin  size regs pgs    allocated      nmalloc      ndalloc    nrequests       nfills     nflushes      newruns       reruns      curruns
+            0     8  501   1           40          109          104          100            3            6            1            0            1
+            1    16  252   1       164336        10372          101       282735          114            9           41            0           41
+            2    32  126   1        14432          604          153          751           25           10            5            7            4
+            3    48   84   1         1200           99           74          181            4            9            1            0            1
+            4    64   63   1          640           80           70           56            4            6            1            0            1
+            5    80   50   1         1760           80           58           23            5            6            1            0            1
+            6    96   84   2         8544          119           30           94            7            7            2            0            2
+            7   112   72   2          448           80           76            6            3            6            1            0            1
+            8   128   63   2          768           76           70           19            6            9            1            0            1
+[9..10]
+           11   224   72   4          448           78           76            2            3            6            3            0            1
+           12   256   63   4          768           72           69            6            4            6            4            0            1
+[13..14]
+           15   448   63   7        28224           63            0            0            1            0            1            0            1
+           16   512   63   8         1536           69           66            4            3            5            3            0            1
+           17   640   51   8            0           51           51            1            1            3            1            0            0
+           18   768   47   9          768           47           46            1            1            3            1            0            1
+           19   896   45  10        40320           45            0            0            1            0            1            0            1
+           20  1024   63  16         1024           67           66            4            3            6            2            0            1
+[21]
+           22  1536   42  16            0           47           47            2            2            5            2            0            0
+           23  1792   38  17        68096           38            0            0            1            0            1            0            1
+           24  2048   65  33        10240           69           64            2            2            4            1            0            1
+           25  2560   52  33        17920           58           51            2            2            3            1            0            1
+[26]
+           27  3584   39  35       139776           39            0            0            1            0            1            0            1
+large:   size pages      nmalloc      ndalloc    nrequests      curruns
+[1]
+         8192     2            5            3            7            2
+[1]
+        16384     4            2            0            2            2
+[3]
+        32768     8            2            0            2            2
+[292]
+      1232896   301            1            0            1            1
+[30]
+      1359872   332            1            1            1            0
+[668]
+      4100096  1001            1            0            1            1
+[17]
+
+arenas[0]:
+assigned threads: 1
+dss allocation precedence: disabled
+dirty pages: 1554:0 active:dirty, 3 sweeps, 4 madvises, 386 purged
+            allocated      nmalloc      ndalloc    nrequests
+small:         498088        12262         1272       283989
+large:        5414912           11            4           13
+total:        5913000        12273         1276       284002
+active:       6365184
+mapped:       8388608
+bins:     bin  size regs pgs    allocated      nmalloc      ndalloc    nrequests       nfills     nflushes      newruns       reruns      curruns
+            0     8  501   1           40          109          104          100            3            6            1            0            1
+            1    16  252   1       164336        10372          101       282735          114            9           41            0           41
+            2    32  126   1        11232          504          153          751           24           10            4            7            3
+            3    48   84   1         1200           99           74          181            4            9            1            0            1
+            4    64   63   1          640           80           70           56            4            6            1            0            1
+            5    80   50   1         1760           80           58           23            5            6            1            0            1
+            6    96   84   2         8544          119           30           94            7            7            2            0            2
+            7   112   72   2          448           80           76            6            3            6            1            0            1
+            8   128   63   2          768           76           70           19            6            9            1            0            1
+[9..10]
+           11   224   72   4          448           78           76            2            3            6            3            0            1
+           12   256   63   4          768           72           69            6            4            6            4            0            1
+[13..14]
+           15   448   63   7        28224           63            0            0            1            0            1            0            1
+           16   512   63   8         1536           69           66            4            3            5            3            0            1
+           17   640   51   8            0           51           51            1            1            3            1            0            0
+           18   768   47   9          768           47           46            1            1            3            1            0            1
+           19   896   45  10        40320           45            0            0            1            0            1            0            1
+           20  1024   63  16         1024           67           66            4            3            6            2            0            1
+[21]
+           22  1536   42  16            0           47           47            2            2            5            2            0            0
+           23  1792   38  17        68096           38            0            0            1            0            1            0            1
+           24  2048   65  33        10240           69           64            2            2            4            1            0            1
+           25  2560   52  33        17920           58           51            2            2            3            1            0            1
+[26]
+           27  3584   39  35       139776           39            0            0            1            0            1            0            1
+large:   size pages      nmalloc      ndalloc    nrequests      curruns
+[1]
+         8192     2            5            3            7            2
+[1]
+        16384     4            2            0            2            2
+[3]
+        32768     8            1            0            1            1
+[292]
+      1232896   301            1            0            1            1
+[30]
+      1359872   332            1            1            1            0
+[668]
+      4100096  1001            1            0            1            1
+[17]
+
+arenas[1]:
+assigned threads: 1
+dss allocation precedence: disabled
+dirty pages: 9:0 active:dirty, 2 sweeps, 0 madvises, 0 purged
+            allocated      nmalloc      ndalloc    nrequests
+small:           3200          100            0            0
+large:          32768            1            0            1
+total:          35968          101            0            1
+active:         36864
+mapped:       4194304
+bins:     bin  size regs pgs    allocated      nmalloc      ndalloc    nrequests       nfills     nflushes      newruns       reruns      curruns
+[0..1]
+            2    32  126   1         3200          100            0            0            1            0            1            0            1
+[3..27]
+large:   size pages      nmalloc      ndalloc    nrequests      curruns
+[7]
+        32768     8            1            0            1            1
+[1010]
+--- End jemalloc statistics ---
+```
+
+执行结果说明: 无, 待补充
+
+## 2.3 MEMORY PURGE
+
+**使用方式:**
+
+```bash
+memory purge
+```
+
+该指令通过调用 `jemalloc` 的内部命令尽量把 `redis` 进程占用但未有效使用内存释放, 即常说的内存碎片释放给操作系统 (只适用于使用 jemalloc 作为 allocator 的实例);
+
+## 2.4 MEMORY STATS
+
+**使用方式:**
+
+```bash
+memory stats
+```
+
+在 redis 4.0 之前, 只能通过 `info memory` 查看 redis 实例的内存大体使用状况, 而无法了解内存的具体使用细节, 比如 `expire的消耗`,`client output buffer`, `query buffer` 等是很难直观显示的. 该指令能够展现 `redis` 内部内存使用细节;
+
+**执行结果示例及对应参数解析:**
+
+```bash
+ 1) "peak.allocated" # redis从启动来,allocator分配的内存峰值
+ 2) (integer) 2290242368
+ 3) "total.allocated" # allocator分配当前内存字节数
+ 4) (integer) 2290241776
+ 5) "startup.allocated" # redis启动完成使用的内存字节数
+ 6) (integer) 6315320
+ 7) "clients.normal" # 所有一般客户端消耗内存节字数,即所有flag为N的客户端内存使用
+ 8) (integer) 150754
+ 9) "aof.buffer" # aof buffer使用内存字节数,一般较小,在aof rewrite时会变得较大
+10) (integer) 0
+11) "lua.caches" # 所有lua脚本占用的内存节字数
+12) (integer) 0
+13) "db.0"
+14) 1) "overhead.hashtable.main" # 对应db的所有key的hash表总的内存节字数
+    2) (integer) 680720488
+    3) "overhead.hashtable.expires" # 对应db的过期key的hash表总的内存节字数
+    4) (integer) 416
+15) "overhead.total" # redis总的分配的内存的字节数
+16) (integer) 687186978
+17) "keys.count" # 整个实例key的个数,相同于dbsize返回值
+18) (integer) 13662569
+19) "keys.bytes-per-key" # 每个key平均占用字节数;把overhead也均摊到每个key上
+20) (integer) 167
+21) "dataset.bytes" # 表示redis数据集占用的内存容量,即分配的内存总量减去 overhead.total
+22) (integer) 1603054798
+23) "dataset.percentage" # 表示redis数据占用内存占总内存分配的百分比
+24) "70.188545227050781"
+25) "peak.percentage" # 当前内存使用量在峰值时的占比
+26) "99.999977111816406"
+27) "allocator.allocated" # 该参数不同与 total.allocated, 它计算所有分配的内存大小(不仅仅是使用zmalloc分配的)
+28) (integer) 2291632296
+29) "allocator.active" # 与常驻内存allocator.resident不同,这不包括jemalloc申请的还未使用的内存
+30) (integer) 2293006336
+31) "allocator.resident" # 与RSS不同,这不包括来自共享库和其他非堆映射的RSS
+32) (integer) 2340564992
+33) "allocator-fragmentation.ratio" # 等于 allocator.active / allocator.allocated
+34) "1.0005995035171509"
+35) "allocator-fragmentation.bytes" # 等于 allocator.active - allocator.allocated
+36) (integer) 1374040
+37) "allocator-rss.ratio" # 等于 allocator.resident / allocator.active
+38) "1.0207407474517822"
+39) "allocator-rss.bytes" # 等于 allocator.resident - allocator.active
+40) (integer) 47558656
+41) "rss-overhead.ratio" # 等于 RSS / allocator.resident
+42) "0.99930697679519653"
+43) "rss-overhead.bytes" # 等于 RSS - allocator.resident
+44) (integer) -1622016
+45) "fragmentation" # 等于 RSS / total.allocated
+46) "1.0212923288345337"
+47) "fragmentation.bytes" # 等于 RSS - total.allocated
+48) (integer) 48763208
+```
+
+## 2.5 MEMORY USAGE key [SAMPLES count]
+
+**使用方式**
+
+```bash
+# 针对全部key
+memory usage k1
+# 针对编码使用 REDIS_ENCODING_HT 和 REDIS_ENCODING_SKIPLIST 的另一种方式
+# 采样10个元素近似估算整个value的实际内存占用
+memory usage tk samples 10
+
+```
+
+**其他特点:**
+
+- 只计算 value 对应的内存估计值, key 不存在返回 nil;
+- 如果 key 存在过期, 不包含 Key Expire 的内存占用;
+- 对于编码类型为 `REDIS_ENCODING_HT` 和 `REDIS_ENCODING_SKIPLIST`, usage 子命令采用类似 `LRU SAMPLES` 的抽样方式, 默认抽样 5 个元素求平均 X 元数个数 得出实际内存占用, 计算结果是近似值, 当面可以指定抽样的 SAMPLES 个数;

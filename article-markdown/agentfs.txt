@@ -1,0 +1,244 @@
+# Turso AgentFS: 面向 AI Agent 的文件系统设计分析
+
+**说明**: 本文介绍的 Turso AgentFS, 与贾扬清新公司 Intent Lab 推出的同名 AgentFS 不是同一个项目. 本文并不分析 Intent Lab AgentFS, 而是分析搜索资料时意外发现的开源项目 [tursodatabase/agentfs](https://github.com/tursodatabase/agentfs).
+
+事情的起因是最近看到一篇关于 Intent Lab 的报道. 报道里提到 Intent Lab 推出了一个名为 AgentFS 的分布式文件系统, 我去搜索相关资料时, 意外找到了 Turso 开源的同名项目 AgentFS.
+
+Turso AgentFS 将文件, 状态和工具调用记录存入一个 SQLite 数据库, 并在此基础上提供虚拟文件系统, Overlay 工作区和挂载能力.
+
+本文不会重复官方已经提供的安装和基础使用教程, 而是结合 AgentFS `v0.6.4` 的代码与 Specification `v0.4`, 分析它的项目定位, 数据模型, 隔离方式, 适用场景和当前边界.
+
+# 1. 项目描述
+
+Turso AgentFS 的核心不是搭建一个新的远程文件服务, 而是把 Agent 运行时需要保存的内容放进一个 Turso 兼容的 SQLite 数据库. 这个数据库既保存文件系统数据, 也保存 Key-Value 状态和工具调用记录.
+
+按照项目 README 的说法, AgentFS 是 "The filesystem for agents", 核心问题是 Agent state management. 它关注的不只是 "文件能不能读写", 而是一次 Agent 运行中产生的文件, 上下文, 历史记录和工具调用, 能否被统一保存, 查询, 迁移和恢复.
+
+从使用方式看, 它可以被 SDK 直接访问, 也可以通过 FUSE 或 NFS 挂载成普通目录. 对于已有项目, 它还提供 Overlay 工作区, 让 Agent 看到完整目录, 但把新增, 修改和删除记录到独立的 Delta 数据库中.
+
+Turso AgentFS 支持将数据库同步到远端 Turso, 也可以通过 NFS 暴露给虚拟机或其他客户端, 但这不等于它实现了传统分布式文件系统的数据面.
+
+CephFS, Lustre 这类系统通常需要处理多节点共享命名空间, 数据分片, 副本, 一致性, 故障恢复和吞吐扩展. Turso AgentFS 的核心仍然是一个数据库中的虚拟文件系统, 它关注的是如何封装单个 Agent 的运行状态, 以及如何让 Agent 在隔离工作区中安全地操作文件.
+
+准确地说, 它更接近下面这个定义:
+
+```text
+AgentFS = 虚拟文件系统 + Agent 状态数据库 + 工具调用审计 + 工作区隔离
+```
+
+## 1.1 三个核心接口
+
+AgentFS 将 Agent 需要的状态归纳为三个接口, 并放在同一个数据库中:
+
+|接口|保存内容|主要价值|
+|:---:|:---|:---|
+|Filesystem|文件, 目录, 链接, 权限和时间戳|保存输入, 输出和中间产物|
+|Key-Value|JSON 序列化的上下文与结构化状态|避免把所有状态强行编码成文件|
+|Toolcall|工具参数, 结果, 错误, 状态和耗时|审计, 调试和性能分析|
+
+这三个接口都建立在 SQLite 数据库之上. Agent 可以通过 SDK 访问它们, 也可以通过 CLI 或挂载方式把 Filesystem 部分暴露成普通目录.
+
+## 1.2 官方强调的三个价值
+
+README 将 AgentFS 的收益概括为三点:
+
+- 可审计: 文件操作, 工具调用和状态变化保存在数据库中, 可以用 SQL 查询;
+- 可复现: 复制数据库文件就可以保存某个时刻的 Agent 状态;
+- 可移植: 文件, 状态和历史记录集中在一个 SQLite 文件中, 便于移动到其他环境.
+
+这也解释了它为什么同时提供 SDK, CLI, FUSE 和 NFS: 同一份 Agent 状态需要被不同运行环境访问.
+
+## 1.3 边界与适用场景
+
+结合代码和文档看, AgentFS 另一个值得关注的点是跨运行时. 文件, 状态和工具记录使用结构化表保存, 发生异常时可以用 SQL 追溯工具参数, 文件变化和 Agent 上下文; 普通 AgentFS 的状态集中在一个数据库文件中, 也更容易归档, 复制和迁移.
+
+项目已经提供或演示了多种集成方式, 包括 OpenAI Agents, Claude Agent SDK, Mastra, Vercel AI SDK, Cloudflare Workers, Browser 和 Firecracker. 它的重点不是打造一个单一平台的挂载工具, 而是让同一套 Agent 状态模型进入不同执行环境.
+
+不过, AgentFS 当前仍处于 Beta 阶段, 也有明确边界: 它不是面向多节点共享和横向扩展的数据面, 不能替代 CephFS, Lustre 这类分布式文件系统; SQLite 表达文件系统会带来事务, 查询和用户态转发开销; Overlay Delta 依赖外部 Base, 不具备完整快照语义; `diff` 也只提供路径级摘要, 没有内置内容 Patch, Merge 或 Commit 工作流.
+
+因此, 它更适合 Coding Agent 的 Copy-on-Write 工作区, 研究 Agent 的文件和轨迹保存, Browser 或 Serverless 这类缺少真实文件系统的运行环境, 以及需要把 Agent 状态作为任务产物归档的 CI 或评测系统.
+
+# 2. SQLite 中的文件系统
+
+## 2.1 基于 Inode 的数据模型
+
+AgentFS 没有把每个文件简单存成一行 `path -> content`, 而是采用接近 Unix 文件系统的 Inode 模型, 将命名空间, 元数据和文件内容分开保存:
+
+|数据表|作用|
+|:---:|:---|
+|fs_config|保存 Chunk 大小等文件系统配置|
+|fs_inode|保存类型, 权限, 链接数, UID, GID, 大小和时间戳|
+|fs_dentry|保存父 Inode, 名称到目标 Inode 的映射|
+|fs_data|按 Chunk 保存文件二进制内容|
+|fs_symlink|保存符号链接目标|
+|kv_store|保存 JSON 格式的 Agent 状态|
+|tool_calls|保存工具调用及其执行结果|
+
+路径解析从根 Inode `1` 开始, 逐级查询 `fs_dentry`. 多个 Dentry 可以指向同一个 Inode, 因此能够表达硬链接; 符号链接目标独立保存在 `fs_symlink` 中.
+
+当前 Schema 还保存 POSIX mode, `nlink`, UID, GID, `rdev` 和纳秒精度的 `atime`, `mtime`, `ctime`. 从数据结构上看, 它不是一个只能保存文本的 Agent 记事本, 而是在尝试提供可以被 FUSE 和 NFS 使用的 POSIX-like 文件系统.
+
+## 2.2 文件内容分块
+
+文件内容存储在 `fs_data` 表中, 主键由 `ino` 和 `chunk_index` 组成, 默认 Chunk 大小为 `4096` 字节:
+
+```text
+文件偏移 N
+  -> chunk_index = N / chunk_size
+  -> chunk_offset = N % chunk_size
+  -> fs_data(ino, chunk_index)
+```
+
+分块之后, 随机读写不必把整个文件作为一个大 BLOB 替换, 也能表达稀疏文件. 代价是一次普通文件操作会被转换为多次数据库查询和事务, 性能特征与本地 Ext4, XFS 这类内核文件系统不同.
+
+因此, 这种设计更适合 Agent 的代码, 文档, 配置和中间产物, 而不是大文件顺序吞吐或高 IOPS 的通用存储场景.
+
+## 2.3 文件系统可以直接查询
+
+将文件系统存入关系表后, 可以使用 SQL 分析 Agent 状态. 例如统计工具调用的成功率和平均耗时:
+
+```sql
+SELECT
+  name,
+  COUNT(*) AS total,
+  SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful,
+  AVG(duration_ms) AS avg_duration_ms
+FROM tool_calls
+GROUP BY name
+ORDER BY total DESC;
+```
+
+也可以定位 Agent 最近修改的文件元数据:
+
+```sql
+SELECT d.name, i.size, i.mtime, i.mode
+FROM fs_dentry AS d
+JOIN fs_inode AS i ON d.ino = i.ino
+ORDER BY i.mtime DESC
+LIMIT 20;
+```
+
+传统文件系统当然也能通过日志, 审计框架和索引服务实现类似能力, 但 AgentFS 把这些信息放在了与 Agent 状态相同的数据库中, 降低了收集和关联数据的成本.
+
+# 3. Overlay 工作区
+
+## 3.1 Base 与 Delta 分层
+
+对于 Coding Agent, 最有价值的特性不是从零创建一个虚拟文件系统, 而是在已有项目之上建立 Copy-on-Write 工作区:
+
+```text
+base layer  = 宿主机中的原项目目录
+delta layer = AgentFS 数据库
+最终视图     = delta + whiteout + base
+```
+
+Base 通过 `HostFS` 暴露, 只负责提供原始文件; 新增和修改进入 AgentFS Delta. Overlay 数据库中的 `fs_overlay_config` 会记录 `base_path`, 使 Delta 在后续挂载时能够重新找到原目录.
+
+```mermaid
+graph TD
+    A[Agent 文件操作] --> B[OverlayFS]
+    B --> C{Delta 中是否存在}
+    C -- 是 --> D[读取或修改 Delta]
+    C -- 否 --> E{是否存在 Whiteout}
+    E -- 是 --> F[返回 Not Found]
+    E -- 否 --> G[读取 HostFS Base]
+    G --> H[首次修改时 Copy-up]
+    H --> D
+```
+
+## 3.2 Copy-up 与 Whiteout
+
+Overlay 对常见操作的处理如下:
+
+|操作|Base Layer|Delta Layer|
+|:---:|:---|:---|
+|读取未修改文件|读取原文件|无记录|
+|新增文件|不变|创建新 Inode 和数据|
+|修改原文件|保留原内容|Copy-up 后修改副本|
+|删除原文件|保留原文件|写入 Whiteout|
+|重命名原文件|保留原路径|通常表现为旧路径删除和新路径内容|
+
+Whiteout 是 Overlay 中非常关键的语义. 如果仅仅在 Delta 中 "不保存某个文件", 查询仍会回落到 Base 并重新看到它. 因此, 删除操作需要在 `fs_whiteout` 中持久化一个隐藏标记.
+
+`fs_origin` 则记录 Delta Inode 与原 Base Inode 的关系. 文件发生 Copy-up 后, 内核仍可能缓存原 Inode 编号; 保存 Origin 映射可以维持 Overlay 视图中的 Inode 一致性, 避免挂载层出现缓存错乱.
+
+## 3.3 它解决的是变更隔离, 不是版本控制
+
+AgentFS Overlay 可以让多个 Agent 共享同一个只读项目目录, 并把各自变更保存在不同数据库中. 这和 Git Worktree 看起来相似, 但隔离发生在文件系统层, 因此未跟踪文件和非 Git 项目也能被覆盖.
+
+不过, 当前 `agentfs diff` 只输出路径级的 `A/M/D` 摘要, 不生成内容 Patch, 也没有内置的 `merge` 或 `commit` 命令. AgentFS 负责隔离和保存变更, 不负责解决多人协作中的三方合并与冲突.
+
+另一个容易忽略的边界是, Base 并不是自动冻结的快照. 未 Copy-up 的文件始终从当前宿主目录读取, 如果外部进程修改了 Base, 同一个 Delta 看到的最终视图也可能变化.
+
+# 4. 三种访问方式
+
+## 4.1 SDK 直接访问
+
+Agent 原生集成时不需要挂载文件系统, 可以直接调用 SDK. 仓库当前包含 TypeScript, Python, Rust 和 Go 实现, 适合由 Agent Runtime 显式管理文件, KV 和工具记录.
+
+SDK 方式绕过了内核 VFS 和网络文件系统协议, 依赖更少, 也更适合浏览器, Serverless 和 Cloudflare Workers 等无法执行系统挂载的环境. TypeScript 包分别提供 Node, Browser, Cloudflare, Serverless 和 `just-bash` 集成入口.
+
+## 4.2 FUSE 与 NFS 挂载
+
+对于编译器, Shell, Git 和语言工具链这类只认识普通路径的程序, AgentFS 需要通过挂载层适配:
+
+|平台或场景|访问方式|作用|
+|:---:|:---:|:---|
+|Linux|FUSE|将内核 VFS 请求转发给用户态 FileSystem 实现|
+|macOS|本地 NFSv3|通过 mount_nfs 挂载 AgentFS 或 OverlayFS|
+|虚拟机/容器|NFSv3|将 AgentFS 暴露给隔离运行环境|
+|Agent 框架|MCP Server|暴露文件系统和 KV Tool|
+
+Linux 也可以主动选择 NFS 后端. 仓库中的 Firecracker 示例就是在宿主机启动 AgentFS NFS Server, 再由 MicroVM 挂载这个文件系统.
+
+## 4.3 兼容层的意义
+
+这一设计让 AgentFS 同时覆盖两类应用:
+
+- 新的 Agent Runtime 通过 SDK 获得结构化状态和审计能力;
+- 既有程序通过 FUSE 或 NFS 把它当作普通文件系统使用.
+
+如果只有 SDK, 现有工具链需要逐一适配; 如果只有挂载, 浏览器和 Serverless 又无法使用. AgentFS 将存储核心放在数据库中, 再为不同运行环境提供访问适配层, 这比绑定单一操作系统接口更灵活.
+
+# 5. Run 提供的文件系统隔离
+
+## 5.1 Linux 隔离流程
+
+`agentfs run` 会把当前项目作为 Base, 以 session 对应的 `delta.db` 作为 Delta. Linux 默认组合 FUSE, User Namespace 和 Mount Namespace:
+
+1. 在 session 目录创建 FUSE Overlay 挂载;
+2. 子进程创建独立的 User Namespace 和 Mount Namespace;
+3. 将 Overlay bind mount 到子进程的当前工作目录;
+4. 把其他文件系统重新挂载为只读;
+5. 保留显式允许路径的写权限;
+6. 在隔离后的视图中执行 Agent 或普通命令.
+
+Mount Namespace 使 bind mount 只对目标进程可见, 宿主机中的其他进程仍然看到原项目目录.
+
+## 5.2 macOS 隔离流程
+
+macOS 没有使用项目中的 FUSE 后端, 而是在 `127.0.0.1` 启动 NFSv3 Server, 通过 `mount_nfs` 得到 Overlay 目录, 再生成 Apple Sandbox Profile 限制目标命令的写入范围.
+
+```text
+HostFS Base + AgentFS Delta
+          -> OverlayFS
+          -> Local NFSv3 Server
+          -> mount_nfs
+          -> Apple Sandbox 中的 Agent
+```
+
+两种平台的实现不同, 但目标相同: 让 Agent 以为自己正在修改项目, 实际写入被导向独立数据库.
+
+## 5.3 不能替代完整 Sandbox
+
+AgentFS 主要控制文件系统视图和写入边界, 不应该直接等同于容器或虚拟机. 完整的不可信代码执行还需要考虑网络, 进程, 系统调用, 资源配额, 凭据和内核攻击面.
+
+项目 README 也将 Docker Sandbox 与 AgentFS 定义为互补关系: 容器或虚拟机回答 "代码在哪里, 以什么权限运行", AgentFS 回答 "运行产生了什么状态, 修改了哪些文件". 实际部署中, 可以在 Docker 或 Firecracker 内运行 Agent, 同时使用 AgentFS 保存和审计状态.
+
+# 6. 总结
+
+最初搜索 AgentFS, 是想了解 Intent Lab 为云端 Agent 工作负载设计的分布式文件系统, 最终却意外发现了 Turso 的同名开源项目. 两者解决的不是同一层问题: 前者关注云端分布式存储, 后者关注如何把单个 Agent 的文件, 状态, 工具轨迹和工作区变更组织成一个可查询的运行环境.
+
+Turso AgentFS 最有意思的地方不是 "把文件塞进 SQLite", 而是把文件系统视为 Agent 状态模型的一部分: 数据库负责结构化保存, Overlay 负责隔离变更, FUSE 和 NFS 负责兼容现有程序, SDK 和 MCP 负责连接不同 Agent Runtime.
+
+它目前仍有性能, 平台兼容, 版本稳定性和变更合并等限制, 也不能和 Intent Lab AgentFS 或传统分布式文件系统混为一谈. 但作为一个探索 Agent 存储抽象的开源项目, 它展示了一条值得关注的路线: Agent 需要的可能不只是一个可读写目录, 而是一个能够保存状态, 解释过程并隔离副作用的文件系统.

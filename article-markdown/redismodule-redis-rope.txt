@@ -1,0 +1,140 @@
+# RedisModule 剖析 - RedisRope
+
+`RedisRope` 是一款可用于操作大型字符串数据 (插入/拼接等变动) 的 Redis 模块. 它通过将一个独立的字符串拆分成多个 Chunk 中进行存储, 从而实现了针对于大型字符串的多样写操作 (插入/拼接等) 的高效率, 并通过引入 [伸展树(Splay Tree)](https://en.wikipedia.org/wiki/Splay_tree) 的数据结构来保证数据读取的高效性.
+
+# 1. 简介
+
++ GitHub 地址:https://github.com/ekzhang/redis-rope
+
+# 2. 架构设计
+
+## 2.1 相关命令
+
++ rope.len : 获取特定 key 的长度;
++ rope.get : 获取特定 key 指定索引处的字符;
++ rope.getrange : 获取特定 key 指定范围内的字符串;
++ rope.append : 给特定 key 追加字符串;
++ rope.insert : 在特定 key 的指定索引处插入字符串;
++ rope.delrange : 删除特定 key 指定范围内的字符串;
++ rope.splice : 从源字符串中选出部分字符串并将其拼接到目标字符串中 (高级操作);
+
+## 2.2 数据结构
+
+```rust
+// 自定义的 Module 数据类型
+pub var rope_tm: rm.RedisModuleTypeMethods = .{
+    .version = rm.REDISMODULE_TYPE_METHOD_VERSION,
+    .rdb_load = ropeRdbLoad,
+    .rdb_save = ropeRdbSave,
+    .aof_rewrite = ropeAofRewrite,
+    .free = ropeFree,
+
+    // Optional fields
+    .digest = ropeDigest,
+    .mem_usage = ropeMemUsage,
+    .free_effort = ropeFreeEffort,
+};
+```
+
+```rust
+const min_bytes = 64;
+const cap_bytes = 127;
+
+// 自定义的数据结构的结构体
+pub const Rope = struct {
+    pub const rope_size = @sizeOf(Rope);
+    pub const node_size = @sizeOf(Node);
+
+    allocator: Allocator,
+    root: ?*Node = null,
+    suf_len: u8 = 0,
+    suf_buf: [min_bytes - 1]u8 = undefined,
+
+    pub fn destroy(self: *Rope) void {}               // 销毁Rope并释放其占用的内存
+    pub fn len(self: *const Rope) u64 {}              // 获取Rope的长度
+    pub fn empty(self: *const Rope) bool {}           // 判断Rope是否为空
+    pub fn merge(self: *Rope, other: *Rope) !void {}  // 合并两个Rope
+    pub fn split(self: *Rope, index: u64) !*Rope {}   // 从指定索引处拆分Rope
+    pub fn get(self: *Rope, i: u64) ?u8 {}            // 获取指定索引处的一个比特
+    fn get_scan(self: *Rope, i: u64) ?[]u8 {}         // 获取指定索引后的Rope中的所有字节
+    pub fn memusage(self: *const Rope) u64 {}         // 获取该数据结构中的总内存大小
+    pub fn numnodes(self: *const Rope) u64 {}         // 获取该数据结构中的展开树节点的数量
+    pub fn create(allocator: Allocator, bytes: []const u8) !*Rope {}   // 创建一个新的Rope
+    pub fn chunks(self: *Rope, start: u64, end: u64) Chunks {}         // 返回范围内的有效Chunks
+};
+
+const Node = struct {
+    parent: ?*Node = null,
+    child: [2]?*Node = .{ null, null },
+    nodes: u64 = 1,
+    size: u64 = 0,
+    len: u8 = 0,
+    data: [cap_bytes]u8 = undefined,
+
+    fn dir(self: *const Node) u1 {}                       // 判断是否是根结点?
+    fn update(self: *Node) void {}                        // 更新节点信息
+    fn connect(pa: ?*Node, ch: ?*Node, x: u1) void {}     // 
+    fn rot(self: *Node) void {}                           // 
+    fn splay(self: *Node) void {}                         // 
+    fn destroy(self: *Node, allocator: Allocator) void {} // 
+};
+
+pub const Chunks = struct {
+    const block_size = 65536;
+
+    rope: *Rope,
+    start: u64,
+    end: u64,
+    buf: [block_size]u8 = undefined,
+
+    pub fn remaining(self: *const Chunks) u64 {}   // 计算迭代器中还剩多少Chunk
+    pub fn next(self: *Chunks) ?[]u8 {}            // 返回此迭代器的下一个Chunk
+};
+```
+
+## 2.3 持久化
+
+### 2.3.1 RDB 的持久化
+
+RDB 的存储过程比较简单, 直接把自定义的数据结构依次存储到到 RDB 文件中.
+
+```rust
+export fn ropeRdbSave(io: *rm.RedisModuleIO, value: *anyopaque) void {
+    const rope = @ptrCast(*Rope, @alignCast(@alignOf(*Rope), value));
+    const size = rope.len();
+    rm.RedisModule_SaveUnsigned(io, size);
+    var chunks = rope.chunks(0, size);
+    rm.RedisModule_SaveUnsigned(io, chunks.remaining());
+    while (chunks.next()) |buf| {
+        rm.RedisModule_SaveStringBuffer(io, buf.ptr, buf.len);
+    }
+}
+```
+
+### 2.3.2 AOF 的持久化
+
+AOF 的持久化的过程是把自定义数据类型的信息转换为操作的命令 `rope.append` 进行存储.
+
+```rust
+export fn ropeAofRewrite(io: *rm.RedisModuleIO, key: *rm.RedisModuleString, value: *anyopaque) void {
+    const rope = @ptrCast(*Rope, @alignCast(@alignOf(*Rope), value));
+    var chunks = rope.chunks(0, rope.len());
+    while (chunks.next()) |buf| {
+        rm.RedisModule_EmitAOF(io, "ROPE.APPEND", "sb", key, buf.ptr, buf.len);
+    }
+}
+```
+
+# 3. 问题与思考
+
+## 3.1 问题
+
++ 关于伸展树的适用场景, 以及在这里使用后对于读性能的影响有多大?
+
+## 3.2 思考
+
+
+# 4. 相关链接
+
++ [纸上谈兵: 伸展树 (splay tree) ](https://www.cnblogs.com/vamei/archive/2013/03/24/2976545.html)
++ [深入理解伸展树(splay tree)](https://zhuanlan.zhihu.com/p/348797577)

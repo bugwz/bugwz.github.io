@@ -1,0 +1,59 @@
+# 理解 Servlet 的 init(), service() 与 destroy()-JSP 笔记-2
+
+# 1. 环境
+
+1. Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)
+2. Apache Tomcat version: 8.0.39
+
+# 2. 课堂学习目标
+
+实践 servlet 的 init(), service() 与 destroy() 方法, 理解 servlet 生命周期的三个阶段.
+
+# 3. 开始
+
+我们还是新建一个名为 Test 的新工程, 然后新建一个不带 doGet() 与 doPost() 方法的一个基本的 servlet, 然后我们依次循规蹈矩的手动覆盖重写三个方法, 他们分别是 init(), service() 和 destroy() 方法, 重写后截图如下:
+
+![Servlet_1](/assets/images/posts/jsp-2/jsp-2-1.webp)
+
+我们在浏览器地址栏中输入进入 Servlet_1 的虚拟路径后, 控制台下便出现了, 调用 init() 方法的输出信息, 然后调用了 service() 方法的输出信息, 这两个方法的调用就是 servlet 的前两个生命周期, 初始化阶段, 调用 init() 方法; 响应客户请求阶段, 调用 service() 方法, 之后每次刷新浏览器界面会发现只出现调用 service() 方法的输出结果, 如下所示:
+
+![service()输出结果](/assets/images/posts/jsp-2/jsp-2-2.webp)
+
+> 提示:
+
+如果你发现你打不开映射的虚拟路径, 浏览器并提示了 404 错误, 请尝试移步[这里](/2016/11/29/jsp-1/) , 尝试解决问题.
+
+之后, 当我们停止服务器的时候, 注意, 这不是终止进程, 还是有点区别的.
+
+1. 停止服务器: web 应用被终止, 或 Servlet 容器终止运行, 或 Servlet 容器重新装载 Servlet 新实例时, Servlet 容器会先调用 Servlet 的 destroy() 方法, 在 destroy() 方法中可以释放掉 Servlet 所占用的资源.
+2. 终止进程: servlet 容器被强行终止, 来不及调用 Servlet 的 destroy() 方法.
+
+我们点击停止服务器后效果图如下所示:
+
+![Stop Server](/assets/images/posts/jsp-2/jsp-2-3.webp)
+
+# 4. 来些总结
+
+Servlet 生命周期分为三个阶段:
+
+1. 初始化阶段, 调用 init() 方法
+2. 响应客户请求阶段, 调用 service() 方法
+3. 终止阶段, 调用 destroy() 方法
+
+Servlet 初始化阶段: (在下列时刻 Servlet 容器装载 Servlet)
+
+1. Servlet 容器启动时自动装载某些 Servlet.
+2. 在 Servlet 容器启动后, 客户首次向 Servlet 发送请求.
+3. Servlet 类文件被更新后, 重新装载 Servlet.
+
+> Servlet 被装载后, Servlet 容器创建一个 Servlet 实例并且调用 Servlet 的 init() 方法进行初始化. 在 Servlet 的整个生命周期内, init() 方法只被调用一次.
+
+Servlet 响应请求阶段:
+
+  对于用户到达 Servlet 的请求, Servlet 容器会创建特定于这个请求的 ServletRequest 对象和 ServletResponse 对象, 然后调用 Servlet 的 service 方法. service 方法从 ServletRequest 对象获得客户请求信息, 处理该请求, 并通过 ServletResponse 对象向客户返回响应信息.
+
+Servlet 终止阶段:
+
+  当 web 应用被终止, 或 Servlet 容器终止运行, 或 Servlet 容器重新装载 Servlet 新实例时, Servlet 容器会先调用 Servlet 的 destroy() 方法, 在 destroy() 方法中可以释放掉 Servlet 所占用的资源.
+
+>关于 Servlet 生命周期与工作原理的更详细的信息, 推荐访问[这里](http://www.cnblogs.com/cuiliang/archive/2011/10/21/2220671.html)

@@ -1,0 +1,1407 @@
+# GPFS 集群部署与运维记录
+
+# 1. GPFS 介绍
+
+IBM GPFS (General Parallel File System, GPFS) 是一款并行的文件系统, 它保证在资源组内的所有节点可以并行访问整个文件系统, 而且针对此文件系统的服务操作, 可以同时安全地在此文件系统的多个节点上实现. GPFS 允许客户共享文件, 而这些文件可能分布在不同节点的不同硬盘上, 保证了数据的一致性和完整性. GPFS 支持多种平台的部署, 如 Windows, Linux, AIX, 每种环境部署方式相同, 降低了软件部署的复杂度.
+
+
+# 2. 环境准备
+
+**环境拓扑介绍:**
+|节点名称|节点 IP|节点角色|
+|:--:|:--:|:--:|
+|node01|10.10.0.1|Server, GUI(Dashboard)|
+|node02|10.10.0.2|Server, GUI(Dashboard), CES|
+|node03|10.10.0.3|Server, CES|
+
+
+**相关操作步骤如下:**
++ `配置 /etc/hosts`: 用于节点间的 hostname 相互识别;
++ `配置 ssh 免密登录`: 用于节点间的相互通信;
++ `关闭防火墙和 selinux`: 避免网络问题导致节点间通信异常;
++ `配置时间同步`: 避免时钟不同步, 导致节点间通信等其他异常;
++ `安装依赖包`: 运行 gpfs 的基础依赖软件;
+
+## 2.1 配置 /etc/hosts
+
+确保每个 server/client 节点上均配置如下的 hosts 记录.
+
+**相关命令:**
+```bash
+cat /etc/hosts
+10.10.0.1 node01
+10.10.0.2 node02
+10.10.0.3 node03
+```
+
+## 2.2 配置 ssh 免密登录
+
+确保每个 server 间可以实现 ssh 免密访问, 同时任意 server 节点均可免密访问 client 节点.
+
+**相关命令:**
+```bash
+# node01
+ssh-copy-id -f -i /root/.ssh/id_rsa.pub root@node02
+ssh-copy-id -f -i /root/.ssh/id_rsa.pub root@node03
+
+# node02
+ssh-copy-id -f -i /root/.ssh/id_rsa.pub root@node01
+ssh-copy-id -f -i /root/.ssh/id_rsa.pub root@node03
+
+# node03
+ssh-copy-id -f -i /root/.ssh/id_rsa.pub root@node01
+ssh-copy-id -f -i /root/.ssh/id_rsa.pub root@node02
+
+# 测试连接, 分别位于不同的机器执行测试
+ssh root@node01
+ssh root@node02
+ssh root@node03
+```
+
+
+## 2.3 关闭防火墙和 selinux
+
+
+**相关命令:** (以下操作需要在每个 server/client 节点上执行)
+```bash
+# 关闭防火墙并禁止开机启动
+systemctl stop firewalld
+systemctl disable firewalld
+
+# 关闭 selinux
+# 将 SELINUX=enforcing 改为 SELINUX=disabled
+# 重启后生效
+vi /etc/selinux/config
+cat /etc/selinux/config
+```
+
+## 2.4 配置时间同步
+
+
+**相关命令:** (以下操作需要在每个 server/client 节点上执行)
+```bash
+# 启动时间同步并设置开机启动
+systemctl start chronyd
+systemctl enable chronyd
+
+# 检查同步状态
+chronyc tracking
+```
+
+
+## 2.5 安装依赖包
+
+
+**相关命令:** (以下操作需要在每个 server/client 节点上执行)
+```bash
+dnf install -y ksh m4 kernel-devel kernel-devel-$(uname -r) kernel-headers gcc-c++ python3 net-tools perl-Thread-Queue
+```
+
+
+# 3. 集群部署
+
+本次集群部署的软件包版本为 `5.1.8.1`, 完整的软件包名为 `Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install`.
+
+**集群部署的关键步骤如下:**
++ 解压并安装软件包:
++ 修改环境变量:
++ 构建 GPFS 可移植层:
++ 创建集群:
++ 创建 NSD:
++ 创建文件系统:
++ 挂载文件系统:
++ 配置 Dashboard (可选):
++ 配置 CES (可选):
+
+
+## 3.1 解压并安装软件包
+
+如果你是为了开发测试使用, 你可以访问 [IBM Storage Scale](https://www.ibm.com/products/storage-scale) 官方, 注册一个账户, 之后签署协议, 下载对应的开发者版本的软件包. 在下面的示例页面中, 就可以下载对应的软件包. 在这次的测试中, 我们并没有使用对应的开发者版本的软件包, 而是使用本地生产环境使用的软件包.
+
+
+![Storage_Scale_Developer-5.2.3.2-x86_64-Linux.zip](/assets/images/posts/gpfs/gpfs-download-dev.webp)
+
+
+### 3.1.1 解压并安装软件包
+
+**相关命令:** (以下操作需要在每个 server 节点上执行)
+```bash
+# 解压软件包
+chmod +x Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install
+./Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install --help
+
+
+# 解压软件包, 默认安装文件会被解压到 /usr/lpp/mmfs/5.1.8.1 目录下
+# 不同操作的含义:
+#     输入 1: 接受协议 (输入 1 后继续安装操作)
+#     输入 2: 拒绝协议
+#     输入 3: 打印协议
+#     输入 4: 阅读非 IBM 条款
+#     输入 99: 返回上一屏幕
+./Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install --text-only
+
+# 安装软件包
+cd /usr/lpp/mmfs/5.1.8.1/gpfs_rpms/
+rpm -ivh gpfs.base-5.1.8-1.x86_64.rpm
+rpm -ivh gpfs.compression-5.1.8-1.x86_64.rpm
+rpm -ivh gpfs.docs-5.1.8-1.noarch.rpm
+rpm -ivh gpfs.gpl-5.1.8-1.noarch.rpm
+rpm -ivh gpfs.gskit-8.0.55-19.1.x86_64.rpm
+rpm -ivh gpfs.java-5.1.8-1.x86_64.rpm
+rpm -ivh gpfs.license.da-5.1.8-1.x86_64.rpm
+rpm -ivh gpfs.msg.en_US-5.1.8-1.noarch.rpm
+cd /usr/lpp/mmfs/5.1.8.1/zimon_rpms/rhel8/
+rpm -ivh gpfs.gss.pmcollector-5.1.8-1.el8.x86_64.rpm
+rpm -ivh gpfs.gss.pmsensors-5.1.8-1.el8.x86_64.rpm
+rpm -ivh gpfs.pm-ganesha-10.0.0-2.el8.x86_64.rpm
+```
+
+
+**相关操作日志:**
+```bash
+[root@node01 data]# ./Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install --text-only
+
+Extracting License Acceptance Process Tool to /usr/lpp/mmfs/5.1.8.1 ...
+tail -n +660 ./Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install | tar -C /usr/lpp/mmfs/5.1.8.1 -xvz --exclude=installer --exclude=*_rpms --exclude=*_debs --exclude=*rpm  --exclude=*tgz --exclude=*deb --exclude=*tools* 1> /dev/null
+
+Installing JRE ...
+
+If directory /usr/lpp/mmfs/5.1.8.1 has been created or was previously created during another extraction,
+.rpm, .deb, and repository related files in it (if there were) will be removed to avoid conflicts with the ones being extracted.
+
+tail -n +660 ./Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install | tar -C /usr/lpp/mmfs/5.1.8.1 --wildcards -xvz  ibm-java*tgz 1> /dev/null
+tar -C /usr/lpp/mmfs/5.1.8.1/ -xzf /usr/lpp/mmfs/5.1.8.1/ibm-java*tgz
+
+Invoking License Acceptance Process Tool ...
+/usr/lpp/mmfs/5.1.8.1/ibm-java-x86_64-80/jre/bin/java -cp /usr/lpp/mmfs/5.1.8.1/LAP_HOME/LAPApp.jar com.ibm.lex.lapapp.LAP -l /usr/lpp/mmfs/5.1.8.1/LA_HOME -m /usr/lpp/mmfs/5.1.8.1 -s /usr/lpp/mmfs/5.1.8.1  -text_only
+
+LICENSE INFORMATION
+
+The Programs listed below are licensed under the following
+License Information terms and conditions in addition to the
+Program license terms previously agreed to by Client and
+IBM. If Client does not have previously agreed to license
+terms in effect for the Program, the International Program
+License Agreement (i125-3301-15) applies.
+
+Program Name (Program Number):
+IBM Storage Scale Erasure Code Edition 5.1.8.1 (5737-J34)
+IBM Storage Scale Data Management Edition 5.1.8.1 (5737-F34)
+IBM Storage Scale Data Management Edition 5.1.8.1 (5641-DM1)
+IBM Storage Scale Data Management Edition 5.1.8.1 (5641-DM3)
+
+Press Enter to continue viewing the license agreement, or
+enter "1" to accept the agreement, "2" to decline it, "3"
+to print it, "4" to read non-IBM terms, or "99" to go back
+to the previous screen.
+1
+
+License Agreement Terms accepted.
+
+Extracting Product RPMs to /usr/lpp/mmfs/5.1.8.1 ...
+tail -n +660 ./Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install | tar -C /usr/lpp/mmfs/5.1.8.1 --wildcards -xvz  Public_Keys ansible-toolkit cloudkit/dependencies ganesha_debs/ubuntu/ubuntu20 ganesha_debs/ubuntu/ubuntu22 gpfs_debs/ubuntu/ubuntu20 gpfs_debs/ubuntu/ubuntu22 hdfs_rpms/rhel/hdfs_3.1.1.x hdfs_rpms/rhel/hdfs_3.2.2.x hdfs_rpms/rhel/hdfs_3.3.x smb_debs/ubuntu/ubuntu20 smb_debs/ubuntu/ubuntu22 zimon_debs/ubuntu/ubuntu20 zimon_debs/ubuntu/ubuntu22 ganesha_rpms/rhel7 ganesha_rpms/rhel8 ganesha_rpms/rhel9 ganesha_rpms/sles15 gpfs_rpms/rhel7 gpfs_rpms/rhel8 gpfs_rpms/rhel9 gpfs_rpms/sles15 object_rpms/rhel8 smb_rpms/rhel7 smb_rpms/rhel8 smb_rpms/rhel9 smb_rpms/sles15 tools/repo zimon_debs/ubuntu zimon_rpms/rhel7 zimon_rpms/rhel8 zimon_rpms/rhel9 zimon_rpms/sles15 cloudkit gpfs_debs gpfs_rpms manifest 1> /dev/null
+   - Public_Keys
+   - ansible-toolkit
+   - cloudkit/dependencies
+   - ganesha_debs/ubuntu/ubuntu20
+   - ganesha_debs/ubuntu/ubuntu22
+   - gpfs_debs/ubuntu/ubuntu20
+   - gpfs_debs/ubuntu/ubuntu22
+   - hdfs_rpms/rhel/hdfs_3.1.1.x
+   - hdfs_rpms/rhel/hdfs_3.2.2.x
+   - hdfs_rpms/rhel/hdfs_3.3.x
+   - smb_debs/ubuntu/ubuntu20
+   - smb_debs/ubuntu/ubuntu22
+   - zimon_debs/ubuntu/ubuntu20
+   - zimon_debs/ubuntu/ubuntu22
+   - ganesha_rpms/rhel7
+   - ganesha_rpms/rhel8
+   - ganesha_rpms/rhel9
+   - ganesha_rpms/sles15
+   - gpfs_rpms/rhel7
+   - gpfs_rpms/rhel8
+   - gpfs_rpms/rhel9
+   - gpfs_rpms/sles15
+   - object_rpms/rhel8
+   - smb_rpms/rhel7
+   - smb_rpms/rhel8
+   - smb_rpms/rhel9
+   - smb_rpms/sles15
+   - tools/repo
+   - zimon_debs/ubuntu
+   - zimon_rpms/rhel7
+   - zimon_rpms/rhel8
+   - zimon_rpms/rhel9
+   - zimon_rpms/sles15
+   - cloudkit
+   - gpfs_debs
+   - gpfs_rpms
+   - manifest
+
+Removing License Acceptance Process Tool from /usr/lpp/mmfs/5.1.8.1 ...
+rm -rf  /usr/lpp/mmfs/5.1.8.1/LAP_HOME /usr/lpp/mmfs/5.1.8.1/LA_HOME
+
+Removing JRE from /usr/lpp/mmfs/5.1.8.1 ...
+rm -rf /usr/lpp/mmfs/5.1.8.1/ibm-java*tgz
+
+==================================================================
+Product packages successfully extracted to /usr/lpp/mmfs/5.1.8.1
+
+   Cluster installation and protocol deployment
+      To install a cluster or deploy protocols with the IBM Storage Scale Installation Toolkit:
+      /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale -h
+
+      To install a cluster manually:  Use the GPFS packages located within /usr/lpp/mmfs/5.1.8.1/gpfs_<rpms/debs>
+
+      To upgrade an existing cluster using the IBM Storage Scale Installation Toolkit:
+      1) Review and update the config:  /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale config update
+      2) Update the cluster configuration to reflect the current cluster config:
+         /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale config populate -N <node>
+      3) Use online or offline upgrade depending on your requirements:
+         - Run the online rolling upgrade:  /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale upgrade -h
+         - Run the offline upgrade: /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale upgrade config offline -N;
+               /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale upgrade run
+      You can also run the parallel offline upgrade to upgrade all nodes parallely after shutting down GPFS
+      and stopping protocol services on all nodes.
+      You can run the parallel offline upgrade on all nodes in the cluster, not on a subset of nodes.
+
+      To add nodes to an existing cluster using the IBM Storage Scale Installation Toolkit:
+      1) Add nodes to the cluster definition file:  /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale node add -h
+      2) Install IBM Storage Scale on the new nodes:  /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale install -h
+      3) Deploy protocols on the new nodes:  /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale deploy -h
+
+      To add NSDs or file systems to an existing cluster using the IBM Storage Scale Installation Toolkit:
+      1) Add NSDs or file systems to the cluster definition:  /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale nsd add -h
+      2) Install the NSDs or file systems:  /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale install -h
+
+
+      To update the cluster definition to reflect the current cluster config examples:
+         /usr/lpp/mmfs/5.1.8.1/ansible-toolkit/spectrumscale config populate -N <node>
+      1) Manual updates outside of the installation toolkit
+      2) Sync the current cluster state to the installation toolkit prior to upgrade
+      3) Switching from a manually managed cluster to the installation toolkit
+
+===================================================================================
+To get up and running quickly, consult the IBM Storage Scale Protocols Quick Overview:
+https://www.ibm.com/docs/en/STXKQY_5.1.8/pdf/scale_povr.pdf
+===================================================================================
+
+[root@node01 data]# ll /usr/lpp/mmfs/5.1.8.1
+total 40
+drwxr-xr-x 11 root root   226 Jul 19  2023 ansible-toolkit
+drwxr-xr-x  3 root root    42 Jul 19  2023 cloudkit
+drwxr-xr-x  3 root root    20 Jun 19 21:10 ganesha_debs
+drwxr-xr-x  6 root root    59 Jun 19 21:10 ganesha_rpms
+drwxr-xr-x  3 root root  4096 Jul 19  2023 gpfs_debs
+drwxr-xr-x  7 root root  4096 Jul 19  2023 gpfs_rpms
+drwxr-xr-x  3 root root    18 Jun 19 21:10 hdfs_rpms
+drwxr-xr-x  3 root root  4096 Jun 19 21:10 license
+-rw-r--r--  1 root root 25195 Jul 19  2023 manifest
+drwxr-xr-x  3 root root    19 Jun 19 21:10 object_rpms
+drwxr-xr-x  2 root root    76 Jul 19  2023 Public_Keys
+drwxr-xr-x  3 root root    20 Jun 19 21:10 smb_debs
+drwxr-xr-x  6 root root    59 Jun 19 21:10 smb_rpms
+drwxr-xr-x  3 root root    18 Jun 19 21:10 tools
+drwxr-xr-x  3 root root    20 Jun 19 21:10 zimon_debs
+drwxr-xr-x  6 root root    59 Jun 19 21:10 zimon_rpms
+```
+
+
+### 3.1.2 仅解压软件包
+
+如果我们只想要简单的解压对应的文件, 并查看其中的文件列表, 而不执行安装操作, 可以使用 [7zip](https://sparanoid.com/lab/7z/download.html) 软件来执行解压操作.
+
+**相关命令:**
+```bash
+# 下载并安装 7z 软件
+mkdir ./7z
+wget https://www.7-zip.org/a/7z2409-linux-x64.tar.xz
+tar -xvf 7z2409-linux-x64.tar.xz -C ./7z
+cp ./7z/7zz* /usr/bin/
+rm -rf ./7z 7z2409-linux-x64.tar.xz
+
+# 解压 GPFS 压缩包到当前目录的 gpfs 目录中, 如果 gpfs 目录不存在则自动创建
+7zz x Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install -o./gpfs
+7zz x ./gpfs/Storage_Scale_Data_Access-5.1.8 -o./gpfs
+
+# 查看目录结构
+tree ./gpfs/ -L 1
+```
+
+
+**相关输出信息:**
+```bash
+[root@node01 data]# 7zz x Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install -o./gpfs
+
+7-Zip (z) 24.09 (x64) : Copyright (c) 1999-2024 Igor Pavlov : 2024-11-28
+ 64-bit locale=en_US.UTF-8 Threads:8 OPEN_MAX:1024, ASM
+
+Scanning the drive for archives:
+1 file, 1234441464 bytes (1178 MiB)
+
+Extracting archive: Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install
+--
+Path = Storage_Scale_Data_Access-5.1.8.1-x86_64-Linux-install
+Type = gzip
+Offset = 24036
+Physical Size = 1234417428
+Headers Size = 10
+Streams = 1
+
+Everything is Ok
+
+Size:       1508546560
+Compressed: 1234441464
+
+
+[root@node01 data]# 7zz x ./gpfs/Storage_Scale_Data_Access-5.1.8 -o./gpfs
+
+7-Zip (z) 24.09 (x64) : Copyright (c) 1999-2024 Igor Pavlov : 2024-11-28
+ 64-bit locale=en_US.UTF-8 Threads:8 OPEN_MAX:1024, ASM
+
+Scanning the drive for archives:
+1 file, 1508546560 bytes (1439 MiB)
+
+Extracting archive: Storage_Scale_Data_Access-5.1.8
+--
+Path = Storage_Scale_Data_Access-5.1.8
+Type = tar
+Physical Size = 1508546560
+Headers Size = 2147328
+Code Page = UTF-8
+Characteristics = GNU LongName ASCII
+
+Everything is Ok
+
+Folders: 702
+Files: 2522
+Size:       1505726177
+Compressed: 1508546560
+
+
+[root@node01 data]# tree ./gpfs/ -L 1
+./gpfs/
+├── ansible-toolkit
+├── cloudkit
+├── ganesha_debs
+├── ganesha_rpms
+├── gpfs_debs
+├── gpfs_rpms
+├── hdfs_rpms
+├── ibm-java-jre-8.0-5.11-linux-x86_64.tgz
+├── LA_HOME
+├── LAP_HOME
+├── manifest
+├── object_rpms
+├── Public_Keys
+├── smb_debs
+├── smb_rpms
+├── Storage_Scale_Data_Access-5.1.8
+├── tools
+├── zimon_debs
+└── zimon_rpms
+
+16 directories, 3 files
+```
+
+
+
+## 3.2 修改环境变量
+
+为了后续方便使用 gpfs 的相关命令, 我们可以把 gpfs bin 目录添加到 PATH 路径中.
+
+
+**相关命令:** (以下操作需要在每个 server 节点上执行)
+```bash
+# 设置 gpfs bin PATH 路径
+cat /root/.bash_profile
+vi /root/.bash_profile
+# .bash_profile
+
+# Get the aliases and functions
+if [ -f ~/.bashrc ]; then
+        . ~/.bashrc
+fi
+
+# User specific environment and startup programs
+PATH=$PATH:$HOME/bin:/usr/lpp/mmfs/bin
+export PATH
+```
+
+
+## 3.3 构建 GPFS 可移植层
+
+GPFS 可移植性层特定于当前内核和 GPFS 版本. 如果内核或 GPFS 版本发生变化, 则需要构建新的 GPFS 可移植层. 尽管操作系统内核可能会升级到新版本, 但它们在重新启动后才处于活动状态. 因此, 必须在重新启动操作系统后为这个新内核构建一个 GPFS 可移植层.
+并且注意在安装新的 GPFS 可移植层之前, 请确保先卸载先前版本的 GPFS 可移植层.
+
+构建完成后, 终端会输出生成的包的位置, 然后, 我们可以将生成的包复制到其他机器进行部署. 默认情况下, 生成的包只能部署到架构, 分发级别, Linux 内核和 IBM Spectrum Scale 维护级别与构建 gpfs.gplbin 包的机器相同的机器上. 不过仍然建议在每个 server 节点上执行构建操作生成本机的 GPFS 可移植层.
+
+
+**相关命令:** (以下操作需要在每个 server 节点上执行)
+```bash
+# 构建 gpfs 可移植层,
+mmbuildgpl --build-package
+```
+
+**相关操作日志:**
+```bash
+[root@node01 data]# mmbuildgpl --build-package
+--------------------------------------------------------
+mmbuildgpl: Building GPL (5.1.8.1) module begins at Thu Jun 19 21:40:45 CST 2024.
+--------------------------------------------------------
+Verifying Kernel Header...
+  kernel version = 41800348 (418000348000000, 4.18.0-348.el8.x86_64, 4.18.0-348)
+  module include dir = /lib/modules/4.18.0-348.el8.x86_64/build/include
+  module build dir   = /lib/modules/4.18.0-348.el8.x86_64/build
+  kernel source dir  = /usr/src/linux-4.18.0-348.el8.x86_64/include
+  Found valid kernel header file under /usr/src/kernels/4.18.0-348.el8.x86_64/include
+Getting Kernel Cipher mode...
+   Will use skcipher routines
+Verifying Compiler...
+  make is present at /bin/make
+  cpp is present at /bin/cpp
+  gcc is present at /bin/gcc
+  g++ is present at /bin/g++
+  ld is present at /bin/ld
+Verifying rpmbuild...
+Verifying libelf devel package...
+  Verifying  elfutils-libelf-devel is installed ...
+    Command: /bin/rpm -q  elfutils-libelf-devel
+    The required package  elfutils-libelf-devel is installed
+Verifying Additional System Headers...
+  Verifying kernel-headers is installed ...
+    Command: /bin/rpm -q kernel-headers
+    The required package kernel-headers is installed
+make World ...
+make InstallImages ...
+make rpm ...
+Wrote: /root/rpmbuild/RPMS/x86_64/gpfs.gplbin-4.18.0-348.el8.x86_64-5.1.8-1.x86_64.rpm
+--------------------------------------------------------
+mmbuildgpl: Building GPL module completed successfully at Thu Jun 19 21:41:13 CST 2024.
+--------------------------------------------------------
+```
+
+
+## 3.4 创建集群
+
+GPFS 的仲裁机制和 ZooKeeper 的仲裁机制类似, 当有一半以上的节点是 quorum 时, 集群才可以启动, 即: `quorum >= 1 + sizeof(all nodes) / 2`.
+
+
+**相关命令:** (以下操作仅在 node01 节点上执行即可)
+```bash
+# 创建 nodefile 文件
+cat /etc/mmfs/nodefile
+node01:quorum-manager:
+node02:quorum-manager:
+node03:quorum-manager:
+
+
+# 创建集群
+mmcrcluster -N /etc/mmfs/nodefile -C gpfscluster -r /usr/bin/ssh -R /usr/bin/scp -A
+
+# 接受节点许可证
+mmchlicense server --accept -N all
+
+# 启动集群节点
+mmstartup -N node01
+mmstartup -N node02
+mmstartup -N node03
+```
+
+**mmcrcluster 参数说明:**
++ `-N`: 表示节点的配置文件.
++ `-C`: 指定集群的名称.
++ `-r`: 指定 GPFS 使用的远程 shell 程序的完整路径名. 默认值为 /usr/bin/ssh.
++ `-R`: 指定 GPFS 使用的远程文件复制程序的完整路径名. 默认值为 /usr/bin/scp.
++ `-A`: 指定当节点启动时 GPFS 守护进程自动启动. 默认情况下不自动启动守护进程.
+
+
+**相关操作日志:**
+```bash
+[root@node01 data]# mmcrcluster -N /etc/mmfs/nodefile -C gpfscluster -r /usr/bin/ssh -R /usr/bin/scp -A
+mmcrcluster: Performing preliminary node verification ...
+mmcrcluster: Processing quorum and other critical nodes ...
+mmcrcluster: Finalizing the cluster data structures ...
+mmcrcluster: Command successfully completed
+mmcrcluster: Warning: Not all nodes have proper GPFS license designations.
+    Use the mmchlicense command to designate licenses as needed.
+mmcrcluster: [I] The cluster was created with the tscCmdAllowRemoteConnections configuration parameter set to "no". If a remote cluster is established with another cluster whose release level (minReleaseLevel) is less than 5.1.3.0, change the value of tscCmdAllowRemoteConnections in this cluster to "yes".
+mmcrcluster: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+
+
+[root@node01 data]# mmchlicense server --accept -N all
+
+The following nodes will be designated as possessing server licenses:
+        node01
+        node02
+        node03
+mmchlicense: Command successfully completed
+mmchlicense: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+
+
+[root@node01 data]# mmstartup -N node01
+Fri Jun 20 10:29:53 CST 2024: mmstartup: Starting GPFS ...
+[root@node02 data]# mmstartup -N node02
+Fri Jun 20 10:29:55 CST 2024: mmstartup: Starting GPFS ...
+[root@node03 data]# mmstartup -N node03
+Fri Jun 20 10:29:58 CST 2024: mmstartup: Starting GPFS ...
+```
+
+
+## 3.5 创建 NSD
+
+**/etc/mmfs/nsdfile 配置文件内容:**
+```bash
+%nsd: device=/dev/sdc
+  nsd=data01
+  servers=node01
+  usage=dataAndMetadata
+  failureGroup=-1
+  pool=system
+  thinDiskType=auto
+%nsd: device=/dev/sdd
+  nsd=data02
+  servers=node01
+  usage=dataAndMetadata
+  failureGroup=-1
+  pool=system
+  thinDiskType=auto
+%nsd: device=/dev/sdc
+  nsd=data03
+  servers=node02
+  usage=dataAndMetadata
+  failureGroup=-1
+  pool=system
+  thinDiskType=auto
+%nsd: device=/dev/sdd
+  nsd=data04
+  servers=node02
+  usage=dataAndMetadata
+  failureGroup=-1
+  pool=system
+  thinDiskType=auto
+%nsd: device=/dev/sdc
+  nsd=data05
+  servers=node03
+  usage=dataAndMetadata
+  failureGroup=-1
+  pool=system
+  thinDiskType=auto
+%nsd: device=/dev/sdd
+  nsd=data06
+  servers=node03
+  usage=dataAndMetadata
+  failureGroup=-1
+  pool=system
+  thinDiskType=auto
+```
+
+
+**配置文件参数解析:**
++ `device`: 块设备名称, 用于定义为 NSD 的磁盘.
++ `nsd`: 指定要创建的 NSD 的名称. 不能以保留字符串 'gpfs' 开头.
++ `servers`: 指定一个以逗号分隔的 NSD 服务器节点列表.
++ `usage`: 指定要存储在磁盘上的数据类型.
+  + dataAndMetadata: 表示磁盘包含数据和元数据. 默认配置.
+  + dataOnly: 表示磁盘仅包含数据, 不包含元数据.
+  + metadataOnly: 表示磁盘仅包含元数据, 不包含数据.
+  + descOnly: 表示磁盘不包含数据和文件元数据. 仅用于保存文件系统描述符的副本, 并可用作某些灾难恢复配置中的第三故障组.
+  + localCache: 表示磁盘将用作本地只读缓存设备.
++ `failureGroup`: 标识磁盘所属的故障组. 默认值为 -1, 表示该磁盘与其他任何磁盘没有共同的故障点.
++ `pool`: 指定 NSD 所分配的存储池的名称. 默认值为 system.
++ `thinDiskType`: 指定空间回收磁盘类型.
+  + no: 磁盘设备支持空间回收. 此值为默认值.
+  + nvme:  磁盘是支持 TRIM 的 NVMe 设备, 支持 mmreclaimspace 命令.
+  + scsi: 磁盘是薄配置的 SCSI 磁盘, 支持 mmreclaimspace 命令.
+  + auto: 磁盘类型为 nvme 或 scsi. IBM Storage Scale 将尝试自动检测实际磁盘类型.
+
+
+
+**相关命令:** (以下操作仅在 node01 上执行即可)
+```bash
+# 创建 nsd
+mmcrnsd -F /etc/mmfs/nsdfile
+
+# 查看 nsd
+mmlsnsd -m
+
+# 启动集群
+mmstartup -a
+
+# 查看集群状态
+mmgetstate -Las
+```
+
+
+**相关操作日志:**
+```bash
+[root@node01 data]# mmcrnsd -F /etc/mmfs/nsdfile
+mmcrnsd: Processing disk sdc
+mmcrnsd: Processing disk sdd
+mmcrnsd: Processing disk sdc
+mmcrnsd: Processing disk sdd
+mmcrnsd: Processing disk sdc
+mmcrnsd: Processing disk sdd
+mmcrnsd: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+
+
+[root@node01 data]# mmlsnsd -m
+
+ Disk name       NSD volume ID      Device          Node name or Class       Remarks
+-------------------------------------------------------------------------------------------
+ data01          0A321B396854D5C1   /dev/sdc        node01                   server node
+ data02          0A321B396854D5C2   /dev/sdd        node01                   server node
+ data03          0A321B3A6854D5C3   /dev/sdc        node02                   server node
+ data04          0A321B3A6854D5C4   /dev/sdd        node02                   server node
+ data05          0A321B3B6854D5C5   /dev/sdc        node03                   server node
+ data06          0A321B3B6854D5C6   /dev/sdd        node03                   server node
+
+
+[root@node01 data]# mmstartup -a
+Fri Jun 20 10:34:58 CST 2024: mmstartup: Starting GPFS ...
+node01:  The GPFS subsystem is already active.
+node02:  The GPFS subsystem is already active.
+node03:  The GPFS subsystem is already active.
+
+
+[root@node01 data]# mmgetstate -Las
+
+ Node number  Node name  Quorum  Nodes up  Total nodes  GPFS state    Remarks
+---------------------------------------------------------------------------------
+           1  node01        2         3          3      active        quorum node
+           2  node02        2         3          3      active        quorum node
+           3  node03        2         3          3      active        quorum node
+
+ Summary information
+---------------------
+Number of nodes defined in the cluster:            3
+Number of local nodes active in the cluster:       3
+Number of remote nodes joined in this cluster:     0
+Number of quorum nodes defined in the cluster:     3
+Number of quorum nodes active in the cluster:      3
+Quorum = 2, Quorum achieved
+```
+
+
+## 3.6 创建文件系统
+
+**相关命令:** (以下操作仅在 node01 上执行即可)
+```bash
+# 创建文件系统
+mmcrfs defaultfs \
+       -F /etc/mmfs/nsdfile \
+       -A yes \
+       -B 4M \
+       -j scatter \
+       -m 2 \
+       -r 2 \
+       -M 2 \
+       -R 2 \
+       -T /gpfsdata
+
+# 查看文件系统
+mmlsfs all
+```
+
+**参数解释:** (详细参数解释参见 [5.1.8/mmcrfs](https://www.ibm.com/docs/en/storage-scale/5.1.8?topic=reference-mmcrfs-command))
++ `Device`: 指定文件系统名称.
++ `-F`: 指定一个包含要添加到文件系统的磁盘的 NSD 节和池节的文件.
++ `-A`: 指示文件系统何时挂载, 当指定为 yes 时代表 GPFS 守护进程启动时挂载. (默认为 yes)
++ `-B`: 指定文件系统中数据块的大小.
++ `-j`: 指定默认的块分配映射类型. 支持 cluster/scatter 两种类型.
++ `-m`: 指定文件的 inode, 目录和间接块的默认副本数量. 可选值为 1/2/3. 此值不能大于 MaxMetadataReplicas 的值. 默认值为 1.
++ `-r`: 指定文件的每个数据块的默认副本数量. 可选值为 1/2/3. 此值不能大于 MaxDataReplicas 的值. 默认值为 1.
++ `-M`: 指定文件的 inode, 目录和间接块的默认最大副本数量. 可选值为 1/2/3. 此值不能小于 DefaultMetadataReplicas 的值. 默认值为 2.
++ `-R`: 指定文件的数据块的默认最大副本数量. 可选值为 1/2/3. 此值不能小于 DefaultDataReplicas 的值. 默认值为 2.
++ `-T`: 指定 GPFS 文件系统的挂载点目录. 如果未指定, 挂载点将设置为 DefaultMountDir/Device. DefaultMountDir 的默认值为 /gpfs, 但可以使用 mmchconfig 命令进行更改.
+
+
+**相关操作日志:**
+```bash
+[root@node01 data]# mmcrfs defaultfs \
+>        -F /etc/mmfs/nsdfile \
+>        -A yes \
+>        -B 4M \
+>        -j scatter \
+>        -m 2 \
+>        -r 2 \
+>        -M 2 \
+>        -R 2 \
+>        -T /gpfsdata
+
+The following disks of defaultfs will be formatted on node node01:
+    data01: size 102400 MB
+    data02: size 102400 MB
+    data03: size 102400 MB
+    data04: size 102400 MB
+    data05: size 102400 MB
+    data06: size 102400 MB
+Formatting file system ...
+Disks up to size 1.56 TB can be added to storage pool system.
+Creating Inode File
+  31 % complete on Fri Jun 20 10:49:07 2024
+  46 % complete on Fri Jun 20 10:49:12 2024
+  74 % complete on Fri Jun 20 10:49:17 2024
+ 100 % complete on Fri Jun 20 10:49:21 2024
+Creating Allocation Maps
+Creating Log Files
+Clearing Inode Allocation Map
+Clearing Block Allocation Map
+Formatting Allocation Map for storage pool system
+Completed creation of file system /dev/defaultfs.
+mmcrfs: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+
+
+[root@node01 data]# mmlsfs all
+
+File system attributes for /dev/defaultfs:
+==========================================
+flag                value                    description
+------------------- ------------------------ -----------------------------------
+ -f                 8192                     Minimum fragment (subblock) size in bytes
+ -i                 4096                     Inode size in bytes
+ -I                 32768                    Indirect block size in bytes
+ -m                 2                        Default number of metadata replicas
+ -M                 2                        Maximum number of metadata replicas
+ -r                 2                        Default number of data replicas
+ -R                 2                        Maximum number of data replicas
+ -j                 scatter                  Block allocation type
+ -D                 nfs4                     File locking semantics in effect
+ -k                 all                      ACL semantics in effect
+ -n                 32                       Estimated number of nodes that will mount file system
+ -B                 4194304                  Block size
+ -Q                 none                     Quotas accounting enabled
+                    none                     Quotas enforced
+                    none                     Default quotas enabled
+ --perfileset-quota no                       Per-fileset quota enforcement
+ --filesetdf        no                       Fileset df enabled?
+ -V                 31.00 (5.1.7.0)          File system version
+ --create-time      Fri Jun 20 11:32:26 2024 File system creation time
+ -z                 no                       Is DMAPI enabled?
+ -L                 33554432                 Logfile size
+ -E                 yes                      Exact mtime mount option
+ -S                 relatime                 Suppress atime mount option
+ -K                 whenpossible             Strict replica allocation option
+ --fastea           yes                      Fast external attributes enabled?
+ --encryption       no                       Encryption enabled?
+ --inode-limit      615424                   Maximum number of inodes
+ --uid              3B1B320A:6854D64A        File system UID
+ --log-replicas     0                        Number of log replicas
+ --is4KAligned      yes                      is4KAligned?
+ --rapid-repair     yes                      rapidRepair enabled?
+ --write-cache-threshold 0                   HAWC Threshold (max 65536)
+ --subblocks-per-full-block 512              Number of subblocks per full block
+ -P                 system                   Disk storage pools in file system
+ --file-audit-log   no                       File Audit Logging enabled?
+ --maintenance-mode no                       Maintenance Mode enabled?
+ --flush-on-close   no                       flush cache on file close enabled?
+ --auto-inode-limit no                       Increase maximum number of inodes per inode space automatically?
+ --nfs4-owner-write-acl yes                  NFSv4 implicit owner WRITE_ACL permission enabled?
+ -d                 data01;data02;data03;data04;data05;data06  Disks in file system
+ -A                 yes                      Automatic mount option
+ -o                 none                     Additional mount options
+ -T                 /gpfsdata                Default mount point
+ --mount-priority   0                        Mount priority
+```
+
+
+## 3.7 挂载文件系统
+
+该方式用于在 server 节点上挂载测试文件系统. 如果需要在其他客户端上挂载测试文件系统, 建议查看第四栏目中的集群运维操作.
+
+**相关命令:**
+```bash
+# 挂载文件系统
+# 所有 server 上均挂载, 执行时间可能会长一些
+mmmount defaultfs /gpfsdata -N all
+
+# 查看挂载点信息
+df -hT
+
+# 访问文件系统目录
+ls -al /gpfsdata
+
+# 取消挂载
+mmumount /gpfsdata
+```
+
+**相关操作日志:**
+```bash
+[root@node01 data]# mmmount defaultfs /gpfsdata -N all
+Fri Jun 20 11:34:12 CST 2024: mmmount: Mounting file systems ...
+
+
+[root@node01 data]# df -hT /gpfsdata
+Filesystem     Type  Size  Used Avail Use% Mounted on
+defaultfs      gpfs  600G  6.5G  594G   2% /gpfsdata
+```
+
+
+## 3.8 配置 Dashboard
+
+该步骤用于配置 GPFS GUI, 即 GPFS 的 Dashboard Web UI, 可用于从界面管控集群.
+
+**相关命令:** (在期望运行 Dashboard 的节点上执行, 这里选择 node01 和 node02 两个节点)
+```bash
+# 安装外部依赖软件包 (在选择的每个节点执行)
+dnf install -y postgresql-contrib postgresql-server
+
+# 安装 gpfs 软件包 (在选择的每个节点执行)
+cd /usr/lpp/mmfs/5.1.8.1/zimon_rpms/rhel8/
+rpm -ivh gpfs.gss.pmcollector-5.1.8-1.el8.x86_64.rpm
+rpm -ivh gpfs.gss.pmsensors-5.1.8-1.el8.x86_64.rpm
+cd /usr/lpp/mmfs/5.1.8.1/gpfs_rpms/
+rpm -ivh gpfs.java-5.1.8-1.x86_64.rpm
+rpm -ivh gpfs.gui-5.1.8-1.noarch.rpm
+
+# 初始化收集器节点 (在其中一个节点执行即可)
+mmperfmon config generate --collectors node01,node02
+
+# 设置传感器节点, 即监控数据采集的来源节点 (在其中一个节点执行即可)
+mmchnode --perfmon -N node01,node02,node03
+
+# 启动 gui dashboard 组件 (在选择的每个节点执行)
+systemctl start gpfsgui
+systemctl enable gpfsgui
+
+# 创建 gui 用户, 根据提示输出密码 (在其中一个节点执行即可)
+/usr/lpp/mmfs/gui/cli/mkuser admin -g SecurityAdmin
+
+# 访问 web ui, 对应为 node01 或 node02 的地址
+https://10.10.0.1
+https://10.10.0.2
+```
+
+
+**相关操作日志:**
+```bash
+[root@node01 data]# mmperfmon config generate --collectors node01,node02
+mmperfmon: Node node02 is not a perfmon node.
+mmperfmon: Node node01 is not a perfmon node.
+mmperfmon: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+
+
+[root@node01 data]# mmchnode --perfmon -N node01,node02,node03
+Fri Jun 20 13:59:26 CST 2024: mmchnode: Processing node node03
+Fri Jun 20 13:59:26 CST 2024: mmchnode: Processing node node02
+Fri Jun 20 13:59:26 CST 2024: mmchnode: Processing node node01
+mmchnode: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+```
+
+## 3.9 配置 CES
+
+GPFS 的 CES 节点用于支持 NFS 访问, 提供通用的 NFS 访问方式.
+
+GPFS 提供两种高可用 NFS 服务的方式, 分别是 `Cluster NFS (CNFS)` 和 `Cluster Export Services (CES)`, 二者互斥只能选其一.
++ `Cluster NFS (CNFS)`: 只支持 NFS. 基于 Linux kernel 的 NFS server, NFS 的配置不由 GPFS 管理, 元数据性能较好.
++ `Cluster Export Services (CES)`: 支持 NFS/SMB/Object. 基于用户空间的 Ganesha NFS server, GPFS 管理 NFS 配置, 数据流式访问性能好.
+
+我们在 node02 和 node03 上部署 CES 服务.
+
+
+|节点名称|节点 IP|VIP|
+|:--:|:--:|:--:|
+|node02|10.10.0.2|10.10.0.102|
+|node03|10.10.0.3|10.10.0.103|
+
+
+**相关命令:**
+```bash
+# 修改所有 server 节点中 /etc/hosts, 添加虚拟 ip 映射
+cat /etc/hosts
+10.10.0.1 node01
+10.10.0.2 node02
+10.10.0.3 node03
+10.10.0.101 node01
+10.10.0.102 node02
+10.10.0.103 node03
+
+# 设置 ces 共享目录 (在选择的任一节点上执行)
+mmchconfig cesSharedRoot=/gpfsdata
+
+# 重启需要部署 ces 服务的节点上的服务 (在选择的每个节点上执行)
+mmshutdown -N node02
+mmstartup -N node02
+mmshutdown -N node03
+mmstartup -N node03
+
+# 添加 ces 节点 (在选择的任一节点上执行)
+mmchnode --ces-enable -N node02,node03
+
+# 检查虚拟 ip 的解析是否存在问题 (在选择的任一节点上执行)
+mmcmi host 10.10.0.102
+mmcmi host 10.10.0.103
+
+# 添加 ces 虚拟 ip, ces 组件会在对应的网卡建立该虚拟 ip (在选择的任一节点上执行)
+mmces address add --ces-ip 10.10.0.102,10.10.0.103
+
+# 查看 ces ip (在选择的任一节点上执行)
+mmces address list --full-list
+
+# 查看 ces 节点上的虚拟 ip 绑定情况 (在每个节点上执行)
+ip a
+
+# 查看集群 ces 节点 (在选择的任一节点上执行)
+mmlscluster --ces
+
+# 安装 nfs-ganesha/smb 软件 (在选择的每个节点上执行)
+cd /usr/lpp/mmfs/5.1.8.1/ganesha_rpms/rhel8/
+dnf remove -y nfs-ganesha
+rpm -ivh gpfs.nfs-ganesha-debuginfo-3.5-ibm071.22.el8.x86_64.rpm
+rpm -ivh gpfs.nfs-ganesha-3.5-ibm071.22.el8.x86_64.rpm
+rpm -ivh gpfs.nfs-ganesha-gpfs-3.5-ibm071.22.el8.x86_64.rpm
+rpm -ivh gpfs.nfs-ganesha-utils-3.5-ibm071.22.el8.x86_64.rpm
+cd /usr/lpp/mmfs/5.1.8.1/smb_rpms/rhel8/
+rpm -ivh gpfs.smb-4.17.5_gpfs_1-3.el8.x86_64.rpm
+rpm -ivh gpfs.smb-debuginfo-4.17.5_gpfs_1-3.el8.x86_64.rpm
+
+# 启动 nfs 服务 (在选择的任一节点上执行)
+mmces service enable NFS
+
+# 检查 nfs 状态
+mmces service list -a
+
+# 设置用户认证方式
+mmuserauth service create --data-access-method file --type userdefined
+
+# 新增 nfs export
+mkdir -p /gpfsdata/nfsexport01
+mmnfs export add /gpfsdata/nfsexport01 --client "10.10.0.1(Access_Type=RW,Squash=no_root_squash)"
+
+# 客户端挂载 nfs export
+# 可以使用 ces vip 的两个任意一个 vip 连接
+mount -t nfs -o vers=4,ro 10.10.0.102:/gpfsdata/nfsexport01 /mnt/share
+```
+
+
+**相关操作日志:**
+```bash
+[root@node02 data]# mmchconfig cesSharedRoot=/gpfsdata
+mmchconfig: Command successfully completed
+mmchconfig: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+
+
+[root@node02 data]# mmchnode --ces-enable -N node02,node03
+Fri Jun 20 15:49:12 CST 2024: mmchnode: Processing node node03
+Fri Jun 20 15:49:19 CST 2024: mmchnode: Processing node node02
+mmchnode: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+
+
+[root@node02 data]# mmces address list --full-list
+cesAddress     cesNode     attributes   cesGroup   cesPrefix   preferredNode   unhostableNodes
+-------------- ----------- ------------ ---------- ----------- --------------- -----------------
+10.10.0.102    node02      none         none       none        none            none
+10.10.0.103    node03      none         none       none        none            none
+
+
+[root@node02 data]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: ens0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 1000
+    link/ether 00:50:56:85:34:ba brd ff:ff:ff:ff:ff:ff
+    inet 10.10.0.2/24 brd 10.10.0.255 scope global noprefixroute ens0
+       valid_lft forever preferred_lft forever
+    inet 10.10.0.102/24 scope global secondary ens0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::250:56ff:fe85:34ba/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+
+
+[root@node03 data]# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: ens0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 1000
+    link/ether 00:50:56:85:fb:43 brd ff:ff:ff:ff:ff:ff
+    inet 10.10.0.3/24 brd 10.10.0.255 scope global noprefixroute ens0
+       valid_lft forever preferred_lft forever
+    inet 10.10.0.103/24 scope global secondary ens0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::250:56ff:fe85:fb43/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+
+
+[root@node02 data]# mmlscluster --ces
+GPFS cluster information
+========================
+  GPFS cluster name:         gpfscluster.node01
+  GPFS cluster id:           12883004940134699797
+
+Cluster Export Services global parameters
+-----------------------------------------
+  Shared root directory:                /gpfsdata
+  Enabled Services:                     None
+  Log level:                            0
+  Address distribution policy:          even-coverage
+
+Node   Daemon node name            IP address       CES IP address list
+-----------------------------------------------------------------------
+   2   node02                      10.10.0.2        10.10.0.102
+   3   node03                      10.10.0.3        10.10.0.103
+
+
+[root@node02 data]# mmces service enable nfs
+mmchconfig: Command successfully completed
+mmchconfig: Propagating the cluster configuration data to all
+  affected nodes.  This is an asynchronous process.
+node02:  NFS: service already running.
+node03:  NFS: service already running.
+```
+
+
+
+# 4. 集群运维
+
+## 4.1 新增客户端
+
+在执行以下命令操作前, 请确保如下条件满足:
++ `所有 server 节点`:
+  + /etc/hosts 文件中已配置新增 client 节点的映射记录;
+  + 可通过 ssh 免密访问 client 节点;
++ `新增的 client 节点`:
+  + /etc/hosts 文件中已记录所有 server 节点的映射记录;
+  + 本地已存在待安装的 gpfs 软件包;
+
+**相关命令:**
+```bash
+# ========== 1. 安装 gpfs 依赖包/软件包 ==========
+
+# for centos 7/8
+dnf install -y ksh m4 kernel-devel kernel-devel-$(uname -r) kernel-headers gcc-c++ \
+               python3 net-tools perl-Thread-Queue
+rpm -ivh --replacepkgs gpfs.base-5.1.8-1.x86_64.rpm
+rpm -ivh --replacepkgs gpfs.docs-5.1.8-1.noarch.rpm
+rpm -ivh --replacepkgs gpfs.gpl-5.1.8-1.noarch.rpm
+rpm -ivh --replacepkgs gpfs.gskit-8.0.55-19.1.x86_64.rpm
+rpm -ivh --replacepkgs gpfs.gss.pmsensors-5.1.8-1.el8.x86_64.rpm
+rpm -ivh --replacepkgs gpfs.license.da-5.1.8-1.x86_64.rpm
+rpm -ivh --replacepkgs gpfs.msg.en_US-5.1.8-1.noarch.rpm
+
+# for ubuntu 20/22
+apt-get install -y make cpp gcc g++ binutils ksh m4 linux-kernel-headers libaio1 \
+                   selinux-utils binfmt-support libssl-dev gawk libsasl2-dev
+dpkg -i gpfs.afm.cos_1.0.0-10.1_amd64.deb
+dpkg -i gpfs.base_5.1.8-1_amd64.deb
+dpkg -i gpfs.compression_5.1.8-1_amd64.deb
+dpkg -i gpfs.docs_5.1.8-1_all.deb
+dpkg -i gpfs.gpl_5.1.8-1_all.deb
+dpkg -i gpfs.gskit_8.0.55-19.1_amd64.deb
+dpkg -i gpfs.java_5.1.8-1_amd64.deb
+dpkg -i gpfs.license.da_5.1.8-1_amd64.deb
+dpkg -i gpfs.msg.en-us_5.1.8-1_all.deb
+
+# for ubuntu 20
+dpkg -i gpfs.gss.pmsensors_5.1.8-1.U20.04_amd64.deb
+dpkg -i gpfs.librdkafka_5.1.8-1.U20.04_amd64.deb
+
+# for ubuntu 22
+dpkg -i gpfs.gss.pmsensors_5.1.8-1.U22.04_amd64.deb
+dpkg -i gpfs.librdkafka_5.1.8-1.U22.04_amd64.deb
+
+# 配置 bin 路径
+
+# for centos 7/8
+/etc/bashrc
+echo "export PATH=\$PATH:/usr/lpp/mmfs/bin" | sudo tee -a > /etc/bashrc
+
+# for ubuntu 20/22
+echo "export PATH=\$PATH:/usr/lpp/mmfs/bin" | sudo tee -a > /etc/bash.bashrc
+
+
+
+# ========== 2. 构建并添加客户端节点 ==========
+
+# 构建可移植层软件 (在 client 节点上执行)
+mmbuildgpl
+
+# 添加新 client 节点 (在 server 节点上执行)
+mmaddnode -N client01
+
+# 调整节点许可证 (在 server 节点上执行)
+mmchlicense client -N client01
+
+# 修改 client 节点配置 (在 server 节点上执行)
+mmchconfig autoload=yes,verbsRdma=disable -N client01
+
+# 启动 client 节点 (在 client 节点上执行)
+mmstartup
+
+# 查看节点挂载
+df -h
+
+# 设置传感器节点 (在 server 节点上执行)
+mmchnode --perfmon -N client01
+```
+
+
+## 4.2 GUI 运维操作
+
+### 4.2.1 命令操作
+
+**相关命令:**
+```bash
+# ========== gui 配置变更 ==========
+# 仅需在任意 server 节点上执行
+
+# 设置容量监控节点和间隔
+mmperfmon config update GPFSDiskCap.restrict=[node] GPFSDiskCap.period=86400
+
+# 设置 fileset 容量监控节点和间隔
+mmperfmon config update GPFSFilesetQuota.restrict=[node] GPFSFilesetQuota.period=3600
+
+# ========== 移除 gui 组件 ==========
+# 仅需在任意 server 节点上执行
+
+# 停止 gui 节点服务
+systemctl stop gpfsgui
+systemctl disable gpfsgui
+
+# 获取传感器节点列表
+mmlscluster | grep perfmon
+
+# 移除传感器节点
+mmchnode --noperfmon -N node01,node02,node03
+```
+
+### 4.2.2 API 操作
+
+GPFS GUI 提供了 API 服务, 用于获取集群变更, 变更集群配置等.
+
+**相关 API:**
+```bash
+# 获取 gpfs gui api 列表
+curl -k -u "admin:password" -X GET \
+    --header "accept:application/json" \
+    "https://10.10.0.1:443/scalemgmt/v2/info"
+```
+
+
+## 4.3 移除集群
+
+**相关命令:**
+```bash
+# ========== 移除集群 ==========
+# 需要在所有 server 节点上执行, 执行前需确保已移除所有客户端节点
+
+# 停止所有 server 节点
+mmshutdown
+
+# 卸载软件
+dnf remove -y "gpfs*"
+
+# 移除 gpfs 相关的 fstab 开机挂载
+cat /etc/fstab
+vi /etc/fstab
+
+# 移除 gpfs 相关的文件
+ll /etc/systemd/system
+ll /etc/systemd/system/multi-user.target.wants
+rm -rf /etc/systemd/system/gpfscsi-wr.service
+rm -rf /etc/systemd/system/multi-user.target.wants/gpfscsi-wr.service
+rm -rf /usr/lpp/mmfs
+rm -rf /var/mmfs
+
+# 清除 gpfs nsd 相关硬盘数据 (每块盘都需要执行, 避免下次再次部署时新增 nsd 组件出错)
+fdisk /dev/sdc
+wipefs -a /dev/sdc
+dd if=/dev/zero of=/dev/sdc bs=1M count=100
+```
+
+## 4.4 CES 运维
+
+
+**相关命令:**
+```bash
+# 新增 nfs export
+mkdir -p /gpfsdata/nfsexport01
+mmnfs export add /gpfsdata/nfsexport01 --client "10.10.0.1(Access_Type=RW,Squash=no_root_squash)"
+
+# 移除 nfs export
+mmnfs export remove /gpfsdata/nfsexport01
+
+# 新增 nfs export client
+mmnfs export change /gpfsdata/nfsexport01 --nfsadd "10.10.0.5(Access_Type=RO,Squash=no_root_squash)" --nfsposition 0
+
+# 修改 nfs export client
+mmnfs export change /gpfsdata/nfsexport01 --nfschange "10.10.0.5(Access_Type=RW,Squash=no_root_squash)" --nfsposition 0
+
+# 移除 nfs export client
+mmnfs export change /gpfsdata/nfsexport01 --nfsremove 10.10.0.5
+```
+
+## 4.5 配置变更
+
+**相关命令:**
+```bash
+# 指定配额命令是否忽略数据复制因子. 有效值为 yes/no. 默认值为 no.
+# 
+# 该值为 no: 两副本集群中设置 quota 为 100GB, 实际可用为 50GB;
+# 该值为 yes: 两副本集群中设置 quota 为 100GB, 实际可用为 100GB;
+mmchconfig ignoreReplicationForQuota=yes
+
+
+# 指定GPFS 文件系统上的df命令输出是否忽略数据复制因子. 有效值为 yes/no. 默认值为no.
+# 
+# 该值为 no: 两副本集群中, 实际存储文件大小为 100GB, 通过 df 显示为 200GB;
+# 该值为 yes: 两副本集群中, 实际存储文件大小为 100GB, 通过 df 显示为 100GB;
+mmchconfig ignoreReplicationOnStatfs=yes
+```
+
+## 4.6 Fileset 运维
+
+**相关命令:**
+```bash
+# 新增 fileset
+mmcrfileset defaultfs fileset01
+
+# 删除 fileset
+mmdelfileset defaultfs fileset01
+
+# 查看 fileset link path
+# 输出信息每列自动对齐
+mmlsfileset defaultfs | column -t
+
+# 创建 fileset link path
+mmlinkfileset defaultfs fileset01 -J /gpfsdata/fileset01
+
+# 删除 fileset link path
+mmunlinkfileset defaultfs fileset01
+
+# 查看 fileset quota
+# 输出信息每列自动对齐
+mmrepquota -j defaultfs | column -t
+
+# 设置 fileset quota 块大小
+# soft limit 为 90G, hard limit 为 100G
+mmsetquota defaultfs:fileset01 --block 90G:100G
+
+# 设置 fileset quota 文件数量
+# soft limit 为 9000, hard limit 为 10000
+mmsetquota defaultfs:fileset01 --files 9000:10000
+```
+
+
+## 4.7 文件/目录属性
+
+> **注意:** 如果客户端机器上启动了 `selinux`, 那么当客户端挂载存储时可能会导致 `mount | grep gpfs` 中存在 `seclabel` 参数, 这可能会导致在启用了 `appendonly` 的目录中执行 `mkdir, cp` 等命令时报错 `Read-only file system`, 从而导致操作结果不明确. 比如执行 `mkdir` 已经成功了, 但是仍会报错 `Read-only file system`; 比如执行 `cp -R` 操作失败, 但是也已经往目标路径中传输了部分数据等.
+
+
+**属性说明:**
++ `appendonly`:
+  + 对目录设置后, 该目录中可新建文件/目录, 该目录不可删除, 不可重命名. 且该目录下的子目录和子文件将继承父目录的属性.
+  + 对文件设置后, 该文件只可追加写, 不可删除, 不可重命名.
++ `immutable`:
+  + 对目录设置后, 该目录中无法创建任何文件/目录, 该目录不可删除, 不可重命名. 所有会导致数据变更的操作均会报错: `Read-only file system`.
+    + 当该目录中之前存在文件/目录, 且当仅对该目录启用 immutable 属性后, 该目录下的子文件和子目录不可以被删除, 重命名等, 但是其子目录中仍然可以创建删除文件目录等操作.
+  + 对文件设置后, 该文件内容不可修改, 不可删除, 不可重命名. 所有会导致数据变更的操作均会报错: `Read-only file system`.
+
+
+**相关命令:**
+```bash
+# 查看文件属性
+touch /gpfsdata/testfile
+mmlsattr -L /gpfsdata/testfile
+
+# 文件属性启用 immutable
+mmchattr -i yes /gpfsdata/testfile
+
+# 文件属性关闭 immutable
+mmchattr -i no /gpfsdata/testfile
+
+# 文件属性启用 appendonly
+mmchattr -a yes /gpfsdata/testfile
+
+# 文件属性关闭 appendonly
+mmchattr -a no /gpfsdata/testfile
+
+# 查看目录属性
+mmlsattr -L /gpfsdata
+
+# 设置目录及目录下所有文件目录的属性, 开启 immutable
+# 其他属性操作同理
+find /gpfsdata | xargs -n 1 mmchattr -i yes
+```
+
+## 4.8 定位 GUI 的连接进程
+
+某些场景下可能会出现某些服务或者进程配置了错误的 GUI 的账户密码, 导致 GUI 认证失败, 这通常会触发 GUI 的报警事件, 为此我们需要在对应的访问客户端机器上定位异常的服务或进程, 则可以是使用下面的脚本:
+```bash
+#!/bin/bash
+
+# 指定 GUI 的 API 地址
+TARGET_IP="10.10.10.1:443"
+LOG_FILE="connection_monitor.log"
+
+# 清空日志文件
+> "$LOG_FILE"
+
+# 存储已处理的 PID, 避免重复记录
+declare -A seen_pids
+
+echo "开始监控连接到 $TARGET_IP 的进程..."
+echo "日志文件: $LOG_FILE"
+
+while true; do
+    while IFS= read -r line; do
+        # 提取PID
+        if [[ "$line" =~ pid=([0-9]+) ]]; then
+            # 获取连接信息
+            conn_info=$(echo "$line" | awk '{print $1, $4, $5}')
+            conn_state=$(echo "$conn_info" | awk '{print $1}')
+            local_addr=$(echo "$conn_info" | awk '{print $2}')
+            remote_addr=$(echo "$conn_info" | awk '{print $3}')
+
+            # 获取进程信息
+            pid_val="${BASH_REMATCH[1]}"
+            proc_info=$(ps -p "$pid_val" -o pid,cmd --no-headers 2>/dev/null)
+
+            # 获取父进程 ID 和详细信息
+            ppid=$(ps -o ppid= -p "$pid_val" 2>/dev/null | tr -d ' ')
+            if [[ -n "$ppid" ]]; then
+                parent_info=$(ps -p "$ppid" -o pid,cmd --no-headers 2>/dev/null)
+            else
+                parent_info="[父进程已退出]"
+            fi
+
+            # 记录日志
+            timestamp=$(date +"%Y-%m-%d %T")
+            echo "========================================" | tee -a "$LOG_FILE"
+            echo "时间戳      : $timestamp" | tee -a "$LOG_FILE"
+            echo "连接信息    : $local_addr -> $remote_addr" | tee -a "$LOG_FILE"
+            echo "连接状态    : $conn_state" | tee -a "$LOG_FILE"
+            echo "进程PID     : $pid_val" | tee -a "$LOG_FILE"
+            echo "进程命令    : ${proc_info:-[进程已退出]}" | tee -a "$LOG_FILE"
+            echo "父进程PID   : ${ppid:-N/A}" | tee -a "$LOG_FILE"
+            echo "父进程命令  : ${parent_info:-N/A}" | tee -a "$LOG_FILE"
+        fi
+    # 使用 ss 获取所有TCP连接
+    done < <(ss -ntp | grep -v "State" | grep "$TARGET")
+
+    # 每秒检查一次
+    sleep 1
+done
+```
+
+
+# 5. 参考资料
+
++ GPFS 安装搭建: https://www.jianshu.com/p/a0ecc0838b3b?utm_campaign=maleskine&utm_content=note&utm_medium=seo_notes&utm_source=recommendation
++ IBM Storage Scale Doc: https://www.ibm.com/docs/en/storage-scale/5.1.8
++ GPFS 分布式文件系统在云计算环境中的实践: https://www.sohu.com/a/213249408_151779
++ GPFS 文件系统部署步骤: https://www.cnblogs.com/despotic/p/17304002.html
++ 安装 GPFS 管理 GUI: https://www.yaoge123.com/blog/archives/1424

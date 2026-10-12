@@ -1,0 +1,106 @@
+# 使用 FPM 优雅的进行 rpm 打包
+
+# 1. 介绍
+
+对于有过构建 rpm 安装包相关操作的应该知道可以使用 `spec文件` 以及 `rpmbuild指令` 进行打包操作, 不过 `spec文件` 的编写也是一个十分令人头懂的事情, 我之前曾经有过一篇使用 spec 文件打包的文章, 参考[RPM打包记录](https://www.bugwz.com/2019/01/01/make-rpm/), 这里介绍一个更高效, 更人性化的打包工具:[FPM](https://github.com/jordansissel/fpm).
+
+FPM 是一个快速高效的打包工具, 该工具本身为 Ruby 的一个模块, 因此使用该工具之前需要安装 Ruby;
+
+# 2. 安装与使用
+
+## 2.1 安装
+
+```bash
+# 安装ruby
+yum -y install ruby rubygems ruby-devel
+
+# 替换国内的ruby镜像
+gem sources --add https://gems.ruby-china.com/ --remove https://rubygems.org/
+
+# 验证镜像是否替换成功
+gem sources -l
+
+# 安装fpm
+gem install fpm
+```
+
+## 2.2 参数介绍
+
+```bash
+-f :强制覆盖[覆盖同名rpm包]
+-n :指定的rpm包名
+-p :指定的rpm包文件放置位置,最后将rpm存放在该路径下;
+-v :指定的rpm包版本
+-d :指定依赖的软件   ( [-d 'name'] or [-d 'name > version'] 例子: -d 'libstdc++ >= 4.4.3')
+-a :指定系统架构,如果是noarch则为'-a all' 或者 '-a native' [x86_64] 当软件不区分64位或32位的时候可以 noarch
+-s :指定input的数据类型,默认为dir数据类型,支持的源类型:"dir" "rpm" "gem" "python" "empty" "tar" "deb" "cpan" "npm" "osxpkg" "pear" "pkgin" "virtualenv" "zip"
+-m :指定打包人员[Packager]  ([ -m 'user'])
+-C :指定打包的相对路径,类似于buildroot. 比如 -C /tmp/apr/,同时在 /tmp/apr/ 目录下存在一个 usr/local/bin/ 目录,则最后打包安装的目录信息为 /usr/loca/bin/;
+-t :指定需要制作成什么包,可选项有:"rpm" "deb" "solaris" "puppet" "dir" "osxpkg" "p5p" "puppet" "sh" "solaris" "tar" "zip"
+--description  		:软件包描述
+--conflicts				:指定冲突软件
+--url							:指定站点[例如:"http://www.cnblog.com/roach57" ]
+--verbose					:安装过程详细打印
+--after-install   :包安装之后执行的脚本 也可写作 --post-install FILE
+--before-install  :包安装之前执行的脚本 
+--after-remove    :包卸载之后执行的脚本
+--before-remove   :包卸载之前执行的脚本
+--after-upgrade   :包更新之后执行的脚本[仅支持 deb 和 rpm 这两种包]
+--before-upgrade  :包更新之前执行的脚本
+--iteration       :发布序号[就是rpm包里面的release]
+--epoch           :纪元
+--no-rpm-sign     :不使用rpm签名   Signature
+--license         :证书许可 [可选项有 'BSD(开源软件)' 'GPLv2(自由软件)' 'MIT' 'Public Domain(公共域)' 'Distributable(贡献)' 'commercial(商业)' 'Share(共享)等',一般的开发都写'BSD'或'GPL']
+--vendor          :供应商名称 [ --vendor 'admin@fpm.com']
+--no-depends      :代表没有任何依赖包,和-d是对立的,不能共用
+--config-files    :指定配置文件,可以指定目录[递归]
+--directories     :指定包目录
+--category        :软件所属的类别,参考SPEC文件中的Group配置项
+```
+
+## 2.3 打包实践
+
++ 初始目录信息:
+
+  + `/data/test/` 目录列表为:
+
+  ```bash
+  `-- usr
+      `-- local
+          `-- bin
+              `-- sh
+                  `-- install.sh
+                  `-- remove.sh
+                  `-- run.sh
+  ```
+
+  + `/data/out/` 目录为空;
+  + `/usr/local/bin/sh` 目录不存在;
+
++ 打包脚本如下所示:
+
+  ```bash
+  fpm -f -s dir -t rpm -n mysh \
+  -v 1.5 \
+  --iteration 6 \
+  -C /data/test/ \
+  -p /data/out/ \
+  --description 'This is mysh rpm' \
+  --url 'http://www.mysh.com' \
+  --after-install /data/test/usr/local/bin/sh/install.sh \
+  --after-remove /data/test/usr/local/bin/sh/remove.sh
+  ```
+
++ 执行脚本后日志信息为:
+
+  ```bash
+  Created package {:path=>"/data/out/mysh-1.5-6.x86_64.rpm"}
+  ```
+
++ 本地安装指定的 rpm 包:
+
+  ```bash
+  yum localinstall -y /data/out/mysh-1.5-6.x86_64.rpm
+  ```
+
++ 本地的 `/usr/local/bin/sh` 目录中可查看到指定的三个 sh 文件;

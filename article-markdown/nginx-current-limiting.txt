@@ -1,0 +1,98 @@
+# Ngxin 的限流方式
+
+# 1. 简介
+
+[Nginx](https://nginx.org/en/)的限流的实现, 可以保证高并发场景下的服务的可用性, 控制网络以及 CPU/内存负载, 极端场景下还可以减小暴力破解对系统的危害性. Nginx 本身自带了几个限流模块 :
+
++ 对客户端的限流模块:
+  + [ngx_http_limit_conn_module](http://nginx.org/en/docs/http/ngx_http_limit_conn_module.html): 按照连接数限流, 限制单个 IP 的并发连接数;
+  + [ngx_http_limit_req_module](http://nginx.org/en/docs/http/ngx_http_limit_req_module.html): 按照请求速率限流, 使用漏桶的方式限制请求的处理速率;
+
++ 对服务端的限流模块:
+  + [ngx_http_upstream_module](http://nginx.org/en/docs/http/ngx_http_upstream_module.html): 用于定义可以由 `proxy_pass`, `fastcgi_pass`, `uwsgi_pass`, `scgi_pass`, `memcached_pass` 和 `grpc_pass` 指令引用的服务器组;
+
+
+
+# 2. 限流模块
+
+## 2.1 ngx_http_limit_conn_module
+
+用于设置单 IP 最大允许的连接数, 当超过该连接数, 服务器将返回错误信息 (默认错误码为 `503`).
+
+```bash
+http {
+    limit_conn_zone $binary_remote_addr zone=one:10m;
+    ...
+    server {
+        ...
+        location /download/ {
+            limit_conn one 10;
+        }
+        ...
+    }
+    ...
+}
+```
+
++ `limit_conn_zone`:
+  + 语法:`limit_conn_zone key zone=name:size;`
+  + 示例解释: 设置共享内存的大小, 用于存储各 Client 的状态, 其中 `zone` 配置对应的值可以自定义;
+  + 配置位置: 可配置于 `http` 中;
++ `limit_conn`:
+  + 语法:`limit_conn zone number;`
+  + 示例解释: 访问 `/download/` 地址的 IP 可以允许同时存在 `10` 个连接, 其中 `one` 可以为其他值, 需要保持与 `limit_conn_zone` 配置中的 `zone` 后的信息对应;
+  + 配置位置: 可配置于 `http`,`server`,`location` 中;
+
++ 更多参数请参考 `ngx_http_limit_conn_module` 模块的[官方文档](http://nginx.org/en/docs/http/ngx_http_limit_conn_module.html);
+
+## 2.2 ngx_http_limit_req_module
+
+使用令牌桶的方式限制每个 Client 的请求处理速率, 如果请求的速率超过限制则会被延迟处理, 当数量超过突发值时会返回错误信息 (默认错误码为 `503`).
+
+```bash
+http {
+    limit_req_zone $binary_remote_addr zone=one:10m rate=1r/s;
+    ...
+    server {
+        ...
+        location /search/ {
+            limit_req zone=one burst=5;
+        }
+        ...
+    }
+    ...
+}
+```
+
++ `limit_req_zone`:
+  + 语法:`limit_req_zone key zone=name:size rate=rate[sync];`
+  + 示例解释: 分配 `10m` 大小的共享内存存储客户端的状态, 每个地址每秒只能请求 `1` 次;
+  + 配置位置: 可配置于 `http` 中;
++ `limit_req`:
+  + 语法:`limit_req zone=name [burst=number] [nodelay | delay=number]`;
+  + 示例解释: 令牌桶一共有 `5` 块令牌, 并且每秒钟只新增 `1` 块令牌, 5 块令牌发完后, 多出来的请求就会返回 `503`;
+  + 配置位置: 可配置于 `http`,`server`,`location` 中;
+
++ 更多参数请参考 `ngx_http_limit_req_module` 模块的[官方文档](http://nginx.org/en/docs/http/ngx_http_limit_req_module.html);
+
+## 2.3 ngx_http_upstream_module
+
+```bash
+upstream backend {
+    server backend1.example1.com:8083 max_conns=10;
+    server backend2.example2.com:8084 max_conns=10;
+}
+
+server {
+    location / {
+        proxy_pass http://backend;
+    }
+}
+```
+
++ max_conns: 从 1.5.9 版本后开支持该参数 (商业版本中), 从 1.11.5 版本之后非商业版本也可以使用;
+  + 语法:`max_conns=number`
+  + 示例解释: 限制连接后端服务器的最大连接数为 `10`;
+  + 配置位置: 可配置于 `upstream` 中;
+
++ 更多参数请参考 `ngx_http_upstream_module` 模块的[官方文档](http://nginx.org/en/docs/http/ngx_http_upstream_module.html);

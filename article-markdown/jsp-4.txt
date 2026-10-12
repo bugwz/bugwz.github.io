@@ -1,0 +1,46 @@
+# JSP 页面执行过程-JSP 笔记-4
+
+# 1. 环境
+
+
+
+1. Eclipse Java EE IDE for Web Developers. 
+  Version: Neon.1a Release (4.6.1)
+2. Apache Tomcat version: 8.0.39
+
+# 2. 开始
+
+>整体过程感受:
+
+当我们请求 WEB 容器中的 JSP 页面时, WEB 容器便将被访问的页面交给 JSP 引擎去处理. Tomcat 中的 JSP 引擎就是一个 Servlet 程序, 它负责解释和执行 JSP 页面.
+
+每个 JSP 页面在第一次被访问时, JSP 引擎先将它翻译成一个 Servlet 源程序, 接着再把这个 Servlet 源程序编译成 Servlet 的 class 类文件, 然后再由 WEB 容器像调用普通 Servlet 程序一样的方式来装载和解释执行这个由 JSP 页面翻译成的 Servlet 程序.
+
+由于每台服务器的环境不同, 具体的由 Tomcat 中的 JSP 引擎转译的源码地址也就不一样. 在我本机的环境中, 我可以通过查看控制台的相关提示, 就可以快速找到与我项目中 jsp 文件对应的 java 文件和 class 文件. 示例图如下. (当然如果你实在想了很多办法也没能找到 jsp 转译的相关文件位置, 那就用最笨的方法, 来个具体盘搜索, 或者直接来个全盘搜索, 搜索格式为: jsp 文件名+_jsp+. java)
+
+![Console Infos](/assets/images/posts/jsp-4/jsp-4-1.webp)
+
+>JSP 的具体执行过程如下:
+
+1. 客户端发出请求.
+2. Web 容器将 JSP 转译成 Servlet 源代码.
+3. Web 容器将产生的源代码进行编译.
+4. 把执行结果响应至客户端.
+
+>总结如下:
+
+JSP 执行过程:
+
+1. 首先, 客户端发出请求 (request ), 请求访问 JSP 网页
+2. 接着, JSP Container 将要访问的. JSP 文件 转译成 Servlet 的源代码 (. java 文件)
+3. 然后, 将产生的 Servlet 的源代码 (. java 文件) 经过编译, 生成. class 文件, 并加载到内存执行
+4. 最后把结果响应 (response ) 给客户端
+
+补充: 执行 JSP 网页文件时, 需要经过两个时期: 转译时期 (TranslationTime) 和请求时期 (RequestTime).
+
+- 转译时期: JSP 转译成 Servlet 类 (. class 文件).
+     - 将 JSP 网页转译为 Servlet 源代码 (. java), 此段称为转译时期 (Translation time); 将 JSP 网页转译为 Servlet 源代码 (. java), 此段称为转译时期 (Translation time);
+     - 将 Servlet 源代码 (. java) 编译成 Servlet 类 (. class), 此阶段称为编译时期 (Compilation time).
+       其实, JSP 就是一个 Servlet.
+
+- 请求时期: Servlet 类 (. class 文件) 执行后, 响应结果至客户端.

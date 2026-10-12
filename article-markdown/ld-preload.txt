@@ -1,0 +1,75 @@
+# 共享库 LD_PRELOAD 环境变量分析
+
+# 1. 简介
+
+`LD_PRELOAD` 是 `Linux/Unix` 系统的一个环境变量, 它影响程序的运行时的链接 (Runtime linker), 它允许在程序运行前定义优先加载的动态链接库. 这个功能主要就是用来有选择性的载入不同动态链接库中的相同函数. 通过这个环境变量, 我们可以在主程序和其动态链接库的中间加载别的动态链接库, 甚至覆盖正常的函数库. 一方面, 我们可以以此功能来使用自己的或是更好的函数 (无需别人的源码), 而另一方面, 我们也可以以向别人的程序注入程序, 从而达到特定的目的.
+
+**动态库的搜索路径搜索的先后顺序是:**
+
+- 编译目标代码时指定的动态库搜索路径 (可指定多个搜索路径, 按照先后顺序依次搜索);
+- 环境变量 `LD_LIBRARY_PATH` 指定的动态库搜索路径 (可指定多个搜索路径, 按照先后顺序依次搜索);
+- 配置文件 `/etc/ld.so.conf` 中指定的动态库搜索路径 (可指定多个搜索路径, 按照先后顺序依次搜索);
+- 默认的动态库搜索路径 `/lib`;
+- 默认的动态库搜索路径 `/usr/lib`;
+
+# 2. 模拟实现
+
+这里并不是直接替换系统中的函数调用, 而是采用添加 hook 的方式进行;
+
+- main.c
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+int main(int argc, char *argv[]) {
+  if(strcmp(argv[1], "test")) {
+    printf("Incorrect password\n");
+  } else {
+    printf("Correct password\n");
+  }
+  return 0;
+}
+```
+
+- 用于劫持函数的 `.so` 代码 `hook.c`
+
+```c
+#include <stdio.h>
+#include <string.h>
+#include <dlfcn.h>
+
+/* hook的目标是strcmp,所以typedef了一个STRCMP函数指针,
+ * hook的目的是要控制函数行为,从原库libc.so.6中拿到strcmp指针,保存成old_strcmp以备调用. */
+typedef int(*STRCMP)(const char*, const char*);
+
+int strcmp(const char *s1, const char *s2) {
+  static void *handle = NULL;
+  static STRCMP old_strcmp = NULL;
+
+  if(!handle) {
+    handle = dlopen("libc.so.6", RTLD_LAZY);
+    old_strcmp = (STRCMP)dlsym(handle, "strcmp");
+  }
+  printf("oops!!! hack function invoked. s1=<%s> s2=<%s>\n", s1, s2);
+  return old_strcmp(s1, s2);
+}
+```
+
+- 编译运行:
+
+```bash
+# 编译
+gcc -o main main.c
+gcc -fPIC -shared -o hook.so hook.c -ldl
+
+# 运行
+LD_PRELOAD=./hook.so ./main 123
+```
+
+- 运行结果:
+
+```bash
+oops!!! hack function invoked. s1=<123> s2=<test>
+Incorrect password
+```

@@ -1,0 +1,233 @@
+# RPM 打包记录
+
+# 1. 简介
+
+RPM(Redhat Package Manager) 是一个开放的软件包管理系统, 用于 Redhat, CentOS, Fedora 等 Linux 分发版的常见的软件包管理器. 因为它允许分发已编译的软件, 所以用户只用一个命令就可以安装软件.
+
+RPM 拥有功能强大的查询选项. 我们可以搜索数据库来查询软件包或文件. RPM 软件包中的文件是以压缩格式存放的, 拥有一个定制的二进制头文件, 其中包含有关包和内容的信息, 可以让我们对单个软件包的查询简便又快速.
+
+RPM 另一个强大的功能是进行软件包的验证. 如果我们担心误删了某个软件包中的某个文件, 我们就可以对它进行验证. 任何非正常现象将会被通知. 如果需要的话还可以重新安装该软件包. 在重新安装过程中, 所有被修改过的配置文件将被保留.
+
+RPM 设计目标之一就是要保持软件包的原始特征, 就象该软件的原始发布者发布软件时那样. 通过使用 RPM 我们可以拥有最初的软件和最新的补丁程序, 还有详细的软件构建信息.
+
+概括的说: RPM 有五种基本的操作功能 (不包括创建软件包): 安装, 卸载, 升级, 查询, 和验证.
+
+# 2. 打包基础
+
+## 2.1 打包环境
+
+本文使用 CentOS 作为 rpm 打包的打包环境, 同时安装一些打包必备的软件, 针对不同软件的构建过程, 我们还需要其他的编译打包工具, 比如 C/C++的 make 与 gcc, Python 的 setuptools 等, 我们根据具体需求进行安装即可;
+
+```bash
+# 安装依赖软件包
+yum -y install gcc gcc-c++ autoconf automake zlib-devel openssl-devel pcre-devel
+# 安装rpm-build打包工具
+yum -y install rpm-build
+# 创建rpm打包环境依赖目录
+mkdir -p ~/rpmbuild/{BUILD,RPMS,S{OURCES,PECS,RPMS}}
+# 声明rpm build环境根目录
+echo "%_topdir %(echo $HOME)/rpmbuild" > ~/.rpmmacros
+```
+
+
+
+## 2.2 软件包描述文件 (SPEC)
+
+制作一个 rpm 软件包就必须写一个软件包描述文件 (SPEC), 这个文件中包含了软件包的诸多信息, 如软件包的名字, 版本, 类别, 说明摘要, 创建时要执行什么指令, 安装时要执行什么操作, 以及软件包所要包含的文件列表等等.
+
+### 2.2.1 文件头
+
+一般的 spec 文件头包含以下几个域:
+
+- Summary: 用一句话概括该软件包尽量多的信息;
+- Name: 软件包的名字, 最终 RPM 软件包是用该名字与版本号, 释出号及体系号来命名软件包;
+- Version: 软件版本号. 仅当软件包比以前有较大改变时才增加版本号;
+- Release: 软件包释出号. 一般我们对该软件包做了一些小的补丁的时候就应该把释出号加 1;
+- Vendor: 软件开发者的名字;
+- Copyright: 软件包所采用的版权规则. 具体有: GPL(自由软件), BSD, MIT, Public Domain(公共域), Distributable(贡献), commercial(商业), Share(共享) 等, 一般的开发都写 GPL;
+- Group: 软件包所属类别, 具体类别有:
+  - Amusements/Games (娱乐/游戏)
+  - Amusements/Graphics(娱乐/图形)
+  - Applications/Archiving (应用/文档)
+  - Applications/Communications(应用/通讯)
+  - Applications/Databases (应用/数据库)
+  - Applications/Editors (应用/编辑器)
+  - Applications/Emulators (应用/仿真器)
+  - Applications/Engineering (应用/工程)
+  - Applications/File (应用/文件)
+  - Applications/Internet (应用/因特网)
+  - Applications/Multimedia(应用/多媒体)
+  - Applications/Productivity (应用/产品)
+  - Applications/Publishing(应用/印刷)
+  - Applications/System(应用/系统)
+  - Applications/Text (应用/文本)
+  - Development/Debuggers (开发/调试器)
+  - Development/Languages (开发/语言)
+  - Development/Libraries (开发/函数库)
+  - Development/System (开发/系统)
+  - Development/Tools (开发/工具)
+  - Documentation (文档)
+  - System Environment/Base(系统环境/基础)
+  - System Environment/Daemons (系统环境/守护)
+  - System Environment/Kernel (系统环境/内核)
+  - System Environment/Libraries (系统环境/函数库)
+  - System Environment/Shells (系统环境/接口)
+  - User Interface/Desktops(用户界面/桌面)
+  - User Interface/X (用户界面/X 窗口)
+  - User Interface/X Hardware Support (用户界面/X 硬件支持)
+
+- Source: 源程序软件包的名字. 如 stardict-2.0.tar.gz;
+- %define: 定义宏, 例如 `%define test 10`, 这里定义了一个宏, 名称为 test, 值为 10, 要使用这个宏, 使用 `%{testMacro}` 或者 `%testMacro`;
+- %description: 软件包详细说明, 可写在多个行上;
+
+### 2.2.2 %prep
+
+预处理段, 通常用来执行一些解开源程序包的命令, 为下一步的编译安装作准备, %prep 和下面的%build, %install 段一样, 除了可以执行 RPM 所定义的宏命令 (以%开头) 以外, 还可以执行 Shell 命令, 命令可以有很多行;
+
+### 2.2.3 %setup
+
+```bash
+%setup 不加任何选项,仅将软件包打开.
+%setup -n newdir 将软件包解压在newdir目录.
+%setup -c 解压缩之前先产生目录.
+%setup -b num 将第num个source文件解压缩.
+%setup -T 不使用default的解压缩操作.
+%setup -T -b 0 将第0个源代码文件解压缩.
+%setup -c -n newdir 指定目录名称newdir,并在此目录产生rpm套件.
+%patch 最简单的补丁方式,自动指定patch level.
+%patch0 -p0 打第1个补丁,利用当前相对路径名称
+%pacth1 -p2 打第2个补丁,忽略补丁文件第一层目录
+%patch 0 使用第0个补丁文件,相当于%patch ?p 0.
+%patch -s 不显示打补丁时的信息.
+%patch -T 将所有打补丁时产生的输出文件删除.
+```
+
+### 2.2.4 %build
+
+所要执行的命令为生成软件包服务, 如 make 命令
+
+### 2.2.5 %install
+
+将软件安装到虚拟根目录, 其中的命令在安装软件包时将执行, 如 make install 命令
+
+### 2.2.6 %clean
+
+清理一些临时文件, 或是生产中不需要的文件
+
+### 2.2.7 %files
+
+指定安装时需要安装的文件列表, 可以指定文件, 目录, 也可以使用通配符等. 用于定义软件包所包含的文件, 分为三类--说明文档 (doc), 配置文件 (config) 及执行程序, 还可定义文件存取权限, 拥有者及组别;
+
+### 2.2.8 %changelog
+
+修改日志, 你可以将软件的每次修改记录到这里, 保存到发布的软件包中, 以便查询之用. 每一个修改日志都有这样一种格式: 第一行是:* 星期 月 日 年 修改人 电子信箱. 其中: 星期, 月份均用英文形式的前 3 个字母, 用中文会报错. 接下来的行写的是修改了什么地方, 可写多行. 一般以减号开始, 便于后续的查阅;
+
+# 3. 相关指令
+
+## 3.1 打包指令
+
+```bash
+# 只生成二进制格式的rpm包(生成的文件会在对应的RPM目录下存在)
+rpmbuild -bb xxx.spec
+
+# 只生成src格式的rpm包(生成的文件会在刚才建立的SRPM目录下存在)
+rpmbuild -bs xxx.spec
+
+# 只需要生成完整的源文件(源文件存在目录BUILD下)
+rpmbuild -bp xxx.spec
+
+# 完全打包(产生以上3个过程分别生成的包.存放在相应的目录下)
+rpmbuild -ba xxx.spec
+
+
+```
+
+## 3.2 解析包相关指令
+
+```bash
+# 列出rpm包包含的内容
+rpm -qpl *.rpm
+
+# 解压缩出rpm包
+rpm2cpio *.rpm | cpio -div
+
+# 安装spec文件中的所有编译依赖软件,BuidRequires
+yum-duilddep *.spec
+```
+
+# 4. 示例
+
+```bash
+Name:       clutter-gtk
+Summary:    A basic GTK clutter widget
+Version:    0.11.4
+Release:    1.18
+Group:      System/Libraries
+License:    LGPLv2
+URL:        http://www.clutter-project.org/
+Source0:    http://www.clutter-project.org/sources/clutter-gtk/0.11/%{name}-%{version}.tar.bz2
+Source100:  clutter-gtk.yaml
+Requires(post): /sbin/ldconfig
+Requires(postun): /sbin/ldconfig
+BuildRequires:  pkgconfig(clutter-1.0)
+BuildRequires:  pkgconfig(glib-2.0)
+BuildRequires:  pkgconfig(gl)
+BuildRequires:  pkgconfig(gtk+-2.0)
+BuildRequires:  pkgconfig(cairo)
+BuildRequires:  pkgconfig(pango)
+BuildRequires:  pkgconfig(atk)
+/* 这里增加了一个patch  
+ * 打patch 方法 diff -Nur old new>add-gthread.patch
+ */
+Patch0:add-gthread.patch
+
+%description
+This library allows 
+
+/* 这里为添加开发包相关信息的位置 */
+%package devel
+Summary:    Clutter-Gtk header files and development libraries 
+Group:      Development/Libraries                                     
+Requires:   %{name} = %{version}-%{release} 
+
+%description devel 
+Development environment for clutter-gtk
+
+%prep
+
+/**setup 参数***************************
+%setup 不加任何选项,仅将软件包打开.
+%setup -n newdir 将软件包解压在newdir目录.
+%setup -c 解压缩之前先产生目录.
+%setup -b num 将第num个source文件解压缩.
+%setup -T 不使用default的解压缩操作.
+%setup -T -b 0 将第0个源代码文件解压缩.
+%setup -c -n newdir 指定目录名称newdir,并在此目录产生rpm套件.
+%patch 最简单的补丁方式,自动指定patch level.
+%patch 0 使用第0个补丁文件,相当于%patch ?p 0.
+%patch -s 不显示打补丁时的信息.
+%patch -T 将所有打补丁时产生的输出文件删除.
+*************************************/
+%setup -q -n %{name}-%{version} 
+/* 如果原来只有一个"Patch:",您增加"Patch1:",则在SPEC文件%setup行后面的
+   %patch -p1后面新增一行: %patch1 -p1 依此类推.
+ */
+%patch0 -p1
+
+%build 
+%configure --disable-static 
+make %{?jobs:-j%jobs} 
+
+%install 
+%make_install
+/usr/lib/rpm/brp-strip-shared   /* 如果为库文件过大,可以加入此行,去除debug信息 */
+
+%files 
+%defattr(-,root,root,-) 
+%doc AUTHORS ChangeLog COPYING NEWS 
+%{_libdir}/libclutter-gtk-*.so*.0 
+
+%files devel %defattr(-,root,root,-)
+%{_libdir}/pkgconfig/*.pc 
+%{_includedir}/clutter-gtk-0.12/clutter-gtk
+```
