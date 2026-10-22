@@ -1,0 +1,73 @@
+# RedisModule 剖析 - RateLimit
+
+`RateLimit` 是一款基于 Go 的限速库 [golang.org/x/time/rate](https://pkg.go.dev/golang.org/x/time/rate) (基于 `令牌桶` ) 实现的针对于 `key` 的限速模块, 该模块并非直接拦截 `Redis` 中关于特定 `key` 的操作指令, 而是每次在需要执行操作指令之前, 先发送一个判断命令 (该模块提供的特殊命令), 通过这种方式来实现限速的目的.
+
+# 1. 简介
+
++ GitHub 地址:https://github.com/linfangrong/redismodule-ratelimit
+
+# 2. 架构设计
+
+## 2.1 相关命令
+
++ ratelimit.allow : 为指定的 `key` 设置操作速率约束, 后续判断是否能够继续执行需要事先发送该命令进行判断;
+
+## 2.2 相关代码
+
+```go
+
+// 创建一个新的限速器
+var lm *Limiter = NewLimiter()
+func NewLimiter() (lm *Limiter) {
+	lm = &Limiter{
+		dataList: list.New(),
+		dataMap:  make(map[string]*list.Element),
+	}
+	go func() {
+		for range time.Tick(time.Minute) {
+			lm.gc()
+		}
+	}()
+	return
+}
+
+// 判断本次请求是否满足速率约束
+func Allow(resource string, interval int64, burst int64) bool {
+	var (
+		now         time.Time     = time.Now()
+		rateLimiter *rate.Limiter = lm.GetRateLimiter(resource, now, interval, burst)
+	)
+	// 调用 Go 限速库接口
+	return rateLimiter.AllowN(now, 1)
+}
+
+// 速率判断函数
+func (lm *Limiter) GetRateLimiter(resource string, timestamp time.Time, interval int64, burst int64) (rateLimiter *rate.Limiter) {
+	var (
+		item    *limiterItem
+		element *list.Element
+		ok      bool
+	)
+	lm.RLock()
+	element, ok = lm.dataMap[resource]
+	lm.RUnlock()
+	if ok {
+		// 当对应key已经存在时,更新对应key的限速配置
+		item = element.Value.(*limiterItem)
+		item.update(timestamp, interval, burst)
+		lm.dataList.MoveToFront(element)
+	} else {
+		// 当对应key不存在时,创建新的限速对象
+		item = newLimiterItem(resource, timestamp, interval, burst)
+		lm.Lock()
+		element = lm.dataList.PushFront(item)
+		lm.dataMap[resource] = element
+		lm.Unlock()
+	}
+	return item.rateLimiter
+}
+```
+
+## 2.3 持久化
+
+该模块未提供任何的数据持久化方式, 当实例重启后数据会丢失.

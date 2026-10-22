@@ -1,0 +1,75 @@
+# 初次使用 Servlet-JSP 笔记-1
+
+# 1. 环境
+
+1. Eclipse Java EE IDE for Web Developers. Version: Mars.1 Release (4.5.1)
+2. Apache Tomcat version: 8.0.39
+
+# 2. 课堂学习目标
+
+了解 servlet 的虚拟路径使用方法, 这里具体讲解使用 Eclipse 的 servlet3.0 之前的版本 (使用 servlet2.5 版本) 中关于 WebContent/WEB-INF/web.xml 的使用方法以及 servlet3.0 及之后的版本的虚拟路径使用方法.
+
+# 3. 开始
+
+## 3.1 测试一: 利用 servlet3.0 之前的版本进行测试
+
+利用 Eclipse 新建一个 Dynamin Web Project, 调用安装的 Apache Tomcat V8.0 版本, 然后选择 2.5 的 servlet 版本, 该 IDE 会自动新建一个 WebContent/WEB-INF/web.xml 文件.
+
+![New Dynamic Web Project](/assets/images/posts/jsp-1/jsp-1-1.webp)
+
+之后我们新建两个 servlet, 一个直接全部使用默认设置, 另一个我们点击下一步后不使用默认自带的 doPost() 和 doGet() 方法.
+
+![Create Servlet](/assets/images/posts/jsp-1/jsp-1-2.webp)
+
+新建一个 index.jsp 文件后, 软件视图如图所示:
+
+![index.jsp](/assets/images/posts/jsp-1/jsp-1-3.webp)
+
+因为本次我们需要利用 servlet 配置虚拟路径, 所以我们直接利用未初始化重写方法 doPost() 和 doGet() 的 Servlet_2.java 进行操作, 在 Servlet_2.java 中的 Servlet_2 类中空白处点击右键, 选择 "源码", 然后选择 "覆盖/实现方法" 中选择对应的 doGet(), 然后我们进行重写操作, 输出一行数据.
+
+![Servlet2.java](/assets/images/posts/jsp-1/jsp-1-4.webp)
+
+然后我们就需要修改 web.xml 文件进行虚拟路径的部署, 这里由于我们提到了 web.xml 文件, 所以, 我们需要介绍一下什么是 web.xml 文件.
+
+### 3.1.1 题外话: 什么是 web.xml 文件?
+
+web.xml 文件可以简单的理解成 servlet 的一个配置文件, 通过这个配置文件来寻找对应的 servlet 处理业务. 配置 web.xml 的目的就是让容器知道你的请求是由那个 servlet 处理, 然后把 httprequest 和 httpresponse 对象注入到该 servlet 中. 一个 web.xml 中当然可以存在多个 servlet 规则, 具体的使用方法下面将进行介绍.
+
+需要注意的是, 所有部署描述符文件的顶层 (根) 元素为 web-app. 而 XML 元素不像 HTML, 他们是大小写敏感的. 因此, web-App 和 WEB-APP 都是不合法的, web-app 必须用小写. 
+
+### 3.1.2 继续
+
+web.xml 中配置映射 servlet 的规则十分简单, 如下列代码所示:
+```
+<servlet>
+    <servlet-name>Servlet_2</servlet-name>
+    <servlet-class>com.bugwz.servlet.Servlet_2</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>Servlet_2</servlet-name>
+    <url-pattern>/Servlet_2</url-pattern>
+  </servlet-mapping>
+```
+如果你使用的 servlet 的版本是 3.0 之前的版本, 如果你想要成功映射的话, 你必须将这些代码 (上面的代码是必须的, 最简化) 正确的在 web.xml 文件的 web-app 标签中书写, 上述代码具体讲解如下:
+
+1. servlet 标签
+ + servlet-name 标签内的信息对应 servlet-mapping 标签内的 servlet-name 的标签内的信息, 推荐其内的信息与 servlet 的类名相同.
+ + servlet-class 标签内的信息为映射对象的信息, 具体格式为 "servlet 所属包名. servlet 的类名", 这样才能找到具体的类, 并执行.
+2. servlet-mapping 标签
+ + servlet-name 标签内的信息内容上面已经说了.
+ + url-pattern 标签内的信息为该项目下的虚拟路径, 也就是说项目下的/Servlet_2 就会展示类 Servlet_2 中的信息, 这里的虚拟路径可以根据需求修改. 实践可知, url-pattern 中信息若为/*, 则该项目的所有子栏目, 全部指向该处对应的类, 是否可以通过某种方式存放正则表达式待考证.
+3. 执行过程为, 根据 servlet-mapping 标签的子标签 url-pattern 的虚拟路径, 按照 servlet-mapping 标签内的子标签 servlet-name 的信息, 去寻找 servlet 标签中的子标签 servlet-name 中相同的信息, 然后展示对应的 servlet-class 标签中的类中的可展示内容.
+
+## 3.2 测试二: 利用 servlet3.0 及其之后的版本进行测试
+
+这里需要说明的是如果你的项目目前使用的是 servlet3.0 及之后的版本, 那么你的项目中不会直接创建 web.xml, servlet3.0 及之后的版本中新增的注解支持简化了 Servlet/ 过滤器 / 监听器的声明, 从而使得 web.xml 变为可选配置. 这里我们使用 servlet3.1 版本, 目前最新的版本.
+
+![New Dynamic Web Project - Version](/assets/images/posts/jsp-1/jsp-1-5.webp)
+
+我们依次新建两个 `Servlet_1.java` 和 `Servlet_2.java`, 然后我们会发现在新建的 servlet 中带了下面这一行代码, 如下图所示:
+
+`@WebServlet("/Servlet_2")`
+
+![Servlet_2](/assets/images/posts/jsp-1/jsp-1-6.webp)
+
+上面那一行代码其实就充当了 web.xml 中的定义的虚拟路径的那几行代码的功能, 因此 servlet3.0 及之后的版本简化了代码的书写量, 更加简单易用.

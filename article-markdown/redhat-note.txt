@@ -1,0 +1,172 @@
+# Red Hat 课堂学习知识点笔记
+
+# 1. 环境及目录
+
+
+
+课堂讲述及联想所记, 便于自己后来查阅同时与他人便利.
+
++ 两款虚拟机: VMware Workstation 12 Pro, VirtualBox 5.1.22
++ Rad Hat 镜像: RedHat-Server-6.4-i386
++ 其他一些工具: XShell 5, Putty
+
+# 2. 目录列表
+
+>## <a href="#redhat_1">1.VMware 的 VMware Tools 安装与 VirtualBox 的增强工具</a>
+>## <a href="#redhat_2">2.RedHat 的 root 用户的密码初始化</a>
+>## <a href="#redhat_3">3.RedHat 无法使用 yum 安装软件解决方法</a>
+>## <a href="#redhat_4">4. 添加 KDE 桌面/中文支持和 VNC 设置体验</a>
+>## <a href="#redhat_5">5. XShell 和 X11 转发</a>
+
+
+<a id="redhat_1"></a>
+## 2.1 VMware 的 VMware Tools 安装与 VirtualBox 的增强工具
+
+为了加强同时使用虚拟机与主机的用户体验, 像是实现虚拟机和主机图形用户界面之间平滑移动鼠标光标等的需求, 我们在两款虚拟机软件中安装对应的增强工具.
+
+## 2.2 安装 VMware 的 VMware Tools:
+
++ 在虚拟机中进入桌面后, 点击 VMware 菜单栏的 "虚拟机", 然后点击 "安装 VMware Tools", 在 RedHat 中确定 VMware Tools 的挂载点位置.
++ 将 VMware Tools 中的类似于 "VMwareTools-xxxxxx.tar.gz" 的文件解压到另一个文件夹 (例如 tmp) 中, 解压, 并运行安装, 一路确定加回车即可. 示例代码如下:
+```bash
+tar zxvf VMwareTools-xxxxxx.tar.gz -C /tmp/
+cd vmware-tools-distrib/
+./vmware-install.pl
+```
+
+## 2.3 安装 VirtualBox 的增强工具:
+
++ 首先确保本机已经安装 kernel-devel 和 gcc 两个依赖包, 如果没有可以使用下面代码进行安装 (如果下面代码使用后出错, 请参考<a href="#redhat_3">RedHat 无法使用 yum 在线安装软件解决方法</a>):
+```bash
+yum install kernel-devel
+yum install gcc
+```
++ 在虚拟机中进入桌面后, 查看该虚拟机的界面右下角, 会有一排小图标, 其中有个光驱图标, 确保它是灰色的, 即确保该虚拟机的光驱没有被其他占用, 然后点击 VirtualBox 窗口的 "设备", 然后点击 "安装增强工具".
++ 虚拟机系统界面就会弹出安装提示, 点击 "OK", 然后点击 "RUN" 继续即可, 最后重启生效. 类似图如下:
+  ![RedHat](/assets/images/posts/redhat-note/redhat-note-1.webp)
+  ![RedHat](/assets/images/posts/redhat-note/redhat-note-2.webp)
+
+<a id="redhat_2"></a>
+## 2.4 RedHat 的 root 用户的密码初始化
+
+由于在 VMware 中安装的 RedHat 并没有提示设置 root 用户密码, 并且系统策略也不和 Ubuntu 一样: Ubuntu 中当 root 用户未设置密码时, 普通用户可以使用 `sudo passwd root` 初始化 root 账户密码. 所以我们需要如下步骤设置 root 账户密码:
+
++ 重启系统后在引导装载程序菜单上, 用上下方向键选择你忘记密码的那个系统键入 "e" 来进入编辑模式, 我的系统是两个选项, 不过都是一个系统, 区别在于是否有 GUI 显示;
++ 接着用上下键选择最新的内核, 这里是 "kernel /vmlinuz-2.6.32-696.1.1.e16.i686 ro root=UUID=96504b88-d13d-4a", 然后继续按 "e" 键;
++ 然后输入空格+single, 即 " single", 或者直接输入数字 "1", 最后回车;
++ 然后返回了那个内核界面, 按下 "b" 进入单用户模式, 在这里修改 root 的密码, 之后重启即可.
+
+<a id="redhat_3"></a>
+## 2.5 RedHat 无法使用 yum 安装软件解决方法
+
+如果我们在虚拟机中使用 RedHat 去执行 `yum install xxx` 安装软件的话, 系统会给出类似于 "This system is not registered to Red Hat Subscription Management.You can use subscription-manager to register." 这说明我们是没办法使用 yum 在线安装 RedHat 的软件了, 这就十分尴尬了. 这么好用的 yum 不能用, 尴尬癌都犯了有没有.
+
+三种办法解决, 第一种去用 CentOS, 第二种我们使用 RedHat 的光盘 ISO 镜像作为本地源, 第三种我们卸载 RedHat 自带 yum, 然后用 CentOS 的 yum 进行替换. 第二种以及第三种的实现方法具体如下所示:
+
+## 2.6 使用 RedHat 的光盘 ISO 镜像作为本地源
+
++ 首先我们需要挂载本地 RedHat 的光盘 ISO 镜像, 无论是 VMware 还是 VirtualBox, 都是在菜单栏目中将可移动设备光盘中设置为对应的 RedHat 镜像, 并挂在到虚拟机中;
++ 然后我们修改 RedHat 镜像的挂载位置 (一定要记住之前的挂载点), 目的是便于后面使用, 防止空格等字符的存在我们无法进入对应目录等, 图示及命令如下所示:
+  ![](/assets/images/posts/redhat-note/redhat-note-3.webp)
+```bash
+umount /dev/sr0
+mkdir -p /media/cdrom
+mount /dev/sr0 /media/cdrom
+```
++ 接着修改系统源设置文件中的信息, 将我们新挂载的 RedHat 镜像源加入改文件中, 这个文件位置是 `/etc/yum.repos.d/rhel-source.repo`, 我添加的一个源信息是该文件中最后一个, 如下图所示:
+  ![](/assets/images/posts/redhat-note/redhat-note-4.webp)
++ 最后我们清楚 yum 缓存并获取 yum 列表尝试一下, 代码及成功的图示如下所示:
+```bash
+yum clean all
+yum makecache
+```
+![](/assets/images/posts/redhat-note/redhat-note-5.webp)
+## 2.7 使用 CentOS 的 yum 进行替换 RedHat 自带的 yum
+
++ 首先确定系统是 32 位的还是 64 位的, 可以使用命令 `uname -a` 查看, 根据系统位数, 前往<a href="http://mirrors.163.com/centos/6/os/" target="_blank">网易开源镜像站</a>对应目录下的 Packages 目录中获取文件链接使用 `wget` 下载相关软件;
++ (我 RedHat 是 32 位) 相关软件如下所示, 不过你会发现网站中并没有
+   `yum-3.2.29-30.el6.centos.noarch.rpm` , 反而有一个 `yum-3.2.29-81.el6.centos.noarch.rpm`, 我想说的是, 你下载后者安装会出错, 所以你可从[这里](https://github.com/CUBEGWZ/Other/raw/master/yum-3.2.29-30.el6.centos.noarch.rpm)下载 `yum-3.2.29-30.el6.centos.noarch.rpm` 这个文件
+ + python-iniparse-0.3.1-2.1.el6.noarch.rpm
+ + yum-3.2.29-30.el6.centos.noarch.rpm
+ + yum-metadata-parser-1.1.2-16.el6.i686.rpm
+ + yum-plugin-fastestmirror-1.1.30-40.el6.noarch.rpm
++ 然后我们卸载 RedHat 自带的 yum, 解释及命令如下所示:
+ + xargs 是一条 Unix 和类 Unix 操作系统的常用命令. 它的作用是将参数列表转换成小块分段传递给其他命令, 以避免参数列表过长的问题;
+ + --nodeps  强制卸载, 不管依赖性;
+```bash
+rpm -qa | grep yum | xargs rpm -e --nodeps
+```
++ 然后安装下载的 CentOS 的 yum 包, 需要注意的的最后一名命令将两个软件一起安装的原因是防止安装时出现依赖性错误, 代码如下:
+```bash
+rpm -ivh python-iniparse-0.3.1-2.1.el6.noarch.rpm
+rpm -ivh yum-metadata-parser-1.1.2-16.el6.i686.rpm
+rpm -ivh yum-3.2.29-30.el6.centos.noarch.rpm yum-plugin-fastestmirror-1.1.30-40.el6.noarch.rpm
+```
++ 然后我们前往[CentOS镜像使用帮助](http://mirrors.163.com/.help/centos.html)下载 CentOS 6 的 repo 文件, 并将其放置在 `/etc/yum.repo.d` 目录中, 之后编辑下载的 `CentOS6-Base-163.repo` 文件, 将其中的$releasever 更改为 centos 的版本号, 此处为 `6` , 关于 `CentOS6-Base-163.repo` 文件说明一下:
+ + CentOS-Base.repo 是 yum 网络源的配置文件
+ + CentOS-Media.repo 是 yum 本地源的配置文件 ****
++ 最后我们清楚缓存并获取 yum 列表, 之后就可以使用 yum 命令在线安装软件了, 方便至极, 代码如下所示:
+```bash
+yum clean all
+yum makecache
+```
++ 补充: 最后比较意思的是, 当我们重启服务器的时候, 我们会发现, 系统启动界面变成了 `CentOS` 的, 然后, 让我们利用 `cat /etc/issue` 查看系统发行版本时还是 Red Hat.
+
+<a id="redhat_4"></a>
+## 2.8 添加 KDE 桌面/中文支持和 VNC 设置体验
+
+## 2.9 添加 KDE 桌面/中文支持
+
++ 在我们可以使用 `yum` 的基础之上, 我们需要安装 `KDE Desktop` 这个软件组, 我们可以使用下面的命令进行查看与安装:
+```bash
+yum grouplist
+yum groupinstall "KDE Desktop"
+```
++ 之后我们可能需要安装中文支持包, 其中包括 `kde-i18n-Chinese` 和 `kde-l10n-Chinese`, 命令如下所示:
+```bash
+yum install kde-i18n-Chinese
+yum install kde-l10n-Chinese
+```
++ 然后就需要修改系统默认的语言显示, 这里有两种办法, 第一种, 在 GUI 界面上修改, 第二种通过命令行修改, 命令行修改的操作是将 `/etc/sysconfig/i18n` 中的 `LANG="en_US.UTF-8"` 改为 `LANG="zh_CN.UTF-8"`, 然后 `logout` 重新登录即可.
++ 关于 `i18n` 与 `l10n` 的补充解释:
+ + `i18n` 是 "Internationalization" 的缩写, 中间的 18 代表在首字母 "i" 和尾字母 "n" 之间省略了 18 个字母, 国际化是指采用国际标准提取或显示信息;
+ + `l10n` 是 "Localization" 的缩写, 中间的 10 代表在首字母 "l" 和尾字母 "n" 之间省略了 10 个字母, 本地化是在国际化的基础上针对不同地区进行个性化设置, 就例如微软的系统安装诗句;
+
+## 2.10 VNC 设置体验
+
++ VNC(Virtual Network Computing) 是基于 RFB(Remote Frame Buffer) 协议进行通信的, 是一个基于平台无关的简单显示协议的超级瘦客户系统, VNC 的缺省端口是 main: 5900(C/S) 和 http: 5800(B/S) 端口.
+  RFB (远程帧缓存) 是一个远程图形用户的简单协议, 因为它工作在帧缓存级别上, 所以它可以应用于所有的窗口系统, 例如: X11, Windows 和 Mac 系统. 由于 RFB 是基于 TCP 的一个应用层协议, 所以 VNC 也是基于 TCP 协议的.
+
++ 所需软件包括, RedHat 服务器端安装的 VNC 服务器端软件, 以及 Windows 下需要的 VNC 客户端软件, 这里使用 `VNC Viewer`, 下面安装 VNC 服务器端软件:
+```bash
+yum install vnc-server
+```
++ 然后我们需要修改 VNC 的配置文件 `/etc/sysconfig/vncservers` , 根据其中示例设置一个用户认证连接设置, 这里我们使用 root 用户进行远程连接, 也可以创建其他用户进行连接, 我的配置文件如下所示:
+```bash
+VNCSERVERS="1:root"
+VNCSERVERARGS[1]="-geometry 1024x768"
+```
++ 其中关于 VNC 的配置文件详细解释如下所示:
+ + 数字 `1` 代表远程连接的实际 TCP 端口为 `5900+1` , 这是因为 VNC Server 的默认初始端口是 5900, 用户设置的端口是和初始端口做加法然后使用的, 如果想要修改, 可以进入 `/usr/bin/vncserver` 修改即可;
+ + 这里的 `root` 是一个系统用户, 如果设置了多个用户可以通过自己的专属端口使用 VNC, 其中 VNCSERVERS 的内容可以写成 "1: root 2: test", 但是必须存在多个 VNCSERVERARGS [*] .
+ + VNCSERVERARGS 的参数 `-geometry 1024x768` 是设置客户端显示的桌面分辨率大小.
+ + VNCSERVERARGS 的参数 `-nohttpd` 是不监听 HTTP 端口.
+ + VNCSERVERARGS 的参数 `-nolisten 6000` 是不监听 TCP 6000 端口.
+ + VNCSERVERARGS 的参数 `-localhost` 指只允许从本机访问
+ + VNCSERVERARGS 的参数 `-AlwaysShared` 这是默认参数, 不写的话也是默认存在的, 此参数允许可以多个客户端同时使用一个用户及对应的端口进行连接, 但是连接后, 所有的 VNC 界面将显示相同, 所有人都会看到相同的界面.
+ + VNCSERVERARGS 的参数 `-SecurityTypes  None` 是指登录不需要密码认证, 如果将 `None` 换成 `VncAuth` , 则需要密码认证, 默认值是 `VncAuth` .
+ + VNCSERVERARGS 的参数 `-depth` 是色深, 参数有 8,16,24,32.
++ 需要注意防火墙的影响, 如果服务器端开启了 `iptables` 防火墙, 我们可以关闭防火墙, 或者添加防火墙规则, 允许我们的端口通过
+ + 关闭防火墙:` service iptables stop`;
+ + 添加防火墙规则, 允许端口通过:`iptables -A INPUT -p tcp --dport 5900:5920 -j ACCEPT`;
+
+<a id="redhat_5"></a>
+# 3. XShell 和 X11 转发
+
+X11 是 X Window 系统的简称, 由于 X Window 图形系统是一个经典的 Server/Client 架构, 两者通过正常的网络协议进行通信. 可是实现比如: 服务器中并未安装桌面环境, 通过 SSH 建立的隧道进行转发后, 可以实现在另外一台启动了 X Server 的机器上, 由 X Server 调用本机硬件资源, 在屏幕上显示出界面. 在 windows 下我们可以使用 `Xming X Server` 这款软件接受远程传输来的绘图的相关指令并在本机绘制.
+
++ 前提条件是, 服务器端已经开启了 X11 转发, 而系统默认是不开启的, 我们需要编辑 `/etc/ssh/sshd_config` 文件, 设置 `X11Forwarding yes`, 然后执行 `service sshd restart` 命令
++ 在服务器开启了之后, 我们还需要在 SSH 连接软件中开启类似于 "X11 转移" 的功能, 然后打开本地的 `X Server` 软件, 我们在 windows 下测试使用的软件是 `Xming X Server` .
++ 所有 `X Server` 启动后默认会监听本地 6000 端口, `X client` 通过环境变量 DISPLAY 获取 `X Server` 服务地址, 例如
+   `DISPLAY=localhost:0.0` 代表 `X Server` 在本机 6000 端口,
+    `DISPLAY=localhost:1.0` 代表 `X Server` 在本机 6001 端口, 依此类推; 建立连接之前, `X Server` 还需要验证 `X client` 的身份, 最常的是基于 Cookie 机制.

@@ -1,0 +1,105 @@
+# Linux 下查看文件的创建时间
+
+# 1. 简介
+
+`Linux` 的文件能否找到文件的创建时间取决于文件系统类型, 在[ext4](https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout)之前的早期文件系统中 (`ext`,`ext2`,`ext3`), 文件的元数据不会记录文件的创建时间, 它只会记录访问时间, 修改时间, 更改时间 (状态更改时间). 典型的文件的基础信息如下所示:
+
+```bash
+[root@bugwz ~]# stat test.file
+  File: 'test.file'
+  Size: 2         	Blocks: 8          IO Block: 4096   regular file
+Device: 807h/2055d	Inode: 5255117     Links: 1
+Access: (0755/-rwxr-xr-x)  Uid: (    0/    root)   Gid: (    0/    root)
+Access: 2019-12-12 19:11:33.175841399 +0800
+Modify: 2019-12-12 19:11:37.564970487 +0800
+Change: 2019-12-12 19:11:43.079132663 +0800
+ Birth: -
+```
+
++ `Access`: 访问时间, 文件数据的最后访问时间 (例如: 读文件内容);
++ `Modify`: 修改时间, 文件数据的最后修改时间. (例如: 修改文件内容);
++ `Change`: 状态更改时间, 这个跟 Modify 时间很容易混淆, 文件的属性 (权限, 大小等) 的变更时间;
+
+# 2. 实践
+
+## 2.1 获取文件的创建时间
+
++ 获取文件 `inode` 号, 如下所示, 拿到 `inode` 号为:`5255117`;
+
+```bash
+[root@bugwz data]# stat /data/test.file
+  File: '/data/test.file'
+  Size: 2         	Blocks: 8          IO Block: 4096   regular file
+Device: 807h/2055d	Inode: 5255117     Links: 1
+Access: (0755/-rwxr-xr-x)  Uid: (    0/    root)   Gid: (    0/    root)
+Access: 2019-12-12 19:11:33.175841399 +0800
+Modify: 2019-12-12 19:11:37.564970487 +0800
+Change: 2019-12-12 19:11:43.079132663 +0800
+ Birth: -
+```
+
++ 查找文件所在的磁盘路径, 如下所示, 拿到磁盘路径为:`/dev/sda7`
+
+```bash
+[root@bugwz data]# df -h
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda3       3.9G  2.5G  1.2G  70% /
+devtmpfs         16G     0   16G   0% /dev
+tmpfs            16G     0   16G   0% /dev/shm
+tmpfs            16G  1.7G   14G  11% /run
+tmpfs            16G     0   16G   0% /sys/fs/cgroup
+/dev/sda1        12G   11G  787M  94% /usr
+/dev/sda5       7.8G  4.2G  3.2G  57% /tmp
+/dev/sda7       235G  180G   44G  81% /data
+/dev/sda6       7.8G  2.1G  5.3G  29% /var
+```
+
++ 使用 `debugfs` 查看文件的创建时间, 发现创建时间 `crtime` 为:`Thu Dec 12 19:05:23 2019`
+
+```bash
+[root@bugwz data1]# debugfs -R 'stat <5255117>' /dev/sda7
+debugfs 1.42.9 (28-Dec-2013)
+Inode: 5255117   Type: regular    Mode:  0755   Flags: 0x80000
+Generation: 758605841    Version: 0x00000000:00000001
+User:     0   Group:     0   Size: 2
+File ACL: 0    Directory ACL: 0
+Links: 1   Blockcount: 8
+Fragment:  Address: 0    Number: 0    Size: 0
+ ctime: 0x5df2206f:12dddfdc -- Thu Dec 12 19:11:43 2019
+ atime: 0x5df22065:29ec81dc -- Thu Dec 12 19:11:33 2019
+ mtime: 0x5df22069:86b30fdc -- Thu Dec 12 19:11:37 2019
+crtime: 0x5df21ef3:d586ca44 -- Thu Dec 12 19:05:23 2019
+Size of extra inode fields: 28
+EXTENTS:
+(0):16949121
+```
+
+## 2.2 集成脚本:
+
+```bash
+#!/bin/sh
+[ $# -ne 1 ] && echo "Usage:     $0 {FILENAME}" && exit 1
+
+INODE=`ls -i $1 |awk '{print $1}'`
+FILENAME=$1
+
+# 如果传入参数带/,则获取这个传入参数的目录路径并进入目录
+`echo $FILENAME | grep / 1> /dev/null`  &&  { FPWD=${FILENAME%/*};FPWD=${FPWD:=/};cd ${FPWD};FPWD=`pwd`; }  || FPWD=`pwd`
+
+array=(`echo ${FPWD} | sed 's@/@ @g'`)
+array_length=${#array[@]}
+
+for ((i=${array_length};i>=0;i--)); do
+  unset array[$i]
+  SUBPWD=`echo " "${array[@]} | sed 's@ @/@g'`
+  DISK=`df -h |grep ${SUBPWD}$ |awk '{print $1}'`
+  [[ -n $DISK ]] && break
+done
+
+# 文件系统非ext4则退出
+[[ "`df -T | grep ${DISK} |awk '{print $2}'`" != "ext4" ]] && { echo ${DISK} is not mount on type ext4! Only ext4 file system support!;exit 2; }
+
+debugfs -R "stat <${INODE}>" ${DISK}
+```
+
+参考地址:https://www.qingtingip.com/h_375642.html

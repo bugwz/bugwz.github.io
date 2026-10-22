@@ -1,0 +1,1587 @@
+# CephFS RADOS 对象数据解析
+
+本文从 RADOS 对象层解析 CephFS 的 metadata_pool 与 data_pool 布局, 梳理目录分片, 基础 inode, MDS journal, 表对象, 文件数据对象及 0 号对象 xattr/omap 的命名, 内容与排查命令, 帮助理解 CephFS 元数据和数据如何落盘.
+
+# 1. 总体结构
+
+CephFS 将 "文件内容" 和 "文件系统命名空间" 分离存储:
+
+```mermaid
+flowchart LR
+  subgraph Client["CephFS client"]
+    VFS["读写 /a/b/file"]
+  end
+
+  subgraph MDS["MDS"]
+    Cache["目录树,inode,会话,日志"]
+  end
+
+  subgraph MetaPool["metadata_pool"]
+    DirObj["目录分片对象<br/>ino.frag"]
+    InodeObj["基础 inode 对象<br/>ino.00000000.inode"]
+    JournalObj["MDS journal<br/>log ino.offset"]
+    TableObj["MDS 表<br/>inotable/snaptable/sessionmap"]
+  end
+
+  subgraph DataPool["data_pool"]
+    DataObj["文件数据对象<br/>ino.object_no"]
+    BT["0 号对象 xattr<br/>parent/layout/symlink"]
+  end
+
+  VFS --> MDS
+  VFS --> DataObj
+  MDS --> DirObj
+  MDS --> InodeObj
+  MDS --> JournalObj
+  MDS --> TableObj
+  MDS --> BT
+  DataObj --- BT
+```
+
+总体上, `metadata_pool` 承载文件系统命名空间和 MDS 持久状态, `data_pool` 承载普通文件的字节内容. 为了恢复和回溯路径, CephFS 也会在文件的 0 号数据对象上写少量 xattr.
+
+# 2. 对象名
+
+CephFS 主要对象名形式如下:
+
+|对象名形式|所在池|含义|
+|:---:|:---:|:---:|
+|\<ino\>.\<frag\>|metadata_pool|目录分片对象. frag 通常显示为 8 位十六进制, 例如 10000000000.00000000.|
+|\<ino\>.00000000.inode|metadata_pool|基础 inode 的完整对象, 主要用于 root, MDS 私有目录等 base inode.|
+|\<log_ino\>.\<offset\>|metadata_pool|MDS journal 或 purge queue 的日志对象, 也是同一套 ino.offset 命名.|
+|mds\<rank\>_inotable, mds_snaptable, mds\<rank\>_sessionmap|metadata_pool|MDS 表对象.|
+|\<ino\>.\<object_no\>|data_pool|普通文件的数据对象, 例如 inode 0x10000000000 的第 0 个对象可能是 10000000000.00000000.|
+
+普通文件对象名由 `Striper` 生成, 格式是 `%llx.%08llx`: 前半段是 inode 号, 后半段是对象序号. 目录分片也使用类似格式, 但后半段表示 `frag`.
+
+## 2.1 预定义对象
+
+新建 CephFS 后, 即使没有创建业务目录, `metadata_pool` 中也会出现一批 MDS 系统对象. 它们很多也采用 `<ino>.<8 位十六进制>` 形式, 需要结合 inode 来源区分预定义对象和普通目录分片.
+
+**宏定义信息如下**:
+```cpp
+#define MAX_MDS                         0x100
+
+#define NUM_STRAY                       10
+#define MDS_INO_MDSDIR_OFFSET           (1*MAX_MDS)
+#define MDS_INO_LOG_OFFSET              (2*MAX_MDS)
+#define MDS_INO_LOG_BACKUP_OFFSET       (3*MAX_MDS)
+#define MDS_INO_LOG_POINTER_OFFSET      (4*MAX_MDS)
+#define MDS_INO_PURGE_QUEUE             (5*MAX_MDS)
+#define MDS_INO_STRAY_OFFSET            (6*MAX_MDS)
+
+#define MDS_INO_STRAY(x,i) \
+  (MDS_INO_STRAY_OFFSET+((((unsigned)(x))*NUM_STRAY)+((unsigned)(i))))
+#define MDS_INO_MDSDIR(x) (MDS_INO_MDSDIR_OFFSET+((unsigned)x))
+```
+
+注意, 这里不是说所有 CephFS inode 都按 `0x100` 分段分配. 下面只是在解释这批 MDS 预定义内部对象的 inode 常量: 它们用 `MAX_MDS = 0x100` 给不同内部对象类型留出可按 rank 计算的位置.
+
+**预定义对象与公式对应关系**:
+
+|预定义对象类型|公式|
+|:---:|:---:|
+|MDS 私有目录|MDS_INO_MDSDIR(rank) = 0x100 + rank|
+|MDS journal|MDS_INO_LOG_OFFSET + rank = 0x200 + rank|
+|journal pointer|MDS_INO_LOG_POINTER_OFFSET + rank = 0x400 + rank|
+|purge queue|MDS_INO_PURGE_QUEUE + rank = 0x500 + rank|
+|stray directories|MDS_INO_STRAY(rank, i) = 0x600 + rank * 10 + i, i = 0..9|
+
+
+**rank 0 和 rank 1 的示例**:
+
+|内部对象类型|rank 0 inode 前缀|rank 0 对象名前缀|rank 1 inode 前缀|rank 1 对象名前缀|
+|:---:|:---:|:---:|:---:|:---:|
+|MDS 私有目录|0x100|100.00000000|0x101|101.00000000|
+|MDS journal|0x200|200.00000000|0x201|201.00000000|
+|journal pointer|0x400|400.00000000|0x401|401.00000000|
+|purge queue|0x500|500.00000000|0x501|501.00000000|
+|stray directories|0x600..0x609|600.00000000 到 609.00000000|0x60a..0x613|60a.00000000 到 613.00000000|
+
+最后一步是对象名格式化: `file_object_t::c_str()` 使用十六进制 inode 作为前缀, 再加 8 位十六进制的 `frag` 或 `object_no`. 所以 `0x600` 不会显示成十进制 `1536.00000000`, 而是显示成 `600.00000000`.
+
+**预定义对象含义**:
+
+|对象名|含义|
+|:---:|:---:|
+|1.00000000|root 目录的根目录分片对象.|
+|1.00000000.inode|root 这个 base inode 的独立 inode 对象.|
+|100.00000000|rank 0 的 MDS 私有目录分片.|
+|100.00000000.inode|rank 0 MDS 私有目录的 base inode 对象.|
+|200.00000000|rank 0 的 MDS journal head.|
+|200.00000001 等|rank 0 的 MDS journal 数据流对象.|
+|400.00000000|rank 0 的 JournalPointer 对象.|
+|500.00000000|rank 0 的 purge queue journal 对象.|
+|600.00000000 到 609.00000000|rank 0 的 10 个 stray directory 根目录分片.|
+|mds0_inotable, mds0_sessionmap, mds0_openfiles.0, mds_snaptable|MDS 持久表对象.|
+
+stray directories 的 rank 计算需要单独注意: rank 1 不是从 `0x601` 开始, 而是 `MDS_INO_STRAY_OFFSET + rank * NUM_STRAY + i`, 也就是 `0x600 + 1 * 10 + i`, 所以范围是 `0x60a` 到 `0x613`.
+
+## 2.2 普通对象
+
+这里的 "普通对象" 指用户创建目录, 文件之后产生的对象, 不包括 MDS 自己预定义的内部对象.
+
+|类型|池|对象名|内容|
+|:---:|:---:|:---:|:---:|
+|目录分片|metadata_pool|\<dir_ino\>.\<frag\>|omap 保存 dentry; header 是 fnode_t.|
+|文件 0 号对象|data_pool|\<file_ino\>.00000000|文件内容 + parent, layout 等 xattr.|
+|文件数据|data_pool|\<file_ino\>.\<object_no\>|文件内容.|
+
+解析对象名时需要注意两点:
+
+1. `<dir_ino>`, `<file_ino>` 都按十六进制显示; 例如 inode `0x10000000000` 的对象名前缀就是 `10000000000`.
+2. 点号后面的字段含义取决于对象类型: 目录对象里是 `frag`, 文件数据对象里是 `object_no`.
+
+例如用户创建目录 `/dir1`, MDS 会在它的父目录分片 omap 中写入 `dir1_head` 这个 dentry; 当 `/dir1` 自己需要落盘为目录对象时, 对象名会是:
+
+```text
+<dir1_ino>.00000000
+```
+
+用户创建普通文件 `/dir1/file1` 并写入数据后, 文件数据对象会在 `data_pool` 中按 layout 切分:
+
+```text
+<file1_ino>.00000000
+<file1_ino>.00000001
+...
+```
+
+普通目录和普通文件的 inode 元数据通常保存在父目录 dentry value 里的 `InodeStore` 中, 并不是每个 inode 都有一个独立的 `<ino>.00000000.inode` 对象. `<ino>.00000000.inode` 更多用于 root, MDS 私有目录等 base inode, 前面已经单独说明.
+
+# 3. metadata_pool 存储内容
+
+`metadata_pool` 是 MDS 的后端存储. 它不保存普通文件的大块内容, 主要保存目录结构, inode 元数据, MDS 日志和若干持久表.
+
+下面的命令默认文件系统名是 `cephfs`, metadata pool 是 `cephfs.cephfs.meta`, data pool 是 `cephfs.cephfs.data`. 如果集群里的名字不同, 先用下面命令确认并替换命令中的池名:
+
+```bash
+ceph fs ls
+ceph fs get cephfs
+
+FS_NAME=cephfs
+```
+
+## 3.1 对象类别和元信息介绍
+
+### 3.1.1 对象类别
+
+|类别|典型对象名|主要内容|
+|:---:|:---:|:---:|
+|目录分片|\<dir_ino\>.\<frag\>|dentry, 目录统计, 目录 backtrace|
+|基础 inode|\<ino\>.00000000.inode|root, MDS 私有目录等完整 InodeStore|
+|MDS journal|\<mdlog_ino\>.\<offset\>|MDS 日志|
+|journal pointer|\<pointer_ino\>.00000000|journal 前后位置|
+|purge queue|\<purge_queue_ino\>.\<offset\>|purge queue journal|
+|inode table|mds\<rank\>_inotable|inode 分配状态|
+|snapshot table|mds_snaptable|snapshot 状态|
+|session map|mds\<rank\>_sessionmap|client session 状态|
+|open file table|mds\<rank\>_openfiles.\<idx\>|open file 状态|
+
+```bash
+# 列出 metadata pool 中的对象
+rados -p cephfs.cephfs.meta ls | sort
+
+# 查看某个对象的大小和 mtime
+rados -p cephfs.cephfs.meta stat2 1.00000000
+rados -p cephfs.cephfs.meta stat2 1.00000000.inode
+rados -p cephfs.cephfs.meta stat2 mds0_inotable
+```
+
+`metadata_pool` 中的元信息不只放在 object data 里, 还会用到 omap 和 RADOS xattr. 目录分片最典型: omap 保存目录项和目录统计, xattr 保存少量路径回溯信息.
+
+### 3.1.2 元信息介绍
+
+`metadata_pool` 中常见的 RADOS 元信息主要是 xattr 和 omap. 它们是 CephFS 写在 RADOS 对象上的内部结构, 不等同于用户通过 `getfattr` 看到的文件 xattr.
+
+#### 3.1.2.1 xattr
+
+metadata pool 中的 xattr 通常保存对象级辅助信息, 最常见的是目录分片对象上的 `parent`.
+
+|对象|xattr 内容|说明|
+|:---:|:---:|:---:|
+|目录分片 xattr parent|inode_backtrace_t|目录父链回溯.|
+|基础 inode 对象 xattr|无 CephFS 业务内容|inode 内容在 object data.|
+|表对象 xattr|无 CephFS 业务内容|表状态多在 data 或 omap.|
+
+常用操作命令:
+
+```bash
+# 列出目录分片对象上的 xattr
+rados -p cephfs.cephfs.meta listxattr 1.00000000
+
+# 导出 parent xattr;内容是 Ceph 内部二进制编码
+rados -p cephfs.cephfs.meta getxattr 1.00000000 parent > /tmp/dir.parent.bin
+hexdump -C /tmp/dir.parent.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t parent /tmp/dir.parent.bin
+```
+
+#### 3.1.2.2 omap
+
+metadata pool 中的 omap 主要保存目录项和部分 MDS 表状态. 目录分片对象最典型: header 保存目录统计, key/value 保存 dentry.
+
+|对象|omap 内容|说明|
+|:---:|:---:|:---:|
+|目录分片 omap header|fnode_t|分片版本, 统计, scrub 状态.|
+|目录分片 omap key|dentry key|目录项名称和快照标识.|
+|目录分片 omap value|dentry 记录|内嵌 inode 或远端 inode 引用.|
+|表对象 omap|session/open file 记录|MDS 持久表状态.|
+
+常用操作命令:
+
+```bash
+# 列出目录项 key
+rados -p cephfs.cephfs.meta listomapkeys 1.00000000
+
+# 导出目录分片 header,也就是 fnode_t
+rados -p cephfs.cephfs.meta getomapheader 1.00000000 /tmp/root.fnode.bin
+hexdump -C /tmp/root.fnode.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t fnode /tmp/root.fnode.bin
+
+# 导出某个 dentry value;some_name_head 来自 listomapkeys 输出
+rados -p cephfs.cephfs.meta getomapval 1.00000000 some_name_head /tmp/dentry.bin
+hexdump -C /tmp/dentry.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t dentry /tmp/dentry.bin
+
+# MDS 表对象也可能使用 omap
+rados -p cephfs.cephfs.meta getomapheader mds0_sessionmap /tmp/mds0_sessionmap.header.bin
+rados -p cephfs.cephfs.meta listomapkeys mds0_sessionmap
+```
+
+## 3.2 目录分片对象
+
+目录分片对象 (dirfrag) 是目录内容在 `metadata_pool` 中的主要落点. 目录项不会集中存入单个大对象, 而是写入目录分片对象的 omap.
+
+### 3.2.1 对象格式
+
+目录分片对象名由目录 inode 和 frag 组成:
+
+```text
+<dir_ino>.<frag>
+```
+
+其中:
+
+- `<dir_ino>` 是目录 inode 号, 按十六进制显示.
+- `<frag>` 是目录分片 id, 通常显示为 8 位十六进制; 默认分片一般是 `00000000`.
+
+预定义目录分片也使用同样的对象格式:
+
+|对象|含义|
+|:---:|:---:|
+|1.00000000|root 目录分片.|
+|100.00000000|rank 0 MDS 私有目录分片.|
+|600.00000000 到 609.00000000|rank 0 stray 目录分片.|
+
+可以把 `100.00000000` 理解为 rank 0 MDS 的内部父目录. 它的 omap key 里通常有 `stray0_head` 到 `stray9_head`, 这些 dentry value 保存 stray 目录本身的 inode 元数据. `600.00000000` 到 `609.00000000` 则是 stray 目录的目录分片对象, 用来保存 stray 目录下面的 dentry. 也就是说, stray 目录的 inode 元数据通常在父目录 `100.00000000` 的 dentry value 里, 不需要再找 `600.00000000.inode` 这类独立 inode 对象.
+
+### 3.2.2 对象元信息
+
+目录分片对象通常不靠 object data 保存目录项, 核心元信息分为 xattr 和 omap.
+
+#### 3.2.2.1 xattr
+
+目录分片对象上的 xattr 主要用于保存路径回溯信息.
+
+|xattr|内部内容|说明|
+|:---:|:---:|:---:|
+|parent|inode_backtrace_t|目录父链回溯, 用于校验和恢复路径.|
+
+#### 3.2.2.2 omap
+
+目录分片对象最重要的是 omap: header 保存目录分片状态, key/value 保存目录项.
+
+|omap 部分|内部内容|说明|
+|:---:|:---:|:---:|
+|header|fnode_t|分片版本, 统计, scrub 状态.|
+|key|dentry key|目录项名称和快照标识.|
+|value|dentry 记录|内嵌 inode 或远端 inode 引用.|
+
+`fnode_t` 是目录分片自己的头信息, 不是某个文件的 inode:
+
+|fnode_t 字段|含义|
+|:---:|:---:|
+|version|目录分片版本.|
+|snap_purged_thru|已清理到哪个快照.|
+|fragstat|本分片统计.|
+|rstat|递归统计.|
+|damage_flags|目录分片损坏标记.|
+|scrub 字段|scrub 进度和时间.|
+
+dentry 的 value 可以简单分两类:
+
+|类型|主要内容|场景|
+|:---:|:---:|:---:|
+|primary|inode 元数据|普通目录项.|
+|remote|目标 ino + 类型|硬链接或跨目录引用.|
+
+primary dentry 里嵌入的 inode 元数据大致包括:
+
+|字段组|内容|
+|:---:|:---:|
+|inode_t|mode, uid/gid, size, layout 等.|
+|symlink|符号链接目标.|
+|dirfragtree|目录分片树.|
+|xattrs map|文件 xattr 持久状态.|
+|snap 信息|快照和旧 inode 版本.|
+|flags|快照边界, 损坏标记等.|
+
+### 3.2.3 相关命令
+
+直接分析目录分片对象时, `rados` 能列出 omap key, 导出 omap header, 导出 omap value 和读取 xattr. 注意这些内容是 Ceph 内部编码, 通常需要配合 hexdump 或解码工具查看:
+
+```bash
+# root 目录的默认目录分片一般是 1.00000000
+
+# 先把 / 的 inode 和目录分片从 MDS cache flush 到 metadata pool
+ceph tell mds.* flush_path /
+
+# omap key 就是 dentry key,可用于列出目录项名称
+rados -p cephfs.cephfs.meta listomapkeys 1.00000000
+
+# omap header 是编码后的 fnode_t
+rados -p cephfs.cephfs.meta getomapheader 1.00000000 /tmp/root.fnode.bin
+hexdump -C /tmp/root.fnode.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t fnode /tmp/root.fnode.bin
+
+# 某个 dentry 的 value 是编码后的 dentry 记录
+# some_name_head 指 listomapkeys 输出的某个 dentry key,例如文件名 some_name 对应 some_name_head
+rados -p cephfs.cephfs.meta getomapval 1.00000000 some_name_head /tmp/dentry.bin
+hexdump -C /tmp/dentry.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t dentry /tmp/dentry.bin
+
+# 列出目录分片对象上的 RADOS xattr,例如 parent backtrace
+rados -p cephfs.cephfs.meta listxattr 1.00000000
+rados -p cephfs.cephfs.meta getxattr 1.00000000 parent > /tmp/dir.parent.bin
+hexdump -C /tmp/dir.parent.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t parent /tmp/dir.parent.bin
+
+# rank 0 MDS 私有目录和 stray 目录也可用同样方式查看
+rados -p cephfs.cephfs.meta listomapkeys 100.00000000
+rados -p cephfs.cephfs.meta listomapkeys 600.00000000
+```
+
+如需获取 MDS 已解析的目录和 inode 信息, 可以使用 MDS admin 命令. 注意这些命令读取的是 MDS cache 中的语义化状态, 不是直接解码 RADOS omap value:
+
+```bash
+# 列出路径对应的目录分片
+ceph --format json-pretty tell mds.* dirfrag ls /
+
+# dump 目录;最后的 true 表示连 dentry 一起 dump
+ceph --format json-pretty tell mds.* dump dir / true
+
+# dump root inode.这个命令要求 inode number,root 的 0x1 就是 1
+ceph --format json-pretty tell mds.* dump inode 1
+
+# dump 当前 stray 内容
+ceph --format json-pretty tell mds.* dump stray
+```
+
+## 3.3 基础 inode 对象
+
+基础 inode 对象用于保存少数基础 inode 的完整 `InodeStore`, 例如 root inode, 全局 snaprealm, MDS 私有目录等. 普通文件和普通目录的 inode 元数据通常在父目录 dentry value 中, 不一定有独立 inode 对象.
+
+### 3.3.1 对象格式
+
+基础 inode 对象名由 inode 号, 默认对象序号和 `.inode` 后缀组成:
+
+```text
+<ino>.00000000.inode
+```
+
+典型基础 inode 对象包括:
+
+|对象|含义|
+|:---:|:---:|
+|1.00000000.inode|root inode.|
+|100.00000000.inode|rank 0 MDS 私有目录 inode.|
+
+### 3.3.2 对象内容
+
+基础 inode 对象的有效内容在 object data 中:
+
+```text
+CEPH_FS_ONDISK_MAGIC + InodeStore
+```
+
+`InodeStore` 和 primary dentry 内嵌的 inode 数据基本是同一类内容.
+
+|字段组|内容|
+|:---:|:---:|
+|inode_t|mode, uid/gid, size, layout 等.|
+|xattrs map|文件 xattr 持久状态.|
+|snap 信息|快照和旧 inode 版本.|
+|symlink|符号链接目标.|
+|dirfragtree|目录分片树.|
+
+基础 inode 对象通常不靠 RADOS xattr 或 omap 保存 CephFS 业务内容.
+
+### 3.3.3 相关命令
+
+查看这类对象可以直接导出 object data, 但内容仍是 Ceph 内部二进制编码:
+
+```bash
+# root inode 的独立 inode 对象
+rados -p cephfs.cephfs.meta stat2 1.00000000.inode
+rados -p cephfs.cephfs.meta get 1.00000000.inode /tmp/root.inode.bin
+hexdump -C /tmp/root.inode.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t inode-object /tmp/root.inode.bin
+
+# rank 0 MDS 私有目录 inode 的独立 inode 对象
+rados -p cephfs.cephfs.meta stat2 100.00000000.inode
+rados -p cephfs.cephfs.meta get 100.00000000.inode /tmp/mds0.mydir.inode.bin
+hexdump -C /tmp/mds0.mydir.inode.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t inode-object /tmp/mds0.mydir.inode.bin
+
+# MDS cache 中的语义化 inode 视图
+ceph --format json-pretty tell mds.* dump inode 1
+
+# 0x100 = 256,对应 rank 0 MDS 私有目录 inode
+ceph --format json-pretty tell mds.* dump inode 256
+```
+
+## 3.4 MDS journal
+
+MDS journal 也在 `metadata_pool`. 它是恢复用的操作日志, 不是目录树的最终展开形态. 分析目录内容时, 应优先使用目录分片 omap 和 inode 数据.
+
+### 3.4.1 对象格式
+
+MDS journal 使用 `Journaler` 把日志当成一个按 layout 切分的字节流:
+
+```text
+<mdlog_ino>.<offset>
+```
+
+rank 0 的 mdlog inode 通常是 `0x200`, 常见对象包括:
+
+|对象|含义|
+|:---:|:---:|
+|200.00000000|rank 0 journal head.|
+|200.00000001|rank 0 后续 journal 数据对象.|
+|400.00000000|rank 0 journal pointer.|
+
+### 3.4.2 对象内容
+
+MDS journal 的有效内容主要在 object data 中:
+
+|位置|内容|
+|:---:|:---:|
+|journal header|在第一个 journal 对象里, 包含 magic, write/expire/trimmed 位置, layout, 日志格式.|
+|journal entries|后续字节流保存 LogEvent, 例如目录项更新, 表更新, session 变化等.|
+|journal pointer|保存当前 journal 的 front/back.|
+
+默认 layout 的 pool 是 `metadata_pool`, 对象大小默认使用 file layout, 可能受 `mds_log_segment_size` 影响. MDS journal 通常不靠 RADOS xattr 或 omap 保存 CephFS 业务内容.
+
+### 3.4.3 相关命令
+
+查看 journal 相关对象时, 可以先让 MDS flush journal, 减少尚未落盘状态的干扰:
+
+```bash
+# 学习观察时,可以先让 MDS flush journal,减少尚未落盘状态的干扰
+ceph tell mds.* flush journal
+
+# rank 0 的 journal head 和后续日志对象
+rados -p cephfs.cephfs.meta stat2 200.00000000
+rados -p cephfs.cephfs.meta stat2 200.00000001
+rados -p cephfs.cephfs.meta get 200.00000000 /tmp/mds0.journal.head.bin
+hexdump -C /tmp/mds0.journal.head.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t journal-head /tmp/mds0.journal.head.bin
+
+# rank 0 的 JournalPointer 对象
+rados -p cephfs.cephfs.meta stat2 400.00000000
+rados -p cephfs.cephfs.meta get 400.00000000 /tmp/mds0.journal.pointer.bin
+hexdump -C /tmp/mds0.journal.pointer.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t journal-pointer /tmp/mds0.journal.pointer.bin
+```
+
+如果需要把 journal 解码成工具能理解的事件, 可以使用 `cephfs-journal-tool`. 源码里这个工具会拒绝 active file system, 所以只应在文件系统离线或维护场景使用:
+
+```bash
+# 离线后检查 rank 0 journal
+cephfs-journal-tool --rank=cephfs:0 journal inspect
+
+# 导出 rank 0 journal 的二进制 dump
+cephfs-journal-tool --rank=cephfs:0 journal export /tmp/mds0.journal.bin
+
+# 查看 journal header;当前源码的 header get 会输出整个 header
+cephfs-journal-tool --rank=cephfs:0 header get
+```
+
+## 3.5 MDS 表对象
+
+MDS 表对象保存 inode 分配, snapshot, client session, open file 等小型持久状态.
+
+### 3.5.1 对象格式
+
+常见 MDS 表对象名如下:
+
+|对象|含义|
+|:---:|:---:|
+|mds\<rank\>_inotable|当前 rank 的 inode table.|
+|mds_snaptable|全局 snapshot table.|
+|mds\<rank\>_sessionmap|当前 rank 的 session map.|
+|mds\<rank\>_openfiles.\<idx\>|当前 rank 的 open file table 分片.|
+
+### 3.5.2 对象内容
+
+MDS 表对象可能使用 object data, 也可能使用 omap:
+
+|对象|存储位置|内部内容|
+|:---:|:---:|:---:|
+|mds\<rank\>_inotable|object data|版本号 + 空闲 inode 区间.|
+|mds_snaptable|object data|版本号 + snapshot 状态.|
+|mds\<rank\>_sessionmap|omap|header 存版本, key/value 存 client session.|
+|mds\<rank\>_openfiles.\<idx\>|omap|header + open file key/value.|
+
+这些表对象通常不靠 RADOS xattr 保存 CephFS 业务内容.
+
+### 3.5.3 相关命令
+
+这些对象可以先用 `rados` 看原始存储方式, 再用专门工具或 MDS admin 命令看语义化状态:
+
+```bash
+# inode table / snap table 通常是 object data
+rados -p cephfs.cephfs.meta stat2 mds0_inotable
+rados -p cephfs.cephfs.meta get mds0_inotable /tmp/mds0_inotable.bin
+hexdump -C /tmp/mds0_inotable.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t inotable /tmp/mds0_inotable.bin
+
+rados -p cephfs.cephfs.meta stat2 mds_snaptable
+rados -p cephfs.cephfs.meta get mds_snaptable /tmp/mds_snaptable.bin
+hexdump -C /tmp/mds_snaptable.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t snaptable /tmp/mds_snaptable.bin
+
+# sessionmap / openfiles 主要看 omap
+rados -p cephfs.cephfs.meta getomapheader mds0_sessionmap /tmp/mds0_sessionmap.header.bin
+rados -p cephfs.cephfs.meta listomapkeys mds0_sessionmap
+rados -p cephfs.cephfs.meta listomapvals mds0_sessionmap | head
+
+rados -p cephfs.cephfs.meta getomapheader mds0_openfiles.0 /tmp/mds0_openfiles.header.bin
+rados -p cephfs.cephfs.meta listomapkeys mds0_openfiles.0
+```
+
+`cephfs-table-tool` 可以显示 table 的语义内容, 属于维护工具, 生产集群上先确认操作窗口和版本行为:
+
+```bash
+cephfs-table-tool cephfs:0 show inode
+cephfs-table-tool cephfs:all show session
+cephfs-table-tool cephfs:all show snap
+
+# 当前在线 client session 也可以从 MDS admin 命令看
+ceph --format json-pretty tell mds.* session ls
+```
+
+# 4. data_pool 存储内容
+
+`data_pool` 保存普通文件内容. 一个文件会按 layout 切成多个 RADOS 对象.
+
+## 4.1 对象格式
+
+data pool 对象名由文件 inode 和对象序号组成:
+
+```text
+<file_ino>.<object_no>
+```
+
+其中:
+
+- `<file_ino>` 是文件 inode 号, 按十六进制显示.
+- `<object_no>` 是文件数据对象序号, 通常显示为 8 位十六进制.
+
+普通文件 inode 号由对应 MDS rank 的 `InoTable` 分配. 源码中 `InoTable::reset_state()` 把每个 rank 的可分配 inode 范围初始化为:
+
+```text
+start = (rank + 1) << 40
+len   = 1 << 40
+```
+
+因此, 多 MDS 场景下普通 inode 的高位范围和分配它的 rank 有关:
+
+|MDS rank|普通 inode 起始值|第 0 个数据对象示例|
+|:---:|:---:|:---:|
+|rank 0|0x10000000000|10000000000.00000000|
+|rank 1|0x20000000000|20000000000.00000000|
+|rank 2|0x30000000000|30000000000.00000000|
+
+默认情况下可以近似理解为: 文件每 4 MiB 一个对象, 名字从 `<ino>.00000000` 开始递增. 设置了条带参数后, 一个文件范围可能映射到多个对象.
+
+如果文件已经从用户可见目录 unlink, 但仍被打开或等待清理, 它的元数据引用可能出现在 `metadata_pool` 的 stray 目录中; 文件数据对象仍位于 `data_pool`, 对象名仍按 `<file_ino>.<object_no>` 映射. 最终 purge 阶段会根据 MDS 状态删除不再需要的数据对象.
+
+## 4.2 对象内容和元信息
+
+data pool 对象的 object data 保存用户文件内容. 0 号对象还可能带有 CephFS 写入的 RADOS xattr, 用于恢复, 扫描和 layout 迁移.
+
+|位置|内部内容|说明|
+|:---:|:---:|:---:|
+|object data|文件字节内容|client 读写的真正数据.|
+|0 号对象 xattr parent|inode_backtrace_t|inode 到根目录的父链.|
+|0 号对象 xattr layout|file_layout_t|数据池, 对象大小和 stripe 参数.|
+|0 号对象 xattr symlink|symlink 目标|symlink 恢复场景使用.|
+|omap|无 CephFS 文件内容|普通文件内容不靠 omap 表达.|
+
+`parent` xattr 是理解 data_pool 元信息的核心. 它写在文件的 `<ino>.00000000` 对象上, 结构是 `inode_backtrace_t`:
+
+|字段|含义|
+|:---:|:---:|
+|ino|当前 inode 号, 应与对象名前缀一致.|
+|ancestors|从当前 inode 往上到根的父目录链.|
+|pool|当前应使用的数据池 id.|
+|old_pools|layout 迁移或 setlayout 前的旧数据池.|
+
+backtrace 的作用可以这样理解:
+
+```mermaid
+flowchart TB
+  Obj["data_pool 0 号对象<br/>10000000000.00000000"]
+  XParent["xattr parent<br/>ino=0x10000000000"]
+  A1["ancestor: dirino=0x100<br/>dname=file"]
+  A2["ancestor: dirino=0x1<br/>dname=a"]
+  Root["root"]
+
+  Obj --> XParent --> A1 --> A2 --> Root
+```
+
+如果 metadata_pool 丢失或损坏, `cephfs-data-scan` 这类工具可以从 data_pool 枚举对象, 读取 `parent` 和 `layout`, 再尝试重建目录项.
+
+## 4.3 文件 layout 与对象映射
+
+对象序号不是简单按 `offset / object_size` 在所有 layout 下都成立, 还要看 `stripe_unit`, `stripe_count`, `object_size`. 默认 layout 通常是:
+
+|layout 字段|默认值含义|
+|:---:|:---:|
+|stripe_unit|默认 4 MiB.|
+|stripe_count|默认 1.|
+|object_size|默认 4 MiB.|
+|pool_id|文件所在 data pool.|
+|pool_ns|RADOS namespace, 可为空.|
+
+对象映射由 `Striper::file_to_extents` 完成. 逻辑可以简化成下图:
+
+```mermaid
+flowchart LR
+  File["文件 offset/len"] --> Layout["layout<br/>stripe_unit<br/>stripe_count<br/>object_size"]
+  Layout --> ObjNo["计算 object_no"]
+  ObjNo --> OID["对象名<br/><ino>.<object_no>"]
+  Layout --> OLoc["object locator<br/>pool_id + pool_ns"]
+  OID --> RADOS["RADOS 对象"]
+  OLoc --> RADOS
+```
+
+当 `stripe_count = 1` 时, 对象序号基本按对象大小递增. `stripe_count > 1` 时, 同一段连续文件内容会按 stripe unit 分散到多个对象上.
+
+## 4.4 相关命令
+
+分析 `data_pool` 时, 先从对象列表定位 `<file_ino>.00000000`, 再检查 object data 和 0 号对象 xattr:
+
+```bash
+# 列出 data pool 中的对象
+rados -p cephfs.cephfs.data ls | sort | head
+
+# 假设某个文件 inode 是 0x10000000000,第 0 个数据对象就是 10000000000.00000000
+
+# object data 是用户写入的文件内容
+rados -p cephfs.cephfs.data stat2 10000000000.00000000
+rados -p cephfs.cephfs.data get 10000000000.00000000 /tmp/file.obj0
+hexdump -C /tmp/file.obj0 | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 查看原始 hexdump,需先按第六节安装
+cephhexdump -t hexdump /tmp/file.obj0 | head
+
+# 0 号对象上的 RADOS xattr 用来恢复和定位
+rados -p cephfs.cephfs.data listxattr 10000000000.00000000
+rados -p cephfs.cephfs.data getxattr 10000000000.00000000 parent > /tmp/file.parent.bin
+rados -p cephfs.cephfs.data getxattr 10000000000.00000000 layout > /tmp/file.layout.bin
+hexdump -C /tmp/file.parent.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t parent /tmp/file.parent.bin
+hexdump -C /tmp/file.layout.bin | head
+# 可选:使用第六节介绍的自定义工具 cephhexdump 解码,需先按第六节安装
+cephhexdump -t layout /tmp/file.layout.bin
+```
+
+`cephfs-data-scan` 是恢复/重建工具, 不建议在正常生产集群上直接执行; 进入恢复流程后, 可以从这些命令观察它如何消费 data pool:
+
+```bash
+cephfs-data-scan scan_extents cephfs.cephfs.data
+cephfs-data-scan scan_inodes cephfs.cephfs.data
+cephfs-data-scan scan_links
+cephfs-data-scan scan_frags
+```
+
+# 5. attr, xattr, omap 的概念边界
+
+CephFS 中容易混淆的三个概念:
+
+|名称|在这里指什么|例子|
+|:---:|:---:|:---:|
+|inode 字段|编码在 InodeStore 或 dentry value 里的文件元数据|mode, uid, gid, size, mtime, layout, quota.|
+|RADOS xattr|挂在某个 RADOS 对象上的扩展属性|文件 0 号 data object 的 parent, layout; 目录对象的 parent.|
+|RADOS omap|对象上的 key/value map|目录分片的 dentry 列表; sessionmap 的 session 列表.|
+
+所以, 用户执行 `getfattr` 看到的 CephFS 文件 xattr, 不等同于底层 RADOS 对象的 xattr. 前者是文件系统语义, 通常由 MDS 管; 后者是 CephFS 为恢复和定位写在对象上的内部信息.
+
+# 6. 单文件解码工具
+
+前面很多命令都会把 object data, xattr, omap header, omap value 导出成二进制文件. `hexdump -C` 能确认原始字节, 但需要人工按 Ceph 编码格式拆字段; `ceph tell mds.* dump...` 读取的是 MDS cache 中已经解析好的状态, 不等于直接解码某个 RADOS 对象. Ceph 项目中还有 `ceph-dencoder`, 它能解码很多 Ceph 类型, 但它是编译产物, 不适合在本文这种 "导出一个文件后立即对照字节解释" 的场景里直接使用.
+
+因此本文配套了一个免编译的单文件 Python 工具:
+
+```text
+cephhexdump
+```
+
+它只依赖 Python 标准库, 不直接连接 Ceph 集群. 实际使用时把该脚本下载到本地执行环境, 赋予执行权限, 并放到 `PATH` 中或在当前目录以 `./cephhexdump` 执行. 下面统一用 `cephhexdump` 表示已经可直接执行的命令.
+
+使用方式是先用 `rados get`, `rados getxattr`, `rados getomapheader` 或 `rados getomapval` 把目标内容导出到本地文件, 再用该工具解码:
+
+```bash
+cephhexdump [-t TYPE] /path/to/blob
+```
+
+如果不带 `-t`, 默认使用 `auto` 模式, 工具会按已支持的 CephFS 结构逐个尝试; 如果无法识别, 就退回到类似 `hexdump -C` 的原始输出. 输出格式保留左侧偏移量和原始字节, 同时在右侧给出字段解释:
+
+```text
+00000000  05 04 40 00 00 00       -> inode_backtrace_t encoding header, version=5, compat=4, length=64
+00000006  00 00 00 00 00 01 00 00 -> ino = 0x10000000000
+0000000e  01 00 00 00             -> ancestors length = 1
+```
+
+左侧 `00000000`, `00000006` 这类值是字段在文件中的起始偏移, 和 `hexdump -C` 第一列含义一致; 中间是该字段实际消耗的原始字节; 右侧是工具根据指定类型解析出的字段含义. 工具输出里的字段名保持英文, 便于和 Ceph 源码里的结构名, 字段名对照.
+
+当前支持的 `TYPE` 如下:
+
+|类型|对应数据|支持程度|
+|:---:|:---:|:---:|
+|auto|自动识别已支持结构|成功则按结构输出, 失败则输出原始 hexdump.|
+|hexdump|任意二进制文件|强制输出类似 hexdump -C 的原始视图.|
+|parent|data object 或目录分片上的 parent xattr, 即 inode_backtrace_t|解码 inode, 父链, pool, old_pools.|
+|layout|data object 上的 layout xattr, 即 file_layout_t|解码 stripe_unit, stripe_count, object_size, pool_id, pool_ns.|
+|fnode|目录分片 omap header, 即 fnode_t|解码版本, 统计, scrub, damage 等字段.|
+|dentry|目录分片 omap value|解码 dentry 外层; remote dentry 可看到目标 inode, primary dentry 会标出内嵌 InodeStore 原始字节.|
+|inode-object|.inode 对象, 即 CEPH_FS_ONDISK_MAGIC + InodeStore|解码 magic, InodeStore, inode_t 常见字段.|
+|journal-head|MDS journal head 对象|解码 journal header, 位置字段, layout 和 stream format.|
+|journal-pointer|MDS journal pointer 对象|解码 journal front/back.|
+|inotable|mds\<rank\>_inotable|解码 table version 和空闲 inode 区间.|
+|snaptable|mds_snaptable|解码 snap table 常见字段.|
+
+常用方式是和前面的 `rados` 导出命令配合使用:
+
+```bash
+# parent xattr
+rados -p cephfs.cephfs.data getxattr 10000000000.00000000 parent > /tmp/file.parent.bin
+cephhexdump -t parent /tmp/file.parent.bin
+
+# layout xattr
+rados -p cephfs.cephfs.data getxattr 10000000000.00000000 layout > /tmp/file.layout.bin
+cephhexdump -t layout /tmp/file.layout.bin
+
+# 目录分片 omap header
+rados -p cephfs.cephfs.meta getomapheader 1.00000000 /tmp/root.fnode.bin
+cephhexdump -t fnode /tmp/root.fnode.bin
+
+# 目录分片 omap value
+rados -p cephfs.cephfs.meta getomapval 1.00000000 some_name_head /tmp/dentry.bin
+cephhexdump -t dentry /tmp/dentry.bin
+
+# 基础 inode 对象
+rados -p cephfs.cephfs.meta get 1.00000000.inode /tmp/root.inode.bin
+cephhexdump -t inode-object /tmp/root.inode.bin
+
+# journal pointer 和 MDS 表对象
+rados -p cephfs.cephfs.meta get 400.00000000 /tmp/mds0.journal.pointer.bin
+cephhexdump -t journal-pointer /tmp/mds0.journal.pointer.bin
+
+rados -p cephfs.cephfs.meta get mds0_inotable /tmp/mds0_inotable.bin
+cephhexdump -t inotable /tmp/mds0_inotable.bin
+```
+
+这个工具的定位是辅助学习和排查单个 payload 的结构边界. 它不会替代 `cephfs-journal-tool` 解析完整 journal 事件流, 也不会直接查询 RADOS; 对于尚未实现的结构, 或者版本差异导致无法可靠解析的尾部字段, 工具会保留原始字节或退回 hexdump, 避免把普通文件内容误判成 CephFS 元数据.
+
+**文件内容**:
+```python
+#!/usr/bin/env python3
+"""
+CephFS-aware hexdump for selected local binary payloads.
+
+Usage:
+  cephhexdump [-t TYPE] /path/to/blob
+
+Supported TYPE values:
+  auto, hexdump, parent, layout, fnode, dentry, inode-object,
+  journal-pointer, journal-head, inotable, snaptable
+
+The output is intentionally field-oriented:
+  raw bytes -> decoded field
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import struct
+import sys
+from typing import Any
+
+
+CEPH_FS_ONDISK_MAGIC = "ceph fs volume v011"
+
+
+class DecodeError(Exception):
+    pass
+
+
+class Reader:
+    def __init__(self, data: bytes):
+        self.data = data
+        self.pos = 0
+        self.trace: list[dict[str, Any]] = []
+
+    def remain(self) -> int:
+        return len(self.data) - self.pos
+
+    def tell(self) -> int:
+        return self.pos
+
+    def seek(self, pos: int) -> None:
+        if pos < 0 or pos > len(self.data):
+            raise DecodeError(f"bad seek offset {pos}")
+        self.pos = pos
+
+    def read(self, n: int, label: str) -> bytes:
+        if self.pos + n > len(self.data):
+            raise DecodeError(
+                f"need {n} bytes for {label} at 0x{self.pos:x}, "
+                f"only {self.remain()} remain"
+            )
+        out = self.data[self.pos:self.pos + n]
+        self.pos += n
+        return out
+
+    def trace_raw(self, offset: int, raw: bytes, text: str) -> None:
+        self.trace.append({"offset": offset, "bytes": raw, "text": text})
+
+    def bytes(self, n: int, text: str) -> bytes:
+        start = self.tell()
+        raw = self.read(n, text)
+        self.trace_raw(start, raw, text)
+        return raw
+
+    def u8(self, text: str) -> int:
+        start = self.tell()
+        raw = self.read(1, text)
+        value = raw[0]
+        self.trace_raw(start, raw, f"{text} = {value}")
+        return value
+
+    def bool(self, text: str) -> bool:
+        start = self.tell()
+        raw = self.read(1, text)
+        value = raw[0] != 0
+        self.trace_raw(start, raw, f"{text} = {json.dumps(value)}")
+        return value
+
+    def u32(self, text: str) -> int:
+        start = self.tell()
+        raw = self.read(4, text)
+        value = struct.unpack("<I", raw)[0]
+        self.trace_raw(start, raw, f"{text} = {value}")
+        return value
+
+    def s32(self, text: str) -> int:
+        start = self.tell()
+        raw = self.read(4, text)
+        value = struct.unpack("<i", raw)[0]
+        self.trace_raw(start, raw, f"{text} = {value}")
+        return value
+
+    def u64(self, text: str, *, hex_value: bool = False) -> int:
+        start = self.tell()
+        raw = self.read(8, text)
+        value = struct.unpack("<Q", raw)[0]
+        rendered = f"0x{value:x}" if hex_value else str(value)
+        self.trace_raw(start, raw, f"{text} = {rendered}")
+        return value
+
+    def s64(self, text: str) -> int:
+        start = self.tell()
+        raw = self.read(8, text)
+        value = struct.unpack("<q", raw)[0]
+        self.trace_raw(start, raw, f"{text} = {value}")
+        return value
+
+    def double(self, text: str) -> float:
+        start = self.tell()
+        raw = self.read(8, text)
+        value = struct.unpack("<d", raw)[0]
+        self.trace_raw(start, raw, f"{text} = {value}")
+        return value
+
+    def string(self, text: str) -> str:
+        n = self.u32(f"{text} length")
+        start = self.tell()
+        raw = self.read(n, text)
+        value = raw.decode("utf-8", errors="replace")
+        if n:
+            self.trace_raw(start, raw, f"{text} = {json.dumps(value, ensure_ascii=True)}")
+        return value
+
+
+def read_encoding_header(r: Reader, name: str) -> tuple[int, int, int]:
+    start = r.tell()
+    raw = r.read(6, f"{name} encoding header")
+    version = raw[0]
+    compat = raw[1]
+    length = struct.unpack("<I", raw[2:])[0]
+    r.trace_raw(
+        start,
+        raw,
+        f"{name} encoding header, version={version}, compat={compat}, length={length}",
+    )
+    end = r.tell() + length
+    if end > len(r.data):
+        raise DecodeError(f"{name} encoded length exceeds input: end=0x{end:x}, size=0x{len(r.data):x}")
+    return version, compat, end
+
+
+def finish_encoding(r: Reader, name: str, end: int) -> None:
+    if r.tell() > end:
+        raise DecodeError(f"{name} decoded past structure end: 0x{r.tell():x} > 0x{end:x}")
+    if r.tell() < end:
+        r.bytes(end - r.tell(), f"{name} undecoded payload bytes")
+
+
+def format_mode(mode: int) -> str:
+    file_type = mode & 0o170000
+    type_name = {
+        0o040000: "dir",
+        0o100000: "file",
+        0o120000: "symlink",
+        0o020000: "char",
+        0o060000: "block",
+        0o010000: "fifo",
+        0o140000: "socket",
+    }.get(file_type, "unknown")
+    return f"{type_name} {mode & 0o7777:04o}"
+
+
+def decode_bufferlist(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} length")
+    if n:
+        r.bytes(n, f"{label} bytes")
+
+
+def decode_parent(data: bytes) -> list[dict[str, Any]]:
+    r = Reader(data)
+    version, _compat, end = read_encoding_header(r, "inode_backtrace_t")
+    if version < 3:
+        raise DecodeError("inode_backtrace_t version < 3 is not supported")
+    r.u64("ino", hex_value=True)
+    n = r.u32("ancestors length")
+    for i in range(n):
+        _bp_version, _bp_compat, bp_end = read_encoding_header(r, f"ancestor[{i}]")
+        r.u64("dirino", hex_value=True)
+        r.string("dname")
+        r.u64("version")
+        finish_encoding(r, f"ancestor[{i}]", bp_end)
+    if version >= 5:
+        r.s64("pool")
+        old_n = r.u32("old_pools length")
+        if old_n == 0:
+            # Keep the wording compact and human-friendly for the common case.
+            r.trace[-1]["text"] = "old_pools length = 0"
+        for i in range(old_n):
+            r.s64(f"old_pools[{i}]")
+    finish_encoding(r, "inode_backtrace_t", end)
+    trace_remaining(r)
+    return r.trace
+
+
+def decode_layout(data: bytes) -> list[dict[str, Any]]:
+    r = Reader(data)
+    if not data:
+        raise DecodeError("empty layout")
+    if data[0] == 0:
+        if len(data) != 28:
+            raise DecodeError("legacy ceph_file_layout must be exactly 28 bytes")
+        r.u32("stripe_unit")
+        r.u32("stripe_count")
+        r.u32("object_size")
+        r.u32("fl_cas_hash")
+        r.u32("fl_object_stripe_unit")
+        r.u32("fl_unused")
+        r.s32("pool_id")
+        trace_remaining(r)
+        return r.trace
+
+    version, compat, end = read_encoding_header(r, "file_layout_t")
+    if version != 2 or compat != 2:
+        raise DecodeError(f"unsupported file_layout_t header version={version}, compat={compat}")
+    stripe_unit = r.u32("stripe_unit")
+    stripe_count = r.u32("stripe_count")
+    object_size = r.u32("object_size")
+    if stripe_unit == 0 or stripe_count == 0 or object_size == 0:
+        raise DecodeError("invalid file_layout_t: zero stripe_unit, stripe_count, or object_size")
+    r.s64("pool_id")
+    r.string("pool_ns")
+    finish_encoding(r, "file_layout_t", end)
+    trace_remaining(r)
+    return r.trace
+
+
+def decode_utime(r: Reader, label: str) -> None:
+    r.u32(f"{label}.sec")
+    r.u32(f"{label}.nsec")
+
+
+def decode_string_map(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} count")
+    for i in range(n):
+        r.string(f"{label}[{i}].key")
+        r.string(f"{label}[{i}].value")
+
+
+def decode_snapid_set(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} count")
+    for i in range(n):
+        r.u64(f"{label}[{i}]")
+
+
+def decode_version_set(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} count")
+    for i in range(n):
+        r.u64(f"{label}[{i}]")
+
+
+def decode_interval_set_u64(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} range count")
+    for i in range(n):
+        r.u64(f"{label}[{i}].start", hex_value=True)
+        r.u64(f"{label}[{i}].length")
+
+
+def decode_i64_set(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} count")
+    for i in range(n):
+        r.s64(f"{label}[{i}]")
+
+
+def decode_dir_layout(r: Reader, label: str) -> None:
+    r.u8(f"{label}.dir_hash")
+    r.u8(f"{label}.unused1")
+    start = r.tell()
+    raw = r.read(2, f"{label}.unused2")
+    value = struct.unpack("<H", raw)[0]
+    r.trace_raw(start, raw, f"{label}.unused2 = {value}")
+    r.u32(f"{label}.unused3")
+
+
+def decode_file_layout_fields(r: Reader, label: str) -> None:
+    version, compat, end = read_encoding_header(r, label)
+    if version != 2 or compat != 2:
+        raise DecodeError(f"unsupported {label} header version={version}, compat={compat}")
+    r.u32(f"{label}.stripe_unit")
+    r.u32(f"{label}.stripe_count")
+    r.u32(f"{label}.object_size")
+    r.s64(f"{label}.pool_id")
+    r.string(f"{label}.pool_ns")
+    finish_encoding(r, label, end)
+
+
+def decode_frag_info(r: Reader, label: str) -> None:
+    version, _compat, end = read_encoding_header(r, label)
+    r.u64(f"{label}.version")
+    decode_utime(r, f"{label}.mtime")
+    r.s64(f"{label}.nfiles")
+    r.s64(f"{label}.nsubdirs")
+    if version >= 3:
+        r.u64(f"{label}.change_attr")
+    finish_encoding(r, label, end)
+
+
+def decode_nest_info(r: Reader, label: str) -> None:
+    _version, _compat, end = read_encoding_header(r, label)
+    r.u64(f"{label}.version")
+    r.s64(f"{label}.rbytes")
+    r.s64(f"{label}.rfiles")
+    r.s64(f"{label}.rsubdirs")
+    r.s64(f"{label}.ranchors")
+    r.s64(f"{label}.rsnaps")
+    decode_utime(r, f"{label}.rctime")
+    finish_encoding(r, label, end)
+
+
+def decode_client_ranges(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} count")
+    for i in range(n):
+        r.s64(f"{label}[{i}].client")
+        r.u64(f"{label}[{i}].range.first")
+        r.u64(f"{label}[{i}].range.last")
+        r.u64(f"{label}[{i}].follows")
+
+
+def decode_inline_data(r: Reader, label: str) -> None:
+    r.u64(f"{label}.version")
+    decode_bufferlist(r, f"{label}.data")
+
+
+def decode_quota_info(r: Reader, label: str) -> None:
+    version, compat, end = read_encoding_header(r, label)
+    if version != 1 or compat != 1:
+        raise DecodeError(f"unsupported {label} header version={version}, compat={compat}")
+    r.s64(f"{label}.max_bytes")
+    r.s64(f"{label}.max_files")
+    finish_encoding(r, label, end)
+
+
+def decode_fragtree(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} split count")
+    for i in range(n):
+        r.u32(f"{label}[{i}].frag")
+        r.s32(f"{label}[{i}].bits")
+
+
+def decode_xattrs(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} count")
+    for i in range(n):
+        r.string(f"{label}[{i}].name")
+        value_len = r.u32(f"{label}[{i}].value length")
+        if value_len:
+            r.bytes(value_len, f"{label}[{i}].value bytes")
+
+
+def decode_old_inodes(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} count")
+    for i in range(n):
+        r.u64(f"{label}[{i}].last")
+        _version, _compat, end = read_encoding_header(r, f"{label}[{i}].value")
+        r.u64(f"{label}[{i}].value.first")
+        if r.tell() < end:
+            r.bytes(end - r.tell(), f"{label}[{i}].value raw inode/xattrs bytes")
+        finish_encoding(r, f"{label}[{i}].value", end)
+
+
+def decode_optmetadata(r: Reader, label: str) -> None:
+    version, compat, end = read_encoding_header(r, label)
+    if version != 1 or compat != 1:
+        raise DecodeError(f"unsupported {label} header version={version}, compat={compat}")
+    n = r.u32(f"{label}.opts count")
+    for i in range(n):
+        r.u64(f"{label}.opts[{i}].kind")
+        if r.tell() < end:
+            r.bytes(end - r.tell(), f"{label}.opts[{i}] raw metadata bytes")
+        break
+    finish_encoding(r, label, end)
+
+
+def decode_fnode(data: bytes) -> list[dict[str, Any]]:
+    r = Reader(data)
+    version, _compat, end = read_encoding_header(r, "fnode_t")
+    r.u64("version")
+    r.u64("snap_purged_thru", hex_value=True)
+    decode_frag_info(r, "fragstat")
+    decode_frag_info(r, "accounted_fragstat")
+    decode_nest_info(r, "rstat")
+    decode_nest_info(r, "accounted_rstat")
+    if version >= 3:
+        r.u32("damage_flags")
+    if version >= 4:
+        r.u64("recursive_scrub_version")
+        decode_utime(r, "recursive_scrub_stamp")
+        r.u64("localized_scrub_version")
+        decode_utime(r, "localized_scrub_stamp")
+    finish_encoding(r, "fnode_t", end)
+    trace_remaining(r)
+    return r.trace
+
+
+def decode_dentry(data: bytes) -> list[dict[str, Any]]:
+    r = Reader(data)
+    r.u64("first", hex_value=True)
+    marker = r.u8("marker")
+    marker_chr = chr(marker)
+    r.trace[-1]["text"] = f"marker = {marker} ({json.dumps(marker_chr)})"
+    if marker_chr not in ("l", "L", "i", "I"):
+        raise DecodeError(f"unknown dentry marker {marker}")
+    if marker_chr in ("l", "L"):
+        if marker_chr == "l":
+            _version, _compat, end = read_encoding_header(r, "remote_dentry")
+            r.u64("remote.ino", hex_value=True)
+            r.u8("remote.d_type")
+            r.string("alternate_name")
+            finish_encoding(r, "remote_dentry", end)
+        else:
+            r.u64("remote.ino", hex_value=True)
+            r.u8("remote.d_type")
+    elif marker_chr in ("i", "I"):
+        if marker_chr == "i":
+            _version, _compat, end = read_encoding_header(r, "primary_dentry")
+            r.string("alternate_name")
+            if r.tell() < end:
+                r.bytes(end - r.tell(), "raw InodeStore bytes (not fully decoded)")
+        else:
+            if r.remain():
+                r.bytes(r.remain(), "legacy raw InodeStore bytes (not fully decoded)")
+    trace_remaining(r)
+    return r.trace
+
+
+def decode_inode_t(r: Reader, label: str) -> int:
+    version, compat, end = read_encoding_header(r, label)
+    if version < 6 or compat > 6:
+        raise DecodeError(f"unsupported {label} header version={version}, compat={compat}")
+
+    r.u64(f"{label}.ino", hex_value=True)
+    r.u32(f"{label}.rdev")
+    decode_utime(r, f"{label}.ctime")
+
+    mode = r.u32(f"{label}.mode")
+    r.trace[-1]["text"] = f"{label}.mode = {mode} ({format_mode(mode)})"
+    r.u32(f"{label}.uid")
+    r.u32(f"{label}.gid")
+    r.s32(f"{label}.nlink")
+    r.bool(f"{label}.anchored")
+
+    decode_dir_layout(r, f"{label}.dir_layout")
+    decode_file_layout_fields(r, f"{label}.layout")
+    r.u64(f"{label}.size")
+    r.u32(f"{label}.truncate_seq")
+    r.u64(f"{label}.truncate_size")
+    r.u64(f"{label}.truncate_from")
+    r.u32(f"{label}.truncate_pending")
+    decode_utime(r, f"{label}.mtime")
+    decode_utime(r, f"{label}.atime")
+    r.u32(f"{label}.time_warp_seq")
+    decode_client_ranges(r, f"{label}.client_ranges")
+
+    decode_frag_info(r, f"{label}.dirstat")
+    decode_nest_info(r, f"{label}.rstat")
+    decode_nest_info(r, f"{label}.accounted_rstat")
+
+    r.u64(f"{label}.version")
+    r.u64(f"{label}.file_data_version")
+    r.u64(f"{label}.xattr_version")
+    r.u64(f"{label}.backtrace_version")
+    decode_i64_set(r, f"{label}.old_pools")
+    r.u64(f"{label}.max_size_ever")
+    decode_inline_data(r, f"{label}.inline_data")
+    decode_quota_info(r, f"{label}.quota")
+
+    r.string(f"{label}.stray_prior_path")
+    r.u64(f"{label}.last_scrub_version")
+    decode_utime(r, f"{label}.last_scrub_stamp")
+    decode_utime(r, f"{label}.btime")
+    r.u64(f"{label}.change_attr")
+
+    r.s32(f"{label}.export_pin")
+    r.double(f"{label}.export_ephemeral_random_pin")
+    r.u8(f"{label}.flags")
+
+    r.bool(f"{label}.fscrypt_flag")
+    decode_bufferlist(r, f"{label}.fscrypt_auth")
+    decode_bufferlist(r, f"{label}.fscrypt_file")
+    decode_bufferlist(r, f"{label}.fscrypt_last_block")
+    decode_optmetadata(r, f"{label}.optmetadata")
+
+    finish_encoding(r, label, end)
+    return mode
+
+
+def decode_inode_store(r: Reader, label: str) -> None:
+    version, compat, end = read_encoding_header(r, label)
+    if version < 4 or compat > 4:
+        raise DecodeError(f"unsupported {label} header version={version}, compat={compat}")
+    mode = decode_inode_t(r, f"{label}.inode")
+    if (mode & 0o170000) == 0o120000:
+        r.string(f"{label}.symlink")
+    decode_fragtree(r, f"{label}.dirfragtree")
+    decode_xattrs(r, f"{label}.xattrs")
+    decode_bufferlist(r, f"{label}.snap_blob")
+    decode_old_inodes(r, f"{label}.old_inodes")
+    if version >= 5 and r.tell() < end:
+        r.u64(f"{label}.oldest_snap")
+    if version >= 5 and r.tell() < end:
+        r.u32(f"{label}.damage_flags")
+    finish_encoding(r, label, end)
+
+
+def decode_inode_object(data: bytes) -> list[dict[str, Any]]:
+    r = Reader(data)
+    magic = r.string("magic")
+    if magic != CEPH_FS_ONDISK_MAGIC:
+        raise DecodeError(
+            f"bad CephFS inode object magic {magic!r}, expected {CEPH_FS_ONDISK_MAGIC!r}"
+        )
+    if r.remain():
+        decode_inode_store(r, "InodeStore")
+    return r.trace
+
+
+def decode_journal_pointer(data: bytes) -> list[dict[str, Any]]:
+    r = Reader(data)
+    version, compat, end = read_encoding_header(r, "JournalPointer")
+    if version != 1 or compat != 1:
+        raise DecodeError(f"unsupported JournalPointer header version={version}, compat={compat}")
+    if end - r.tell() != 16:
+        raise DecodeError(f"invalid JournalPointer payload length {end - r.tell()}")
+    r.u64("front", hex_value=True)
+    r.u64("back", hex_value=True)
+    finish_encoding(r, "JournalPointer", end)
+    trace_remaining(r)
+    return r.trace
+
+
+def decode_snap_info(r: Reader, label: str) -> None:
+    version, _compat, end = read_encoding_header(r, label)
+    r.u64(f"{label}.snapid")
+    r.u64(f"{label}.ino", hex_value=True)
+    decode_utime(r, f"{label}.stamp")
+    r.string(f"{label}.name")
+    if version >= 3:
+        decode_string_map(r, f"{label}.metadata")
+    if version >= 4:
+        r.string(f"{label}.alternate_name")
+    finish_encoding(r, label, end)
+
+
+def decode_snap_info_map(r: Reader, label: str) -> None:
+    n = r.u32(f"{label} count")
+    for i in range(n):
+        r.u64(f"{label}[{i}].key")
+        decode_snap_info(r, f"{label}[{i}].value")
+
+
+def decode_need_to_purge(r: Reader) -> None:
+    n = r.u32("need_to_purge count")
+    for i in range(n):
+        r.s32(f"need_to_purge[{i}].osd")
+        decode_snapid_set(r, f"need_to_purge[{i}].snaps")
+
+
+def decode_pending_destroy(r: Reader, version: int) -> None:
+    n = r.u32("pending_destroy count")
+    for i in range(n):
+        r.u64(f"pending_destroy[{i}].version")
+        r.u64(f"pending_destroy[{i}].removed_snap")
+        if version >= 2:
+            r.u64(f"pending_destroy[{i}].seq")
+
+
+def decode_mds_table_pending_map(r: Reader) -> None:
+    n = r.u32("pending_for_mds count")
+    for i in range(n):
+        r.u64(f"pending_for_mds[{i}].version")
+        _version, _compat, end = read_encoding_header(r, f"pending_for_mds[{i}].value")
+        r.u64(f"pending_for_mds[{i}].value.reqid")
+        r.s32(f"pending_for_mds[{i}].value.mds")
+        r.u64(f"pending_for_mds[{i}].value.tid")
+        finish_encoding(r, f"pending_for_mds[{i}].value", end)
+
+
+def decode_inotable(data: bytes) -> list[dict[str, Any]]:
+    r = Reader(data)
+    r.u64("MDSTable.version")
+    version, compat, end = read_encoding_header(r, "InoTable")
+    if version != 2 or compat != 2:
+        raise DecodeError(f"unsupported InoTable header version={version}, compat={compat}")
+    decode_interval_set_u64(r, "free")
+    finish_encoding(r, "InoTable", end)
+    trace_remaining(r)
+    return r.trace
+
+
+def decode_snaptable(data: bytes) -> list[dict[str, Any]]:
+    r = Reader(data)
+    r.u64("MDSTable.version")
+    version, compat, end = read_encoding_header(r, "SnapServer")
+    if version < 3 or compat > 3:
+        raise DecodeError(f"unsupported SnapServer header version={version}, compat={compat}")
+    r.u64("last_snap")
+    decode_snap_info_map(r, "snaps")
+    decode_need_to_purge(r)
+    decode_snap_info_map(r, "pending_update")
+    decode_pending_destroy(r, version)
+    decode_version_set(r, "pending_noop")
+    if version >= 4:
+        r.u64("last_created")
+        r.u64("last_destroyed")
+    if version >= 5:
+        r.u64("snaprealm_v2_since")
+    finish_encoding(r, "SnapServer", end)
+    decode_mds_table_pending_map(r)
+    trace_remaining(r)
+    return r.trace
+
+
+def decode_journal_head(data: bytes) -> list[dict[str, Any]]:
+    r = Reader(data)
+    _version, _compat, end = read_encoding_header(r, "Journaler::Header")
+    r.string("magic")
+    r.u64("trimmed_pos")
+    r.u64("expire_pos")
+    r.u64("unused_field")
+    r.u64("write_pos")
+    # Journaler::Header encodes layout with legacy ceph_file_layout.
+    r.u32("layout.stripe_unit")
+    r.u32("layout.stripe_count")
+    r.u32("layout.object_size")
+    r.u32("layout.fl_cas_hash")
+    r.u32("layout.fl_object_stripe_unit")
+    r.u32("layout.fl_unused")
+    r.s32("layout.pool_id")
+    r.u8("stream_format")
+    finish_encoding(r, "Journaler::Header", end)
+    trace_remaining(r)
+    return r.trace
+
+
+def trace_remaining(r: Reader) -> None:
+    if r.remain():
+        r.bytes(r.remain(), "remaining bytes")
+
+
+DECODERS = {
+    "parent": decode_parent,
+    "layout": decode_layout,
+    "fnode": decode_fnode,
+    "dentry": decode_dentry,
+    "inode-object": decode_inode_object,
+    "journal-pointer": decode_journal_pointer,
+    "journal-head": decode_journal_head,
+    "inotable": decode_inotable,
+    "snaptable": decode_snaptable,
+}
+
+
+def auto_decode(data: bytes) -> tuple[str | None, list[dict[str, Any]] | None]:
+    candidates = [
+        "parent",
+        "journal-head",
+        "journal-pointer",
+        "inode-object",
+        "inotable",
+        "snaptable",
+        "fnode",
+        "layout",
+        "dentry",
+    ]
+    for kind in candidates:
+        try:
+            trace = DECODERS[kind](data)
+        except DecodeError:
+            continue
+        return kind, trace
+    return None, None
+
+
+def bytes_hex(raw: bytes) -> str:
+    return " ".join(f"{b:02x}" for b in raw)
+
+
+def render_trace(trace: list[dict[str, Any]]) -> str:
+    chunk_size = 16
+    width = len(bytes_hex(bytes(range(chunk_size))))
+    lines = []
+    for item in trace:
+        offset = item["offset"]
+        raw = item["bytes"]
+        if len(raw) <= chunk_size:
+            lines.append(f"{offset:08x}  {bytes_hex(raw):<{width}} -> {item['text']}")
+            continue
+
+        for start in range(0, len(raw), chunk_size):
+            chunk = raw[start:start + chunk_size]
+            chunk_offset = offset + start
+            if start == 0:
+                suffix = f" -> {item['text']}"
+            else:
+                suffix = ""
+            lines.append(f"{chunk_offset:08x}  {bytes_hex(chunk):<{width}}{suffix}")
+    return "\n".join(lines)
+
+
+def hexdump(data: bytes, width: int = 16) -> str:
+    lines = []
+    for offset in range(0, len(data), width):
+        chunk = data[offset:offset + width]
+        left = " ".join(f"{b:02x}" for b in chunk[:8])
+        right = " ".join(f"{b:02x}" for b in chunk[8:])
+        hex_part = f"{left:<23}  {right:<23}"
+        ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines.append(f"{offset:08x}  {hex_part}  |{ascii_part}|")
+    lines.append(f"{len(data):08x}")
+    return "\n".join(lines)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="CephFS-aware hexdump for selected local binary payloads."
+    )
+    parser.add_argument(
+        "-t",
+        "--type",
+        default="auto",
+        choices=["auto", "hexdump", *DECODERS.keys()],
+        help="payload type to decode; default is auto",
+    )
+    parser.add_argument("path", help="binary file to inspect")
+    return parser.parse_args()
+
+
+def main() -> int:
+    if hasattr(signal, "SIGPIPE"):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+    args = parse_args()
+    with open(args.path, "rb") as f:
+        data = f.read()
+
+    if args.type == "hexdump":
+        print(hexdump(data))
+        return 0
+
+    try:
+        if args.type == "auto":
+            kind, trace = auto_decode(data)
+            if kind is None or trace is None:
+                print(hexdump(data))
+                return 0
+            print(f"# decoded as {kind}")
+            print(render_trace(trace))
+            return 0
+
+        print(render_trace(DECODERS[args.type](data)))
+        return 0
+    except DecodeError as e:
+        print(f"decode error: {e}", file=sys.stderr)
+        return 2
+    except BrokenPipeError:
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            os.close(devnull)
+        except OSError:
+            pass
+        return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+# 7. 结论
+
+`metadata_pool` 承载 CephFS 命名空间和 MDS 持久状态: 目录分片对象用 omap 表示 dentry, 用 header 表示目录统计; 基础 inode, MDS journal, inotable, snaptable, sessionmap 也位于该池.
+
+`data_pool` 承载普通文件的数据对象: object data 是文件内容, 0 号对象的 RADOS xattr 可包含 `parent` backtrace 和 `layout`, 用于恢复, 扫描和 layout 迁移时定位父链, 数据池和条带参数.

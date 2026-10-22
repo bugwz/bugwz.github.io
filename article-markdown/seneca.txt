@@ -1,0 +1,1159 @@
+# 译 - Preparation Meets Opportunity: Enhancing Data Preprocessing for ML Training With Seneca
+
+<div class="paper-shared">
+
+Seneca 将模型驱动的缓存划分与机会式数据采样结合, 缓解并发机器学习训练的数据预处理瓶颈. 本文完整翻译其 FAST 2026 论文及实验材料附录, 保留性能模型, 高清图表和训练评估.
+
+原论文: [Preparation Meets Opportunity: Enhancing Data Preprocessing for ML Training With Seneca](https://www.usenix.org/conference/fast26/presentation/desai), 中文题名为 "准备遇上机会: 用 Seneca 改进机器学习训练的数据预处理".
+
+作者: Omkar Desai (Syracuse University), Ziyang Jiao (Huaibei Normal University), Shuyi Pei (Samsung Semiconductor), Janki Bhimani (Florida International University), Bryan S. Kim (Syracuse University). Ziyang Jiao 的相关工作在 Syracuse University 完成.
+
+出处: 24th USENIX Conference on File and Storage Technologies (FAST 2026), Santa Clara, CA, USA, February 24-26, 2026, pp. 221-238.
+
+"我们" 指论文作者, 实验结果以论文中的硬件, 数据集和软件版本为准. makespan 指整组作业全部完成所需的时间.
+
+译者校注: 原文摘要, 图 10 图注和结论写作业完成时间 "缩短 45.23%", 原文第 7.1 节一处则写 "降至 PyTorch 的 45.23%". 译文分别保留, 不将两者视为等价. 表 3 将 C_PCIe 和 C_nw 分别定义为节点内与节点间梯度通信开销, 但正文公式解释中对应的 GPU 数与节点数写法与此不一致, 这里同样保留. 表中缓存容量记作 S_cache, 正文容量公式记作 S_mem. 公式 3 的最后两项按列举项补充分隔逗号, 不改变各项表达式.
+
+</div>
+
+# 1. 摘要
+
+Input data preprocessing is a common bottleneck when concurrently training multimedia machine learning (ML) models in modern systems. To alleviate these bottlenecks and reduce the training time for concurrent jobs, we present Seneca, a data loading system that optimizes cache partitioning and data sampling for the data storage and ingestion (DSI) pipeline. The design of Seneca contains two key techniques. First, Seneca uses a performance model for the data pipeline to optimally partition the cache for three different forms of data (encoded, decoded, and augmented). Second, Seneca opportunistically serves cached data over uncached ones during random batch sampling so that concurrent jobs benefit from each other. We implement Seneca by modifying PyTorch and demonstrate its effectiveness by comparing it against several state-of-the-art caching systems for DNN training. Seneca reduces the makespan by 45.23% compared to PyTorch and increases data processing throughput by up to 3.45× compared to the next best dataloader.
+
+在现代系统中并发训练多媒体机器学习 (ML) 模型时, 输入数据预处理常常成为瓶颈. 为缓解这一问题并缩短并发作业的训练时间, 我们提出数据加载系统 Seneca, 优化数据存储与摄取 (DSI) 流水线的缓存划分和数据采样. Seneca 包含两项关键技术. 第一, 利用数据流水线性能模型, 在编码数据, 解码数据和增强数据三种形态之间优化缓存空间分配. 第二, 随机批次采样时尽可能优先提供已缓存的数据, 让并发作业相互受益. 我们通过修改 PyTorch 实现 Seneca, 并与多种先进的 DNN 训练缓存系统比较. 相比 PyTorch, Seneca 将整组作业的完成时间缩短 45.23%; 相比表现次优的数据加载器, 数据处理吞吐量最高达到其 3.45 倍.
+
+# 2. 引言
+
+Input data preprocessing is an essential step in all machine learning (ML) training jobs. During this, the data storage and ingestion (DSI) pipeline fetches samples from storage, decodes them into tensors, transforms and augments them as required, and loads them into the GPU for training. These tasks are resource-intensive, requiring high I/O bandwidth and compute parallelism. The throughput of the DSI pipeline has a significant impact on training performance as GPUs depend on data from the DSI pipeline to train models.
+
+输入数据预处理是所有机器学习训练作业的必要步骤. 数据存储与摄取 (DSI) 流水线从存储中读取样本, 将其解码为张量, 按需执行变换和数据增强, 再送入 GPU 训练. 这些任务需要较高 IO 带宽和计算并行度, 资源开销很大. GPU 依赖 DSI 流水线供给训练数据, 因而该流水线的吞吐量会显著影响训练性能.
+
+With ML jobs training concurrently to maximize GPU utilization, the DSI pipeline has become a bottleneck, especially for image, video, audio, and recommendation models [3, 5, 21, 35, 42, 61]. Figure 1 illustrates hardware trends affecting ML training. Figure 1a shows the widening gap between popular NVIDIA GPUs used for training and CPU performance. Figure 1b illustrates the impact of the CPU-GPU performance gap on multimedia model training by comparing the DSI throughput without training and the training throughput without DSI for SwinT [37], a transformer model on three real systems. The dotted line shows the upper bound of DSI throughput, while the solid line reflects the upper bound of training throughput, revealing that DSI is the bottleneck. The disparity between DSI and training throughput increases from 4.63× on the RTX 5000 server to 7.66× on the A100 server, indicating that the DSI pipeline bottleneck is exacerbating. The combination of a relatively slow CPU limits preprocessing performance, and the limited host DRAM forces more frequent data retrieval from slow storage, leading to training stalls and an overall performance degradation [30, 57, 58].
+
+为提高 GPU 利用率, 多个 ML 作业往往并发训练, 此时 DSI 流水线已成为瓶颈, 尤其是在图像, 视频, 音频和推荐模型中 [3, 5, 21, 35, 42, 61]. 图 1 展示了影响训练的硬件趋势. 图 1a 中, 常用 NVIDIA 训练 GPU 与 CPU 的性能差距不断扩大. 图 1b 在三套真实系统上运行 Transformer 模型 SwinT [37], 对比不执行训练时的 DSI 吞吐量与不执行 DSI 时的训练吞吐量, 展示这一差距的影响. 虚线是 DSI 吞吐量上限, 实线是训练吞吐量上限, 可见瓶颈在 DSI. RTX 5000 服务器上两者相差 4.63 倍, A100 服务器上扩大到 7.66 倍, 说明瓶颈日益突出. 较慢的 CPU 限制了预处理速度, 有限的主机 DRAM 又迫使系统更频繁地读取慢速存储, 造成训练停顿和整体性能下降 [30, 57, 58].
+
+<div class="paper-shared">
+
+![2011-2023 年 CPU 与 GPU 峰值 TFLOPS 的差距不断扩大 [7, 8, 11, 19, 44-50] (a), 导致多媒体模型训练出现 DSI 瓶颈 (b).](/assets/images/posts/seneca/figure-01.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 1: The growing gap between CPU and GPU peak performance in TFLOPS from 2011-2023 [7, 8, 11, 19, 44-50] (Figure 1a) resulting in DSI pipeline bottlenecks for multimedia model training (Figure 1b).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 1: 2011-2023 年 CPU 与 GPU 峰值 TFLOPS 的差距不断扩大 [7, 8, 11, 19, 44-50] (a), 导致多媒体模型训练出现 DSI 瓶颈 (b).</span>
+
+While several prior works propose caching as a solution for improving the DSI pipeline throughput [20, 21, 26, 31, 33, 41], we identify two unique challenges that limit its effectiveness. First, multiple intermediate forms of data exist in the pipeline, and which form to cache is not straightforward and remains unexplored. Data can exist in one of three forms: encoded for high storage density, decoded into tensors, and augmented randomly for training. Determining which form to cache is subtle because encoded data requires more CPU-driven preprocessing [21, 57], while data in later stages (`e.g.`, augmented) take up more space (up to 15× [24]). The optimal form to cache depends on training job parameters, cache capacity, and the performance of the slowest DSI component, factors not considered by previous works.
+
+已有研究通过缓存提高 DSI 吞吐量 [20, 21, 26, 31, 33, 41], 但我们发现两个限制其效果的问题. 首先, 流水线中存在多种中间数据形态, 应缓存哪一种并不容易判断, 也尚未得到充分研究. 数据可以是存储密度较高的编码形式, 解码后的张量, 或用于训练的随机增强结果. 编码数据需要更多 CPU 预处理 [21, 57], 后续阶段的数据则占用更多空间, 最多可扩大到 15 倍 [24]. 最合适的形态取决于训练作业参数, 缓存容量和 DSI 最慢组件的性能, 而此前工作没有综合考虑这些因素.
+
+Second, current cache designs and data sampling for the DSI pipeline perform poorly when multiple jobs train models concurrently over the same dataset. More specifically, the inherent nature of random sampling makes poor use of cache as data are sampled agnostic of what is available in the cache. For example, SHADE [26] implements an importance-based sampling but its approach is incompatible with concurrent training, and Quiver [31] presents a substitution-based sampling compatible with concurrent training but suffers from high bandwidth contention due to over-sampling.
+
+其次, 多个作业在同一数据集上并发训练时, 现有 DSI 缓存和采样设计表现不佳. 随机采样不知道缓存里有什么, 因而难以充分利用缓存. 例如, SHADE [26] 采用重要性采样, 但其方法不兼容并发训练; Quiver [31] 采用可用于并发训练的替换采样, 却因过度采样造成严重带宽争用.
+
+We address these challenges by designing the following:
+
+我们通过以下两项设计解决这些问题:
+
+Model-Driven Partitioning (MDP). We build a high-level performance model for the DSI pipeline based on the insight that we can estimate the cache hit rate due to random sampling. This model is then used to predict the data pipeline throughput, constrained by the slowest component, and allows Seneca to partition the cache optimally for different data forms.
+
+**模型驱动的缓存划分 (MDP).** 随机采样下的缓存命中率可以估算, 因此我们构建 DSI 流水线的高层性能模型, 预测由最慢组件决定的数据吞吐量, 帮助 Seneca 为不同形态的数据找到最优缓存划分.
+
+Opportunistic Data Sampling (ODS). Based on the insight that a training job may benefit from the other's data sampling activities that share the same dataset, we design an opportunistic data sampler that serves cached data over uncached ones. This is possible because the sampling sequence does not need to adhere to the predetermined pseudo-random sequence as long as it appears random and each training data is consumed once in an epoch.
+
+**机会式数据采样 (ODS).** 共享数据集的训练作业可以受益于彼此的采样活动. 据此, 我们设计采样器, 尽可能优先提供已缓存数据. 只要采样序列保持随机, 且每个 epoch 内每份训练数据恰好使用一次, 就不必严格遵循预先确定的伪随机序列.
+
+Preparation meets opportunity in Seneca by combining the design principles of MDP and ODS: integrating cache partitioning and data sampling to efficiently alleviate preprocessing bottlenecks in ML training. We implement Seneca by modifying the PyTorch [3] dataloader and using Redis [4] to cache data. Seneca improves DSI pipeline throughput by up to 3.45× compared to the next best dataloader and reduces makespan by 45.23% over PyTorch, without compromising training accuracy.
+
+Seneca 将 MDP 的预先规划与 ODS 的机会利用结合起来, 协同优化缓存划分和数据采样, 缓解训练预处理瓶颈. 我们修改 PyTorch [3] 的数据加载器, 并用 Redis [4] 缓存数据. 在不影响训练准确率的前提下, Seneca 的 DSI 吞吐量最高达到次优加载器的 3.45 倍, 相比 PyTorch, 整组作业完成时间缩短 45.23%.
+
+The contributions of this work are as follows:
+
+本文贡献如下:
+
+We design a performance model for the DSI pipeline in distributed ML training and develop a model-driven partitioning (MDP) scheme that uses the performance model to optimize cache partition sizes and improve training throughput. MDP is applicable to all types of ML training jobs but benefits preprocessing heavy jobs the most.
+
+为分布式 ML 训练中的 DSI 流水线建立性能模型, 并设计 MDP, 用模型优化缓存分区大小和训练吞吐量. MDP 适用于各类训练作业, 对预处理负担较重的作业收益最大.
+
+We develop an opportunistic data sampling (ODS) scheme that improves the cache hit rate and multi-job training throughput by replacing uncached data with cached ones while maintaining a pseudo-random order. The effectiveness of ODS increases with more concurrently running jobs.
+
+设计 ODS, 在保持伪随机顺序的同时, 用已缓存数据替换未缓存数据, 提高缓存命中率与多作业训练吞吐量. 并发作业越多, ODS 的效果越明显.
+
+We demonstrate the effectiveness of Seneca by evaluating it against five state-of-the-art solutions across seven models (3.4-633.4 million parameters) and three datasets (142GB- 1.4TB) on five hardware configurations.
+
+在五种硬件配置上, 使用七个模型 (参数量 340 万~6.334 亿) 和三个数据集 (142 GB~1.4 TB), 将 Seneca 与五种先进方案比较, 验证其效果.
+
+The artifacts of Seneca are open source and available at [Seneca](https://github.com/swiftomkar/seneca-fast26-pytorch).
+
+Seneca 的实验代码与材料已开源, 见 [Seneca](https://github.com/swiftomkar/seneca-fast26-pytorch).
+
+# 3. 背景
+
+ML models are trained over multiple rounds called epochs. During an epoch, the entire dataset is processed exactly once. Each epoch is divided into multiple iterations, where each iteration processes a random, non-overlapping subset of data known as a minibatch. Training continues until further epochs no longer improve the model's accuracy.
+
+ML 模型通过多轮 epoch 训练. 每个 epoch 恰好遍历整个数据集一次, 并划分为多次迭代; 每次迭代处理一个随机且不与其他迭代重叠的数据子集, 即小批次 (minibatch). 训练持续进行, 直到增加 epoch 不再提高模型准确率.
+
+Figure 2 outlines the two main components of the ML training process: (1) input data preprocessing and (2) gradient computation. In preprocessing, data is fetched from storage, decoded, transformed, augmented, and collated into mini-batches before being loaded onto the GPU for gradient computation. While decoding and collation are static preprocessing operations, transformations and augmentations are randomly applied to improve model generality. Table 1 describes the data preprocessing steps for various ML model types and their resource demands. We note that multimedia and high-dimensional data have resource-intensive DSI pipelines due to larger sample sizes. During gradient computation, the model updates its weights and biases based on the training data.
+
+图 2 展示训练的两大部分: 输入数据预处理和梯度计算. 预处理从存储读取数据, 解码, 变换, 增强并整理为小批次, 然后载入 GPU 计算梯度. 解码与批次整理是固定操作, 而变换和增强可随机执行, 提高模型泛化能力. 表 1 列出不同模型的数据预处理步骤与资源需求. 多媒体和高维数据的样本较大, 因而 DSI 资源开销较高. 梯度计算阶段, 模型根据训练数据更新权重与偏置.
+
+<div class="paper-shared">
+
+![ML 训练流程: 从存储取数, 解码和变换后组成小批次, 再载入 GPU 训练, 直至达到目标准确率. 编码数据较小, 解码与增强数据明显更大.](/assets/images/posts/seneca/figure-02.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 2: The ML training process: (1) fetches data from storage, (2) decodes, transforms, and forms a minibatch, and (3) loads the minibatch into the GPU for training. This repeats until the target accuracy is reached. Encoded data is small, but decoded and augmented data are much larger.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 2: ML 训练流程: 从存储取数, 解码和变换后组成小批次, 再载入 GPU 训练, 直至达到目标准确率. 编码数据较小, 解码与增强数据明显更大.</span>
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 1: DSI pipeline for various ML model types. All types of training data undergo preprocessing before training. For all model types, decoding converts a dataset file into a tensor, while transformation and augmentation steps apply operations on the decoded tensor before collating samples into a batch.</span>
+
+| Model | Decode | Transform | Augment | Collate | Demand |
+|:---|:---|:---|:---|:---|:---|
+| Image | Image file → Tensor | Resize, Normalize | Random crop, Random flip | [images:labels] | High |
+| Audio | Audio file → Tensor | Fourier transform, Padding | Time stretch, Time masking | [audio:labels] | High |
+| Text | Text file → Tensor | Padding, Truncation | Shuffling, Masking | [text:labels] | Low |
+| Recommendation | Tabular → Tensor | Padding, Truncation | Shuffling, Masking | [feature vector:user action] | High |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 1: 不同模型的 DSI 流水线. 所有训练数据都需预处理: 解码将文件转换为张量, 变换和增强作用于张量, 然后整理成批次.</span>
+
+| 模型 | 解码 | 变换 | 增强 | 批次整理 | 资源需求 |
+|:---|:---|:---|:---|:---|:---|
+| 图像 | 图像文件转张量 | 调整大小, 归一化 | 随机裁剪, 翻转 | 图像与标签 | 高 |
+| 音频 | 音频文件转张量 | 傅里叶变换, 填充 | 时间拉伸, 遮蔽 | 音频与标签 | 高 |
+| 文本 | 文本文件转张量 | 填充, 截断 | 打乱, 遮蔽 | 文本与标签 | 低 |
+| 推荐 | 表格转张量 | 填充, 截断 | 打乱, 遮蔽 | 特征向量与用户行为 | 高 |
+
+</div>
+
+</div>
+
+ML model training is resource-intensive and time-consuming, so large GPU clusters are often used to speed up training through techniques like data parallelism [55], model parallelism [14], and pipelined parallelism [23]. Our work focuses on optimizing the data preprocessing bottleneck commonly seen in multimedia ML (image, audio, and video) and deep learning recommendation models (DLRM) that use data parallelism [40, 61]. In data parallelism, the dataset is divided and processed in parallel across multiple GPUs, each running a copy of the same model. After every batch, the models are synchronized across GPUs using centralized methods (`e.g.`, parameter servers [34]) or decentralized methods (`e.g.`, all-reduce [12] or ring-reduce [56]).
+
+ML 训练耗时且消耗大量资源, 因此常用大型 GPU 集群, 通过数据并行 [55], 模型并行 [14] 和流水线并行 [23] 加速. 本文关注采用数据并行的多媒体 ML (图像, 音频, 视频) 和深度学习推荐模型 DLRM 中常见的预处理瓶颈 [40, 61]. 数据并行将数据集划分给多个 GPU, 每个 GPU 运行相同模型的副本. 每个批次结束后, 通过参数服务器 [34] 等集中式方法, 或 all-reduce [12], ring-reduce [56] 等去中心化方法同步模型.
+
+The following are the three main steps in the DSI pipeline.
+
+DSI 流水线主要包含以下三个步骤.
+
+Fetching data from storage. The first step in ML data preprocessing is reading data from the slow, remote storage service. DSI pipelines manage datasets from a few gigabytes to several petabytes in low-cost storage. To avoid the memorization of specific patterns, data samples must be fetched in random order, making caching difficult [26, 32].
+
+**从存储读取数据.** 第一步是从较慢的远程存储服务读取数据. DSI 流水线管理的数据集存放在低成本存储中, 大小从数 GB 到数 PB 不等. 为避免模型记住特定模式, 必须随机读取样本, 这增加了缓存难度 [26, 32].
+
+Transforming data. Before training, each data sample must undergo several processing steps (illustrated in Table 1) which are typically applied on the fly [21]. These transformations performed by the DSI pipeline can be computationally intensive and generally run on the CPU to support user-defined transformations [42]. Common transformations necessary for all training jobs include decompressing, decoding, and collating samples. Additionally, every job also has specific static transformations (`e.g.`, tokenization for text, quantization for audio) and random augmentations (`e.g.`, image rotation, audio stretching) to improve model accuracy and generality [6, 42]. Random augmentations are especially critical to training generalizable models for image classification, object detection, and speech recognition.
+
+**数据变换.** 训练前, 每个样本需经过表 1 所示的若干处理步骤, 通常边读取边执行 [21]. 这些变换可能计算密集, 一般在 CPU 上运行, 以支持用户自定义变换 [42]. 所有训练都需要解压, 解码和批次整理等操作; 各作业还会使用特定的固定变换, 如文本分词和音频量化, 以及随机增强, 如图像旋转和音频拉伸, 以提高准确率和泛化能力 [6, 42]. 对图像分类, 目标检测和语音识别, 随机增强尤其重要.
+
+Loading data to the GPU. The final step is loading data to GPUs for gradient computation. To prevent stalls, the DSI pipeline must provide data at or above the GPU's data ingestion rate, which depends on the model size, training algorithm's arithmetic intensity, and the GPU's FLOPS.
+
+**向 GPU 加载数据.** 最后将数据载入 GPU 计算梯度. 为避免停顿, DSI 的供给速度必须不低于 GPU 的数据摄取速率, 后者取决于模型大小, 训练算法的算术强度和 GPU 的 FLOPS.
+
+# 4. 现有方法
+
+We categorize works related to Seneca into four categories: system modeling, preprocessing optimization, hardware acceleration, and cache optimizations.
+
+与 Seneca 相关的工作可分为系统建模, 预处理优化, 硬件加速和缓存优化四类.
+
+System modeling: Lobster [36] models the I/O and DSI pipeline of a distributed training system to balance I/O and preprocessing threads. NoPFS [17] builds a performance model for a distributed storage system given a clairvoyant knowledge of data sampling, and uses this to prefetch data from slower storage to cache. Our work is inspired by high-level system modeling and builds a mathematical model of the entire DSI pipeline. Our model predicts the throughput for different forms of data in the cache and can be used to partition cache space and minimize preprocessing bottlenecks.
+
+**系统建模.** Lobster [36] 对分布式训练的 IO 和 DSI 流水线建模, 平衡 IO 与预处理线程. NoPFS [17] 利用预先获知的采样序列建立分布式存储性能模型, 将慢速存储中的数据预取到缓存. 受这些高层系统建模方法启发, 我们对完整 DSI 流水线建立数学模型, 预测缓存不同数据形态时的吞吐量, 用于划分缓存并缓解预处理瓶颈.
+
+Preprocessing optimization: Several prior works have identified preprocessing of training data as a major bottleneck. Cedar [60], FastFlow [57], GoldMiner [59], Cachew [20], and Pecan [21] address this issue by optimizing and offloading preprocessing tasks to remote CPUs based on profiled system metrics. Our work cost-effectively optimizes the DSI pipeline, without relying on remote CPUs. PRESTO [24] and Revamper [33] explore caching partially or fully processed data to minimize repeated preprocessing computations on the same data, but don't consider their data inflation in conjunction with resource constraints presented by the training hardware. Our work uses this insight and allocates an optimal ratio of the available cache to each form.
+
+**预处理优化.** 多项工作已发现训练数据预处理是主要瓶颈. Cedar [60], FastFlow [57], GoldMiner [59], Cachew [20] 和 Pecan [21] 根据采集的系统指标优化预处理, 并将任务卸载到远程 CPU. 本文不依赖远程 CPU, 以较低成本优化 DSI. PRESTO [24] 和 Revamper [33] 缓存部分或全部处理后的数据, 减少重复计算, 但没有结合训练硬件的资源限制分析数据体积膨胀. 我们综合考虑这些因素, 为各种形态分配最优缓存比例.
+
+Hardware acceleration: DALI [43], TrainBox [52], and FusionFlow [27] uses hardware accelerators (GPUs and FPGAs) for preprocessing. This makes it challenging to apply user-defined transforms while also making poor use of expensive accelerators that are optimized for SIMD operations that differ from the stochastic nature of random augmentations. While our implementation is based on using CPUs for preprocessing, the core concepts of our work can be extended to data loaders that leverage hardware accelerators.
+
+**硬件加速.** DALI [43], TrainBox [52] 和 FusionFlow [27] 使用 GPU, FPGA 等加速器执行预处理. 这既增加了用户自定义变换的实现难度, 又难以充分利用昂贵硬件: 加速器擅长 SIMD 操作, 与随机增强的计算特征并不一致. 本文实现基于 CPU 预处理, 但核心思路也可扩展到使用硬件加速器的数据加载器.
+
+Cache optimization: Due to I/O bottlenecks and large dataset sizes in DNN training, many works focus on reducing data fetch time through caching. MINIO [41] uses a shared cache with a no-eviction policy to avoid thrashing, but its cache hit rate is limited by the cache-to-dataset size ratio. SHADE [26] and iCache [13] use importance sampling [25], but since sample importance varies across jobs, sharing a cache for concurrent jobs is difficult. Quiver [31] allows sample substitution from the cache but suffers from high oversampling overhead. Our approach introduces a cache-aware opportunistic sampler that prioritizes cached samples over uncached ones while maintaining the randomness and uniqueness needed for high model accuracy.
+
+**缓存优化.** DNN 训练存在 IO 瓶颈且数据集较大, 许多工作通过缓存减少读取耗时. MINIO [41] 使用不淘汰数据的共享缓存避免抖动, 但命中率受缓存与数据集容量比限制. SHADE [26] 和 iCache [13] 使用重要性采样 [25], 但不同作业对样本的重要性判断不同, 因而难以共享缓存. Quiver [31] 允许用缓存样本替换请求样本, 但过度采样开销较高. 我们提出感知缓存状态的机会式采样器, 优先提供已缓存样本, 同时保持模型准确率所需的随机性和样本唯一性.
+
+# 5. DSI 流水线面临的挑战
+
+Based on the required data preprocessing and random data sampling of DNN model training, We describe below the two key challenges in effectively using limited cache space to alleviate the DSI pipeline bottleneck.
+
+DNN 训练需要预处理和随机采样. 下面说明如何有效利用有限缓存缓解 DSI 瓶颈时面临的两个关键问题.
+
+## 5.1 确定缓存哪种数据形态
+
+Training data can be cached in different forms (encoded, decoded, or augmented), but choosing the right form involves a space-time trade-off, making it challenging to determine the optimal choice. Table 2 illustrates the trade-off in caching encoded, decoded, and augmented data across three different metrics. In terms of data density, the encoded data is the highest (smallest in size), thus for a given capacity, more encoded data can be cached. Training readiness represents how preprocessed the data is: for this metric, the final augmented data is the most training-ready. Cache worthiness qualifies how useful it is to cache the data. While encoded and decoded data can be reused across epochs, repeatedly using the same randomly augmented data risks overfitting due to insufficient randomness in the augmentations.
+
+训练数据可按编码, 解码或增强形态缓存, 但最优选择涉及时间与空间的权衡. 表 2 从三个维度比较这些形态. 数据密度方面, 编码数据体积最小, 相同容量可缓存更多样本. 训练就绪程度表示预处理完成到什么阶段, 最终增强数据最接近直接用于训练. 缓存价值表示缓存后可复用的程度: 编码与解码数据可跨 epoch 复用, 但重复使用同一随机增强结果可能使增强随机性不足, 增加过拟合风险.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 2: Data forms and their trade-offs.</span>
+
+| Form | Data density | Training readiness | Cache worthiness |
+|:---|:---|:---|:---|
+| Encoded | High | Low | High |
+| Decoded | Low | Medium | High |
+| Augmented | Low | High | Low |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 2: 数据形态及其权衡.</span>
+
+| 形态 | 数据密度 | 训练就绪程度 | 缓存价值 |
+|:---|:---|:---|:---|
+| 编码 | 高 | 低 | 高 |
+| 解码 | 低 | 中 | 高 |
+| 增强 | 低 | 高 | 低 |
+
+</div>
+
+</div>
+
+We illustrate the subtlety of caching in the DSI pipeline by measuring the performance of five models when caching either encoded or augmented data at two different cache capacities (Figure 3). We add Redis [4] to PyTorch [3] for caching either encoded or augmented data of the OpenImages dataset [28] on a CloudLab [18] system with 4×A100 GPUs, 2×24 core AMD 7413 CPUs, 512 GB DRAM, 200 Gbps Mellanox ConnectX-6 NIC, and a remote storage service (NFS) for datasets. The measurements show the time spent fetching data, preprocessing on the CPU, and computing on the GPU. Caching augmented data ('A') reduces preprocessing time since only data from storage needs processing, whereas caching encoded data ('E') requires preprocessing all data. However, caching augmented data ('A') increases fetch time due to the larger tensor size, which limits the number of samples stored in cache.
+
+我们在两种缓存容量下, 分别缓存编码数据或增强数据, 测量五个模型的性能, 展示这种权衡 (图 3). 在 CloudLab [18] 上为 PyTorch [3] 增加 Redis [4] 缓存, 使用 OpenImages [28] 数据集. 系统配置为 4 块 A100 GPU, 2 颗 24 核 AMD 7413 CPU, 512 GB DRAM, 200 Gbps Mellanox ConnectX-6 网卡和远程 NFS 存储. 测量内容包括取数, CPU 预处理和 GPU 计算耗时. 缓存增强数据 A 后, 只有来自存储的数据需要预处理, 因而计算时间减少; 缓存编码数据 E 则仍需预处理全部样本. 不过, 增强张量更大, 缓存能容纳的样本更少, 因而取数时间增加.
+
+Interestingly, the trade-off between caching strategies depends on cache size. With 450GB (Figure 3a), caching preprocessed data significantly reduces preprocessing time by 69.91%, while fetch time only increases by 34.85% on average. However, with 250GB (Figure 3b), the benefit of caching preprocessed data is minimal: preprocessing time decreases by just 11.36%, while fetch time rises by 87.2% on average.
+
+两种策略的优劣取决于缓存容量. 缓存为 450 GB 时 (图 3a), 缓存预处理结果使预处理时间平均减少 69.91%, 取数时间仅增加 34.85%. 缓存为 250 GB 时 (图 3b), 收益很小: 预处理时间仅减少 11.36%, 取数时间却平均增加 87.2%.
+
+<div class="paper-shared">
+
+![不同缓存容量下, ResNet-18 (RN18), ResNet-152 (RN152), VGG-19 (V19), SwinT big (STb), ViT huge (VTh) 缓存编码 E 或增强 A 数据时的取数, 预处理与计算耗时.](/assets/images/posts/seneca/figure-03.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 3: Fetch, preprocess, and compute times when data is cached in encoded ('E') or augmented ('A') form for ResNet18 (RN18), ResNet-152 (RN152), VGG-19 (V19), SwinT big (STb), and ViT huge (VTh) with different cache sizes.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 3: 不同缓存容量下, ResNet-18 (RN18), ResNet-152 (RN152), VGG-19 (V19), SwinT big (STb), ViT huge (VTh) 缓存编码 E 或增强 A 数据时的取数, 预处理与计算耗时.</span>
+
+While Figure 3 shows the performance impact of caching encoded vs. augmented data based on cache size, other hardware factors also play a role. A faster CPU reduces preprocessing time, and faster storage shortens data fetch time. While we only compare caching encoded or augmented data, a range of options exists, such as caching decoded data or splitting the cache between different forms. Deciding how to best allocate a limited cache for the DSI pipeline is a complex, non-linear problem influenced by multiple variables.
+
+除图 3 中的缓存容量外, 其他硬件因素也会影响结果. 更快的 CPU 缩短预处理时间, 更快的存储缩短取数时间. 选择也不限于只缓存编码或增强数据: 还可以缓存解码数据, 或在多种形态之间划分空间. 如何为 DSI 分配有限缓存, 是一个受多个变量影响的复杂非线性问题.
+
+## 5.2 随机样本访问的缓存
+
+The inherent nature of random sampling makes it difficult to implement effective caching policies and we observe that multiple training jobs that share the same dataset do not synergize. In Figure 4, we demonstrate the effect of DRAM size and number of concurrent jobs by measuring the DSI throughput when training ResNet-50 [22] for image classification on the CloudLab system described in §4.1.
+
+随机采样使高效缓存策略难以实现, 共享同一数据集的多个训练作业也未能相互促进. 图 4 在原文第 4.1 节的 CloudLab 系统上训练 ResNet-50 [22] 图像分类模型, 测量 DSI 吞吐量, 展示 DRAM 容量和并发作业数的影响.
+
+Figure 4a compares two open-source dataloaders, PyTorch [3] and DALI [43], both reliant on the system-wide page cache. The results show that the page cache's LRU-based algorithm performs poorly with random access patterns. As the dataset size grows, more data is fetched from slow remote storage, degrading DSI pipeline performance. Increasing the dataset size from 400GB to 600GB reduces DSI throughput by 28.41% for DALI and 67.34% for PyTorch. While PyTorch outperforms DALI when the dataset fits in page cache, DALI's more efficient cache usage gives it an advantage as dataset size increases.
+
+图 4a 比较依赖系统页缓存的 PyTorch [3] 和 DALI [43]. 页缓存基于 LRU 的算法不适合随机访问. 数据集越大, 从慢速远程存储取数越多, DSI 性能越差. 数据集从 400 GB 增至 600 GB 时, DALI 和 PyTorch 的 DSI 吞吐量分别下降 28.41% 和 67.34%. 数据集完全装入页缓存时, PyTorch 更快; 数据集增大后, DALI 更高效的缓存使用方式使其占优.
+
+Figure 4b illustrates inefficiencies in concurrent training, where each job redundantly preprocesses images independently. Training four concurrent PyTorch jobs without caching leads to 7.16 million total preprocessing operations for 1.7 million OpenImages [28] samples (dotted line). As a result, increasing jobs from one to four reduces total DSI throughput by 46.80% (black bars), while GPU utilization remains below 80%. To demonstrate the benefits of shared caching, we add a 350GB Redis cache with PyTorch to store and share preprocessed data. With a portion of the dataset in cache, preprocessing operations drop 3.7× (solid line), and aggregate training throughput improves by 11.81% (gray bars). While sharing preprocessed data reduces redundant preprocessing, performance gains are marginal and jobs fail to benefit from higher concurrency. A more effective sampling policy that optimizes cache utilization could further enhance performance.
+
+图 4b 展示并发训练中的重复预处理. 不使用缓存时, 四个并发 PyTorch 作业对 OpenImages [28] 的 170 万样本共执行 716 万次预处理 (虚线). 作业数从一增至四后, 总 DSI 吞吐量下降 46.80% (黑柱), GPU 利用率仍低于 80%. 为展示共享缓存的收益, 我们为 PyTorch 增加 350 GB Redis 缓存, 共享预处理结果. 缓存部分数据后, 预处理操作数降至原来的约 1/3.7 (实线), 总训练吞吐量提高 11.81% (灰柱). 尽管重复计算减少, 整体提升仍有限, 更高并发度没有带来相应收益. 更有效的采样策略仍有望提高缓存利用率和性能.
+
+<div class="paper-shared">
+
+![页缓存应对随机访问的不足 (a), 以及并发作业共享预处理数据的影响 (b).](/assets/images/posts/seneca/figure-04.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 4: Drawback of OS page-cache for random access patterns (Figure 4a) and the impact of sharing preprocessed data with concurrently training jobs (Figure 4b).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 4: 页缓存应对随机访问的不足 (a), 以及并发作业共享预处理数据的影响 (b).</span>
+
+# 6. Seneca 的设计与实现
+
+We now describe the two key components of our work: (1) Model-Driven Partitioning (MDP) -- a cache partitioning scheme that uses a high-level performance model of the DSI pipeline to determine the optimal ratio of cache to be allocated to each form, and (2) Opportunistic Data Sampling (ODS) -- a data sampler that prioritizes serving cached data over uncached ones to improve cache hit rate and multi-job DSI throughput.
+
+Seneca 包含两个核心组件. MDP 利用 DSI 高层性能模型确定各数据形态的最优缓存比例. ODS 优先提供缓存中的样本, 提高缓存命中率和多作业 DSI 吞吐量.
+
+## 6.1 模型驱动的缓存划分 (MDP)
+
+We present a high-level performance model that estimates the overall performance of the DSI pipeline for an ML training job. Our formulation is based on data parallel training in a typical setup with GPU training nodes along with remote caching and storage services as shown in Figure 5. Each GPU processes a different batch in parallel and model parameters are synchronized after every batch. Our mathematical model estimates DSI throughput given (1) parameters for the hardware components of the training nodes (such as an abstract CPU, GPU, memory, and network performance), (2) performance of the remote cache and storage services (such as cache and storage bandwidth) (3) parameters for the training job (such as the dataset size, ML model size, and the average sample size), (4) gradient communication overhead, and (5) the proportions of memory allocated to the three data forms (`i.e.`, encoded, decoded, and augmented).
+
+我们建立高层性能模型, 估算训练作业的整体 DSI 性能. 模型基于图 5 的典型数据并行配置: GPU 训练节点配合远程缓存和存储服务, 各 GPU 并行处理不同批次, 每批次后同步模型参数. 模型输入包括: 1) 训练节点硬件性能, 如 CPU, GPU, 内存和网络; 2) 远程缓存与存储带宽; 3) 数据集大小, ML 模型大小, 平均样本大小等作业参数; 4) 梯度通信开销; 5) 分配给编码, 解码和增强数据的内存比例.
+
+<div class="paper-shared">
+
+![DSI 流水线模型.](/assets/images/posts/seneca/figure-05.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 5: The DSI pipeline model.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 5: DSI 流水线模型.</span>
+
+Table 3 summarizes the model parameters and their descriptions. The training node parameters (T<sub>GPU</sub> , T<sub>A</sub>, T<sub>D+A</sub>, B<sub>NIC</sub>, B<sub>PCIe</sub>) reflect the performance of hardware components in a single node. To obtain the maximum performance of a homogeneous n-node training cluster, we multiply these values by the number of nodes (n) in the cluster. Although the performance of cache and storage service (B<sub>cache</sub>, B<sub>storage</sub>) may be internally constrained by various components (`e.g.`, storage device, DRAM bandwidth), we abstract them to the maximum achievable bandwidth from a training node.
+
+表 3 汇总模型参数. 训练节点参数 T<sub>GPU</sub>, T<sub>A</sub>, T<sub>D+A</sub>, B<sub>NIC</sub>, B<sub>PCIe</sub> 描述单节点硬件性能. 对同构的 n 节点集群, 将这些值乘以 n, 得到聚合性能上限. 缓存与存储服务内部可能受设备或 DRAM 带宽限制, 但模型将 B<sub>cache</sub> 和 B<sub>storage</sub> 抽象为训练节点可获得的最大带宽.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 3: Summary of parameters used in the model.</span>
+
+| Notation | Description |
+|:---|:---|
+| T<sub>GPU</sub> | Per node GPU ingestion throughput (sample/s) |
+| T<sub>D+A</sub>, T<sub>A</sub> | Per node CPU throughput for decoding and augmenting (sample/s) |
+| B<sub>PCIe</sub> | Per node PCIe bandwidth (B/s) |
+| B<sub>cache</sub> | Maximum remote cache bandwidth (B/s) |
+| B<sub>storage</sub> | Maximum remote storage bandwidth (B/s) |
+| B<sub>NIC</sub> | Per node network bandwidth (B/s) |
+| S<sub>cache</sub> | Remote cache size (Bytes) |
+| S<sub>data</sub> | Encoded sample size (Bytes) |
+| N<sub>E</sub>, N<sub>D</sub>, N<sub>A</sub> | Cached samples in encoded, decoded, augmented forms |
+| N<sub>storage</sub> | Number of samples in storage |
+| N<sub>total</sub> | Dataset sample count |
+| M | Preprocessed data size inflation factor |
+| C<sub>PCIe</sub> | Intra-node gradient communication overhead (Bytes) |
+| C<sub>nw</sub> | Inter-node gradient communication overhead (Bytes) |
+| DSI<sub>E</sub>, DSI<sub>D</sub>, DSI<sub>A</sub> | DSI performance accessing encoded, decoded, augmented caches |
+| DSI<sub>S</sub> | DSI performance fetching from storage |
+| DSI<sub>overall</sub> | Overall DSI performance |
+| x<sub>E</sub>, x<sub>D</sub>, x<sub>A</sub> | Memory proportions for three data forms |
+| n | Number of training nodes |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 3: 模型参数汇总.</span>
+
+| 符号 | 描述 |
+|:---|:---|
+| T<sub>GPU</sub> | 单节点 GPU 摄取吞吐量 (sample/s) |
+| T<sub>D+A</sub>, T<sub>A</sub> | 单节点解码加增强, 仅增强吞吐量 (sample/s) |
+| B<sub>PCIe</sub> | 单节点 PCIe 带宽 (B/s) |
+| B<sub>cache</sub> | 最大远程缓存带宽 (B/s) |
+| B<sub>storage</sub> | 最大远程存储带宽 (B/s) |
+| B<sub>NIC</sub> | 单节点网络带宽 (B/s) |
+| S<sub>cache</sub> | 远程缓存大小 (Bytes) |
+| S<sub>data</sub> | 编码样本大小 (Bytes) |
+| N<sub>E</sub>, N<sub>D</sub>, N<sub>A</sub> | 三种形态的缓存样本数 |
+| N<sub>storage</sub> | 仅在存储中的样本数 |
+| N<sub>total</sub> | 数据集样本数 |
+| M | 预处理数据膨胀倍数 |
+| C<sub>PCIe</sub> | 节点内梯度通信开销 (Bytes) |
+| C<sub>nw</sub> | 节点间梯度通信开销 (Bytes) |
+| DSI<sub>E</sub>, DSI<sub>D</sub>, DSI<sub>A</sub> | 访问各形态缓存的 DSI 性能 |
+| DSI<sub>S</sub> | 读取存储的 DSI 性能 |
+| DSI<sub>overall</sub> | 整体 DSI 性能 |
+| x<sub>E</sub>, x<sub>D</sub>, x<sub>A</sub> | 三种形态的内存比例 |
+| n | 训练节点数 |
+
+</div>
+
+</div>
+
+Our model accounts for gradient communication overhead that occurs over PCIe and network after every batch to synchronize gradients across all GPUs as it may overlap with preprocessing tasks. We calculate the PCIe and network overheads separately using the number of nodes and GPUs per node. The network and PCIe overhead, C<sub>nw</sub> and C<sub>PCIe</sub> for a batch is given by 2 × (n - 1) / n × β<sub>N</sub> [56], where n is the number of GPUs per node in the case of C<sub>nw</sub> and the number of nodes in case of C<sub>PCIe</sub> and β<sub>N</sub> is the model size in megabytes. For NVLink-connected GPUs [51], gradient communication incurs no overhead since NVLink, a dedicated interconnect, is used when available. Specifically, for intra-node NVLink, C<sub>PCIe</sub> = 0, and for inter-node NVLink, both C<sub>PCIe</sub> and C<sub>nw</sub> are set to 0. While we estimate the overhead of ring-reduce which is used in this case, C<sub>nw</sub> and C<sub>PCIe</sub> can represent overheads for other gradient communication algorithms as well.
+
+每个批次之后, GPU 通过 PCIe 和网络同步梯度, 可能与预处理重叠, 因此模型考虑了梯度通信开销. 我们根据节点数与每节点 GPU 数分别计算 PCIe 和网络开销. 每批次的 C<sub>nw</sub> 和 C<sub>PCIe</sub> 按 2 × (n - 1) / n × β<sub>N</sub> 计算 [56]; 原文在这里将 C<sub>nw</sub> 对应的 n 定义为每节点 GPU 数, 将 C<sub>PCIe</sub> 对应的 n 定义为节点数, β<sub>N</sub> 是以 MB 为单位的模型大小. 对通过 NVLink [51] 连接的 GPU, 梯度通信使用专用互连, 不计入这些共享链路的开销. 具体而言, 节点内使用 NVLink 时 C<sub>PCIe</sub> = 0; 节点间也使用 NVLink 时, C<sub>PCIe</sub> 和 C<sub>nw</sub> 均设为 0. 本文估算 ring-reduce 的开销, 但这两个参数也可表示其他梯度通信算法的开销.
+
+Given these parameters, we approach the problem of modeling the DSI pipeline by considering four different cases of data accesses: (1) when the data needed by the DNN training job is already augmented and in cache § 5.1.1; (2) when the data is decoded and in cache § 5.1.2; (3) when the data is encoded and in cache § 5.1.3; and (4) when the data is in storage § 5.1.4. Our high-level model formulates the performance for each case independently, and unifies them into one model by considering the probabilities of all cases § 5.1.5.
+
+根据这些参数, 我们分别建模四种数据访问情况: 缓存中已有增强数据 (原文第 5.1.1 节), 解码数据 (第 5.1.2 节), 编码数据 (第 5.1.3 节), 或数据仍在存储中 (第 5.1.4 节). 先独立计算各情形的性能, 再根据发生概率合并为整体模型 (第 5.1.5 节).
+
+### 6.1.1 内存中的增强数据
+
+We first model the performance of accessing augmented data stored in memory (DSI<sub>A</sub>). For ease of calculation, we use throughput (samples per second) for all the units for the system parameters. Because GPU performance is nominally expressed in floating point operations per second (FLOPS), we measure the data ingestion rate for the GPU in terms of samples per second. The components involved in this scenario are cache, GPUs, and the interconnects (NIC and PCIe) between them. The limiting factor for DSI<sub>A</sub> in an n-node training cluster could be the cache bandwidth (B<sub>cache</sub>) or the aggregate performance of one of the hardware components in the cluster, which includes GPU ingestion rate (n × T<sub>GPU</sub> ), network bandwidth (n × B<sub>NIC</sub>), and PCIe bandwidth (n × B<sub>PCIe</sub>), as shown in Equation 1. PCIe and network bandwidths scale down with both, augmented data size and respective gradient communication overheads (C<sub>nw</sub> and C<sub>PCIe</sub>), while cache bandwidth scales down by the size of augmented data (M × S<sub>data</sub>).
+
+首先建模读取内存中增强数据的性能 DSI<sub>A</sub>. 为便于计算, 各系统参数统一换算为每秒处理的样本数. GPU 通常用 FLOPS 描述性能, 这里改为测量其样本摄取速率. 涉及组件包括缓存, GPU 及两者之间的网卡和 PCIe. n 节点集群中的瓶颈可能是缓存带宽 B<sub>cache</sub>, 也可能是 GPU 总摄取速率 n × T<sub>GPU</sub>, 总网络带宽 n × B<sub>NIC</sub> 或总 PCIe 带宽 n × B<sub>PCIe</sub>, 如公式 1 所示. 网络和 PCIe 带宽换算为样本吞吐量时, 分母包含增强数据大小与相应梯度通信开销 C<sub>nw</sub>, C<sub>PCIe</sub>; 缓存带宽则除以增强样本大小 M × S<sub>data</sub>.
+
+<div class="paper-shared">
+
+DSI<sub>A</sub> = min(B<sub>cache</sub> / (M × S<sub>data</sub>), n × B<sub>NIC</sub> / (M × S<sub>data</sub> + C<sub>nw</sub>), n × B<sub>PCIe</sub> / (M × S<sub>data</sub> + C<sub>PCIe</sub>), n × T<sub>GPU</sub>) &nbsp; (1)
+
+</div>
+
+To compute the probability of accessing augmented data, we model the number of samples that are in the augmented form (N<sub>A</sub>). Given x<sub>A</sub> as the portion of memory allocated for caching augmented data (where 0 ≤ x<sub>A</sub> ≤ 1), the number of augmented samples in memory is x<sub>A</sub> × S<sub>mem</sub> divided by the size of a tensor, M × S<sub>data</sub>. However, N<sub>A</sub> should also account for the case when the dataset is small enough to fit entirely in memory, as shown in Equation 2.
+
+为计算访问增强数据的概率, 我们估算缓存中的增强样本数 N<sub>A</sub>. 若分配比例为 x<sub>A</sub>, 且 0 ≤ x<sub>A</sub> ≤ 1, 则可容纳样本数为 x<sub>A</sub> × S<sub>mem</sub> 除以张量大小 M × S<sub>data</sub>. 同时还要考虑整个数据集都能放入内存的情况, 因而取两者较小值, 如公式 2.
+
+<div class="paper-shared">
+
+N<sub>A</sub> = min(N<sub>total</sub>, x<sub>A</sub> × S<sub>mem</sub> / (M × S<sub>data</sub>)) &nbsp; (2)
+
+</div>
+
+### 6.1.2 内存中的解码数据
+
+Next, we model the performance of accessing decoded data from memory (DSI<sub>D</sub>). This scenario involves training node CPUs for applying random augmentations, along with GPUs, remote cache, and interconnects (Network and PCIe) between them. Similar to the GPU, we represent CPU throughput in samples per second for random augmentations, even though its nominal metric is FLOPS. The limiting factor for DSI<sub>D</sub> is either the remote cache bandwidth (B<sub>cache</sub>) or the aggregate performance of one of the hardware components in the cluster, which includes CPU augmentation throughput (n × T<sub>A</sub>), GPU ingestion rate (n × T<sub>GPU</sub> ), and interconnect throughput (n × B<sub>NIC</sub>, n × B<sub>PCIe</sub>), as shown in Equation 3.
+
+接着建模读取内存中解码数据的性能 DSI<sub>D</sub>. 除 GPU, 远程缓存和网络/PCIe 互连外, 还需要训练节点 CPU 执行随机增强. 与 GPU 一样, CPU 也用每秒增强样本数表示吞吐量, 而非通常的 FLOPS. 瓶颈可能是 B<sub>cache</sub>, CPU 增强总吞吐量 n × T<sub>A</sub>, GPU 总摄取速率 n × T<sub>GPU</sub>, 或互连吞吐量 n × B<sub>NIC</sub>, n × B<sub>PCIe</sub>, 如公式 3.
+
+<div class="paper-shared">
+
+DSI<sub>D</sub> = min(B<sub>cache</sub> / (M × S<sub>data</sub>), n × B<sub>NIC</sub> / (M × S<sub>data</sub> + C<sub>nw</sub>), n × T<sub>A</sub>, n × B<sub>PCIe</sub> / (M × S<sub>data</sub> + C<sub>PCIe</sub>), n × T<sub>GPU</sub>) &nbsp; (3)
+
+</div>
+
+To compute the probability of accessing decoded data from memory, we model the number of samples that are in the decoded form (N<sub>D</sub>). Given x<sub>D</sub> as the portion of memory allocated for decoded data, the number of decoded samples in memory is x<sub>D</sub> ×S<sub>mem</sub> divided by the size of a tensor, M ×S<sub>data</sub>. However, N<sub>D</sub> should also account for the case when the dataset is small enough so that both N<sub>D</sub> and N<sub>A</sub> fit entirely in memory, as shown in Equation 4.
+
+为计算命中解码数据的概率, 我们估算解码样本数 N<sub>D</sub>. 分配给解码数据的内存比例为 x<sub>D</sub>, 可容纳样本数为 x<sub>D</sub> × S<sub>mem</sub> 除以张量大小 M × S<sub>data</sub>. 还需考虑数据集较小, N<sub>D</sub> 和 N<sub>A</sub> 全部能够缓存的情况, 如公式 4.
+
+<div class="paper-shared">
+
+N<sub>D</sub> = min(N<sub>total</sub> - N<sub>A</sub>, x<sub>D</sub> × S<sub>mem</sub> / (M × S<sub>data</sub>)) &nbsp; (4)
+
+</div>
+
+### 6.1.3 内存中的编码数据
+
+Now, we model the performance of accessing encoded data stored in memory (DSI<sub>E</sub> ). this involves not only the cache, network, PCIe, and GPU, but also the CPU for decoding and augmenting the data samples (T<sub>D+A</sub>). This resulting DSI<sub>E</sub> is shown in Equation 5.
+
+读取缓存中编码数据的性能 DSI<sub>E</sub>, 不仅取决于缓存, 网络, PCIe 和 GPU, 还受 CPU 解码与增强吞吐量 T<sub>D+A</sub> 限制, 如公式 5.
+
+<div class="paper-shared">
+
+DSI<sub>E</sub> = min(B<sub>cache</sub> / S<sub>data</sub>, n × B<sub>NIC</sub> / (S<sub>data</sub> + C<sub>nw</sub>), n × T<sub>D+A</sub>, n × B<sub>PCIe</sub> / (M × S<sub>data</sub> + C<sub>PCIe</sub>), n × T<sub>GPU</sub>) &nbsp; (5)
+
+</div>
+
+For the number of encoded data samples in memory (N<sub>E</sub> ), we consider two scenarios: (1) when the dataset is small enough so that all N<sub>E</sub> , N<sub>D</sub>, and N<sub>A</sub> can be fully cached, and (2) when the dataset is large. For the latter case, we compute the portion of memory allocated for encoded data, x<sub>E</sub> × S<sub>mem</sub>, and divide it by the size of the encoded data, S<sub>data</sub>. Both scenarios are considered in Equation 6.
+
+编码样本数 N<sub>E</sub> 分两种情况: 数据集较小, N<sub>E</sub>, N<sub>D</sub> 和 N<sub>A</sub> 都能缓存; 或数据集较大, 编码样本数受分配空间 x<sub>E</sub> × S<sub>mem</sub> 除以编码样本大小 S<sub>data</sub> 限制. 公式 6 同时考虑两者.
+
+<div class="paper-shared">
+
+N<sub>E</sub> = min(N<sub>total</sub> - (N<sub>A</sub> + N<sub>D</sub>), x<sub>E</sub> × S<sub>mem</sub> / S<sub>data</sub>) &nbsp; (6)
+
+</div>
+
+### 6.1.4 存储中的数据
+
+Finally, we model the performance of accessing storage, DSI<sub>S</sub>, shown in Equation 7. This is similar to DSI<sub>E</sub> in Equation 5, but also includes the storage throughput as the potential limiting factor for performance.
+
+最后建模访问存储的性能 DSI<sub>S</sub>, 如公式 7. 它类似公式 5 中的 DSI<sub>E</sub>, 但额外考虑存储吞吐量这一潜在瓶颈.
+
+<div class="paper-shared">
+
+DSI<sub>S</sub> = min(DSI<sub>E</sub>, B<sub>storage</sub> / S<sub>data</sub>) &nbsp; (7)
+
+</div>
+
+The number of samples only in storage is simply the dataset that does not fit in memory, as shown in Equation 8
+
+仅在存储中的样本数, 就是数据集里无法放入内存的部分, 如公式 8.
+
+<div class="paper-shared">
+
+N<sub>storage</sub> = N<sub>total</sub> - N<sub>A</sub> - N<sub>D</sub> - N<sub>E</sub> &nbsp; (8)
+
+</div>
+
+### 6.1.5 整体 DSI 性能模型
+
+We combine Equations 1-8 and express the overall DSI throughput (DSI<sub>overall</sub>) as shown in Equation 9.
+
+综合公式 1~8, 可得到公式 9 中的整体吞吐量 DSI<sub>overall</sub>.
+
+<div class="paper-shared">
+
+DSI<sub>overall</sub> = (N<sub>A</sub> / N<sub>total</sub>) × DSI<sub>A</sub> + (N<sub>D</sub> / N<sub>total</sub>) × DSI<sub>D</sub> + (N<sub>E</sub> / N<sub>total</sub>) × DSI<sub>E</sub> + (N<sub>storage</sub> / N<sub>total</sub>) × DSI<sub>S</sub> &nbsp; (9)
+
+</div>
+
+We use Equation 9 to estimate DSI throughput given different proportions of memory partitioned for caching encoded, decoded, and augmented data (x<sub>E</sub> , x<sub>D</sub>, x<sub>A</sub>). We show the correctness of this model in the later validation section, § 6.
+
+公式 9 可根据编码, 解码和增强数据的不同内存比例 x<sub>E</sub>, x<sub>D</sub>, x<sub>A</sub> 估计 DSI 吞吐量. 原文第 6 节将验证该模型.
+
+## 6.2 机会式数据采样 (ODS)
+
+Given the optimal cache partitioning for improving the DSI throughput, ODS aims to improve the cache hit rate when multiple training jobs share the same dataset. The key idea behind ODS is to opportunistically supply data samples already present in the cache. However, it must still ensure that (1) a training job only sees the same data sample once in any epoch, (2) the same augmented samples are never reused across epochs, and (3) the order of supplied data is random.
+
+MDP 确定缓存划分后, ODS 进一步提高多个作业共享数据集时的命中率. 核心是尽可能提供已在缓存中的样本, 同时保证: 1) 一个作业在每个 epoch 内只使用同一样本一次; 2) 同一增强结果不跨 epoch 重用; 3) 提供数据的顺序保持随机.
+
+We illustrate the operation of ODS through Figure 6. We represent each unique data sample with alphabets, and maintain (1) a per-job seen bit vector to track whether or not a sample has been seen during its epoch, and (2) a per-dataset status and reference count for each of its data samples. Although Seneca has three tiers of caches (augmented, decoded, and encoded), we illustrate with only the augmented cache for simplicity.
+
+图 6 展示 ODS 的流程. 用字母标识不同样本, 维护两类元数据: 每个作业的 seen 位向量, 记录本 epoch 是否使用过某个样本; 每个数据集的样本状态与引用计数. Seneca 实际有增强, 解码和编码三层缓存, 图中为简明起见只展示增强缓存.
+
+<div class="paper-shared">
+
+![ODS 示例. 每个作业的 seen 位向量记录本 epoch 是否使用过样本; 每个数据集记录样本状态和引用计数. 通过这些元数据, 用未使用的缓存命中样本替换未命中项, 同时保持随机性.](/assets/images/posts/seneca/figure-06.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 6: An example operation of ODS. ODS maintains two metadata structures: (1) per-job seen bit vector to track whether a data sample has been used during that epoch, and (2) per-dataset status and reference count for each data sample. These are used to opportunistically replace requested samples that miss in the cache with those that hit while ensuring randomness.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 6: ODS 示例. 每个作业的 seen 位向量记录本 epoch 是否使用过样本; 每个数据集记录样本状态和引用计数. 通过这些元数据, 用未使用的缓存命中样本替换未命中项, 同时保持随机性.</span>
+
+**1)** When a batch request arrives, ODS identifies the misses (samples not in the cache) based on status.
+
+**1)** 批次请求到达后, ODS 根据样本状态识别缓存未命中项.
+
+**2)** Using the seen bit vector for the requested job, ODS opportunistically replaces misses with hits (samples in the cache) that have not been seen. Hits that have been seen by the job do not replace misses.
+
+**2)** 查询该作业的 seen 位向量, 用缓存中尚未被当前作业使用的样本替换未命中项. 已经使用过的缓存样本不会用于替换.
+
+**3)** The reference counts for samples that hit in the cache are incremented.
+
+**3)** 增加缓存命中样本的引用计数.
+
+**4)** Response to the batch request is sent with replacements, and the seen bit vector is updated.
+
+**4)** 返回包含替换样本的批次响应, 更新 seen 位向量.
+
+**5)** If any of the reference counts reach the defined threshold for eviction, a background thread removes the data samples and replaces them with different random samples from storage with their reference counts reset.
+
+**5)** 引用计数达到淘汰阈值后, 后台线程移除样本, 从存储随机读取其他样本填入缓存, 并将引用计数清零.
+
+**6)** The seen bit vector is reset at the end of its epoch.
+
+**6)** epoch 结束后重置 seen 位向量.
+
+Using the seen bit vector, ODS guarantees that each job uses a data sample once during each epoch. With the eviction threshold set to the number of jobs, the reference count and seen bit vector together ensure that augmented data will not be used across epochs. Although the eviction of an augmented sample from the cache is deterministic, when it will be supplied to a job is nevertheless random as it depends on the composition of the requested random samples. Furthermore, which data samples populate the augmented cache after an eviction is based on a pseudo-random number generator, warranting the random sampling behavior of ODS.
+
+seen 位向量保证每个作业在一个 epoch 中只使用每个样本一次. 将淘汰阈值设为作业数后, 引用计数与 seen 位向量共同保证增强数据不跨 epoch 复用. 增强样本的淘汰条件虽然确定, 但何时提供给某个作业仍是随机的, 取决于该作业请求的随机样本组合. 淘汰后填入哪些样本, 也由伪随机数生成器决定, 从而保持 ODS 的随机采样行为.
+
+The overhead of using ODS is negligible. First, the required metadata for ODS to maintain is only in the megabyte range. We use 1 bit per data sample for the per-job seen bit vector, and 1B per data sample for encoding the data status (augmented, decoded, encoded, or storage) and the reference count together. As an example, training 8 concurrent jobs on the ImageNet-1K dataset [15] (1.3M samples) yields 2.6MB of ODS metadata. Furthermore, the compute overhead of ODS is limited to only four additional metadata operations, all of which are constant time and in the nanoseconds range. Specifically, these are lookup and update operations on the in-memory ODS metadata.
+
+ODS 的开销很小. 元数据仅为 MB 级: 每个作业的 seen 位向量为每个样本使用 1 bit, 每个数据集的样本状态 (增强, 解码, 编码或仅在存储) 与引用计数合用 1 字节. 例如, 在含 130 万样本的 ImageNet-1K [15] 上并发训练 8 个作业, ODS 元数据为 2.6 MB. 计算开销仅增加四项内存元数据查询和更新操作, 均为常数时间, 耗时在纳秒级.
+
+## 6.3 实现
+
+We implement Seneca by modifying PyTorch (v1.12.0) [3] dataloaders, with approximately 4200 lines of code changes. These changes include both MDP (§ 5.1) and ODS (§ 5.2). Seneca can be used as a drop-in replacement for the default PyTorch dataloader. For caching, Seneca uses Redis [4], an open-source in-memory key-value store, but other data stores can be used instead.
+
+我们修改 PyTorch v1.12.0 [3] 的数据加载器实现 Seneca, 约改动 4200 行代码, 涵盖 MDP 和 ODS. Seneca 可直接替换默认 PyTorch 数据加载器. 缓存采用开源内存键值存储 Redis [4], 也可换用其他数据存储.
+
+Figure 7 shows the overall architecture of Seneca. At the start of training, MDP determines cache partition sizes and allocates them in the caching service. We use a brute-force approach to find the optimal cache split by calculating DSI throughput for all combinations at 1% granularity. This approach is used for simplicity since the optimal cache split is typically calculated once per dataset and incurs negligible overhead (<1s). ODS replaces cache misses with hits in runtime and includes modules to track job progress and sample status ensuring randomization and uniqueness of data.
+
+图 7 展示整体架构. 训练开始时, MDP 确定分区大小并在缓存服务中分配空间. 为简化实现, 我们以 1% 为粒度穷举所有划分, 计算 DSI 吞吐量并选取最优方案. 每个数据集通常只需计算一次, 开销不到 1 秒. 运行时, ODS 用缓存命中样本替换未命中项, 并跟踪作业进度和样本状态, 保证随机性和唯一性.
+
+<div class="paper-shared">
+
+![Seneca 整体架构. 初始化时 MDP 根据系统与数据集参数划分缓存, 运行时 ODS 通过样本替换提高命中率.](/assets/images/posts/seneca/figure-07.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 7: The overall architecture of Seneca. At initialization, MDP partitions the cache according to the system and dataset parameters. During runtime, ODS maximizes the cache hit rate by replacing samples that miss in the cache with hits.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 7: Seneca 整体架构. 初始化时 MDP 根据系统与数据集参数划分缓存, 运行时 ODS 通过样本替换提高命中率.</span>
+
+# 7. DSI 模型验证
+
+We validate our DSI pipeline performance model by comparing its output with real measurements across four hardware platforms (1×in-house server, 2×in-house servers, 1×AWS server, and 1×Azure server) using several fixed cache partition sizes. The purpose of this validation is to assess the correlation between the model and actual performance, not to demonstrate that MDP achieves optimal results. Table 4 shows the known hardware specs for the server types used, while Table 5 lists profiled values like GPU and CPU throughput for our model. For each server type, we measure GPU and CPU throughput using DS-Analyzer [39] and remote storage bandwidth using fio [1]. We double the performance values of the in-house server for validating our model on distributed training across 2 in-house servers. Overall, the Azure server generally outperforms the in-house and AWS servers, except in remote storage speed. We use the ImageNet-1K dataset [15], and replicate samples to generate a large dataset that reaches up to 512GB. We also limit the size of the caching service to 64GB on all systems to test scenarios where the dataset exceeds memory capacity.
+
+我们使用若干固定缓存划分, 在四种平台上对比模型预测与实测性能: 单台本地服务器, 两台本地服务器, 单台 AWS 和单台 Azure 服务器. 这里验证的是模型与实际性能的相关性, 而非证明 MDP 一定得到最优结果. 表 4 列出硬件规格, 表 5 列出模型使用的实测 GPU, CPU 吞吐量等参数. 使用 DS-Analyzer [39] 测量 GPU 和 CPU 吞吐量, 用 fio [1] 测量远程存储带宽. 验证双本地服务器时, 将单机性能参数乘以二. 除远程存储速度外, Azure 总体快于本地和 AWS. 使用 ImageNet-1K [15], 复制样本将数据集扩大到最多 512 GB; 各系统缓存均限制为 64 GB, 以覆盖数据集超出内存的情况.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 4: Hardware configurations for the GPU servers used.</span>
+
+| Parameter | In-house | AWS p3.8xlarge | Azure NC96ads_v4 |
+|:---|:---|:---|:---|
+| GPU | 2 × RTX 5000 | 4 × V100 | 4 × A100 |
+| GPU memory | 32 | 64 | 320 |
+| CPU | AMD Ryzen 9 3950X | Intel Xeon E5-2686 v4 | AMD EPYC 7V13 |
+| DRAM (GB) | 115 | 244 | 880 |
+| Network | 10 | 10 | 80 |
+| NFS (MB/s) | 500 | 256 | 250 |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 4: GPU 服务器硬件配置.</span>
+
+| 参数 | 本地 | AWS p3.8xlarge | Azure NC96ads_v4 |
+|:---|:---|:---|:---|
+| GPU | 2 × RTX 5000 | 4 × V100 | 4 × A100 |
+| 显存 (GB) | 32 | 64 | 320 |
+| CPU | AMD Ryzen 9 3950X | Intel Xeon E5-2686 v4 | AMD EPYC 7V13 |
+| DRAM (GB) | 115 | 244 | 880 |
+| 网络 (Gbit/s) | 10 | 10 | 80 |
+| NFS (MB/s) | 500 | 256 | 250 |
+
+</div>
+
+</div>
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 5: Performance model values for DSI model validation.</span>
+
+| Notation | In-house | AWS p3.8xlarge | Azure NC96ads_v4 |
+|:---|:---|:---|:---|
+| T<sub>GPU</sub> | 4550 sample/s | 9989 sample/s | 14301 sample/s |
+| T<sub>D+A</sub> | 2132 sample/s | 3432 sample/s | 9783 sample/s |
+| T<sub>A</sub> | 4050 sample/s | 6520 sample/s | 12930 sample/s |
+| B<sub>NIC</sub> | 10 Gb/s | 10 Gb/s | 80 Gb/s |
+| B<sub>PCIe</sub> | 32 GB/s | 32 GB/s | 64 GB/s |
+| B<sub>cache</sub> | 10 Gb/s | 10 Gb/s | 30 Gb/s |
+| B<sub>storage</sub> | 500 MB/s | 256 MB/s | 250 MB/s |
+| S<sub>cache</sub> | 64 GB | 64 GB | 64 GB |
+| S<sub>data</sub> | 114 KB | 114 KB | 114 KB |
+| M | 5.12× | 5.12× | 5.12× |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 5: DSI 模型验证使用的性能参数.</span>
+
+| 参数 | 本地 | AWS p3.8xlarge | Azure NC96ads_v4 |
+|:---|:---|:---|:---|
+| T<sub>GPU</sub> | 4550 sample/s | 9989 sample/s | 14301 sample/s |
+| T<sub>D+A</sub> | 2132 sample/s | 3432 sample/s | 9783 sample/s |
+| T<sub>A</sub> | 4050 sample/s | 6520 sample/s | 12930 sample/s |
+| B<sub>NIC</sub> | 10 Gb/s | 10 Gb/s | 80 Gb/s |
+| B<sub>PCIe</sub> | 32 GB/s | 32 GB/s | 64 GB/s |
+| B<sub>cache</sub> | 10 Gb/s | 10 Gb/s | 30 Gb/s |
+| B<sub>storage</sub> | 500 MB/s | 256 MB/s | 250 MB/s |
+| S<sub>cache</sub> | 64 GB | 64 GB | 64 GB |
+| S<sub>data</sub> | 114 KB | 114 KB | 114 KB |
+| M | 5.12× | 5.12× | 5.12× |
+
+</div>
+
+</div>
+
+Figure 8 compares modeled performance (lines) with measured performance (markings) for six different cache partitions across four configurations. There are countless partition possibilities, so we focus on simple configurations: three with a single cache and three with two equal-sized caches. Modeled and measured results are color-matched and show a strong correlation overall. The Pearson correlation coefficient for all 24 combinations is at least 0.90. The lowest correlations are 0.91 for the 50/50 encoded-augmented cache on the AWS server (blue line in Figure 8f) and 0.92 for the 100% encoded cache on the in-house server (blue line in Figure 8a). For distributed training on two in-house servers (Figures 8c and 8d), the bottleneck shifts to remote cache bandwidth (B<sub>cache</sub>) due to limited network capacity, a constraint accurately predicted by our model.
+
+图 8 对比四种配置下六种缓存划分的预测值 (曲线) 与实测值 (标记). 为控制组合数量, 选择三种仅缓存单一形态的配置, 以及三种按相同比例缓存两种形态的配置. 同色曲线和标记整体高度相关, 24 种组合的 Pearson 相关系数均不低于 0.90. 最低的两项为 AWS 上编码与增强各占 50% 的 0.91 (图 8f 蓝线), 以及本地服务器全部缓存编码数据的 0.92 (图 8a 蓝线). 双本地服务器分布式训练中 (图 8c, 8d), 网络容量有限, 瓶颈转为远程缓存带宽 B<sub>cache</sub>, 模型也准确预测了这一变化.
+
+<div class="paper-shared">
+
+![DSI 性能模型验证. 横轴为数据集大小 (GB), 纵轴为样本吞吐量; 同色曲线和标记分别为预测与实测. X-Y-Z 表示编码, 解码, 增强缓存占比. 预测与实测的相关系数至少为 0.90.](/assets/images/posts/seneca/figure-08.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 8: Validation of the DSI pipeline performance model against measured throughput in samples/sec (Y-axis) while varying the dataset size in GB (X-axis). The lines indicate modeled performance for each cache partition while the markings of the same color indicate measured performance. X-Y-Z denote a split of X% encoded cache, Y% decoded cache, and Z% augmented cache. The correlation between modeled and measured values is at least 0.90.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 8: DSI 性能模型验证. 横轴为数据集大小 (GB), 纵轴为样本吞吐量; 同色曲线和标记分别为预测与实测. X-Y-Z 表示编码, 解码, 增强缓存占比. 预测与实测的相关系数至少为 0.90.</span>
+
+As shown in the model, the relationship between the DSI pipeline throughput and the cache configuration is nontrivial. The DSI pipeline throughput depends on the performance of training node hardware (GPU and CPU), cache and storage services, as well as the dataset and model parameters (size and sample size). For example, when the dataset is small, then it is advantageous to have preprocessed data in the cache: there is no reason not to as it avoids both preprocessing and I/O stalls as shown by the red lines in Figures 8a, 8c, 8e, and 8g. However, for larger datasets, the larger size of preprocessed data can lead to performance degradation due to increased cache misses. If only one type of cache can be used, using an encoded cache is better with large datasets, as illustrated by the blue lines and markings in Figures 8a, 8c, 8e, and 8g. With two types of caches, the best configuration is no longer a clear-cut answer, although, at very large dataset sizes, their throughputs become similar, shown in Figures 8b, 8d, 8f, and 8h.
+
+DSI 吞吐量与缓存配置的关系并不简单, 取决于训练节点 CPU/GPU, 缓存与存储服务, 数据集与模型参数, 包括规模和样本大小. 小数据集适合缓存预处理结果, 可同时避免预处理和 IO 停顿, 如图 8a, 8c, 8e, 8g 的红线. 大数据集的预处理结果体积较大, 会增加缓存未命中, 反而降低性能. 如果只能缓存一种形态, 大数据集更适合编码缓存, 如这些图中的蓝线和标记. 使用两种缓存时, 最优配置不再一目了然, 但数据集极大时, 不同配置的吞吐量趋于接近, 如图 8b, 8d, 8f, 8h.
+
+# 8. 评估
+
+We demonstrate the effectiveness of Seneca using several DNN and transformer models with the largest possible batch size up to 1024 on three datasets across five hardware configurations, incorporating single node and distributed training on a variety of GPUs: (1) 1× and 2×in-house servers with 115 GB remote cache over 10 Gbps, (2) AWS p3.8xlarge [8] VM with 400 GB remote cache over 10 Gbps on an AWS x2iedn.4xlarge [9] VM, and (3) 1× and 2×Azure NC96ads_v4 [11] VMs with 400 GB remote cache over 30 Gbps on an Azure E64-16s v6 [10] VM. Datasets are stored on a remote storage service, which in our case is an NFS server with 10-12 Gbps network bandwidth. We use image classification models due to their substantial preprocessing overhead, but the core concepts of our work can be applied to all preprocessing-heavy machine learning training. The characteristics of the datasets are summarized in Table 6 and represent a wide range of dataset sizes and sample sizes. How the cache should be partitioned depends on the system and dataset parameters, and Table 6 includes the MDP-determined partitions (encoded-decoded-augmented). Due to space constraints, we present results only for unique MDP partitions.
+
+我们使用多个 DNN 与 Transformer 模型, 在三个数据集和五种硬件配置上验证 Seneca, 批次大小取可用的最大值, 上限为 1024. 配置覆盖单机与分布式训练: 1) 一台或两台本地服务器, 经 10 Gbps 网络访问 115 GB 远程缓存; 2) AWS p3.8xlarge [8] 虚拟机, 经 10 Gbps 网络访问 x2iedn.4xlarge [9] 上的 400 GB 缓存; 3) 一台或两台 Azure NC96ads_v4 [11] 虚拟机, 经 30 Gbps 网络访问 E64-16s v6 [10] 上的 400 GB 缓存. 数据集位于带宽为 10~12 Gbps 的远程 NFS 服务. 图像分类的预处理开销较大, 因而用于评估; 核心思路也适用于其他预处理密集型训练. 表 6 涵盖不同数据集规模和样本大小, 并列出 MDP 决定的编码-解码-增强划分. 由于篇幅有限, 实验仅展示不重复的 MDP 划分结果.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 6: Characteristics of popular open source datasets used for training image classification models. Using the profiled performance model values, MDP determines the best split for the two servers: (X-Y-Z) indicate a split of X% encoded cache, Y% decoded cache, and Z% augmented cache. MDP splits in bold are presented in the evaluation.</span>
+
+| Dataset | Images | Classes | Average | Footprint | 1 × 本地 | 2 × 本地 | AWS | 1 × Azure | 2 × Azure |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+| ImageNet-1K [15] | 1.3M | 1000 | 114.62 KB | 142 GB | **58-42-0** | 40-59-1 | 0-81-19 | **0-48-52** | 0-53-47 |
+| OpenImages V7 [28] | 1.9M | 600 | 315.84 KB | 517 GB | **62-37-1** | **58-41-1** | **52-48-0** | **5-95-0** | 6-93-1 |
+| ImageNet-22K [2] | 14M | 22000 | 91.39 KB | 1400 GB | 100-0-0 | 100-0-0 | 100-0-0 | **100-0-0** | 100-0-0 |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 6: 图像分类数据集及 MDP 缓存划分. X-Y-Z 分别表示编码, 解码和增强缓存的百分比; 加粗的划分用于评估.</span>
+
+| 数据集 | 图像数 | 类别数 | 平均大小 | 总大小 | 1 × 本地 | 2 × 本地 | AWS | 1 × Azure | 2 × Azure |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+| ImageNet-1K [15] | 1.3M | 1000 | 114.62 KB | 142 GB | **58-42-0** | 40-59-1 | 0-81-19 | **0-48-52** | 0-53-47 |
+| OpenImages V7 [28] | 1.9M | 600 | 315.84 KB | 517 GB | **62-37-1** | **58-41-1** | **52-48-0** | **5-95-0** | 6-93-1 |
+| ImageNet-22K [2] | 14M | 22000 | 91.39 KB | 1400 GB | 100-0-0 | 100-0-0 | 100-0-0 | **100-0-0** | 100-0-0 |
+
+</div>
+
+</div>
+
+We evaluate two of our designs, MDP-only and Seneca (which includes both MDP and ODS), against five dataloaders. We provide a brief description for each of the compared dataloaders and summarize their key features in Table 7.
+
+我们比较仅使用 MDP 的方案和同时使用 MDP, ODS 的完整 Seneca, 对照五种数据加载器. 下文简述各方案, 表 7 汇总主要特性.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 7: Key features of evaluated dataloaders.</span>
+
+| Dataloader | Reduces CPU overhead | Improves cache hit rate | Supports multiple jobs |
+|:---|:---|:---|:---|
+| PyTorch [3] | ✗ | ✗ | ✗ |
+| DALI [43] | ✓ | ✗ | ✗ |
+| SHADE [26] | ✗ | ✓ | ✗ |
+| MINIO [41] | ✓ | ✗ | ✓ |
+| Quiver [31] | ✗ | ✓ | ✓ |
+| MDP | ✓ | ✗ | ✓ |
+| Seneca | ✓ | ✓ | ✓ |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 7: 各数据加载器的主要特性.</span>
+
+| 加载器 | 减少 CPU 开销 | 提高命中率 | 支持多作业 |
+|:---|:---|:---|:---|
+| PyTorch [3] | ✗ | ✗ | ✗ |
+| DALI [43] | ✓ | ✗ | ✗ |
+| SHADE [26] | ✗ | ✓ | ✗ |
+| MINIO [41] | ✓ | ✗ | ✓ |
+| Quiver [31] | ✗ | ✓ | ✓ |
+| MDP | ✓ | ✗ | ✓ |
+| Seneca | ✓ | ✓ | ✓ |
+
+</div>
+
+</div>
+
+PyTorch is a popular open-sourced dataloader [3, 53].
+
+PyTorch 是广泛使用的开源数据加载器 [3, 53].
+
+DALI is an open-sourced optimized library that pipelines and offloads preprocessing tasks to the GPU [43].
+
+DALI 是开源优化库, 将预处理流水线化, 并卸载到 GPU [43].
+
+SHADE caches and preferentially samples data with higher importance [26]. We use the unmodified version of SHADE that is publicly available.
+
+SHADE 缓存并优先采样重要性较高的数据 [26]. 我们使用公开版本, 未作修改.
+
+MINIO is originally built on top of DALI and does not evict samples once in the cache [40]. We implement this same policy on top of PyTorch for evaluation.
+
+MINIO 最初基于 DALI, 样本进入缓存后不再淘汰 [40]. 我们在 PyTorch 上实现相同策略进行评估.
+
+Quiver samples 10× more data and forms a batch with those that return the fastest [31]. Quiver is not open-sourced, and we faithfully implement Quiver on top of PyTorch.
+
+Quiver 多采样 10 倍数据, 用最先返回的样本组成批次 [31]. 其实现未开源, 我们在 PyTorch 上按原方案实现.
+
+We answer the following questions in the evaluation.
+
+评估回答以下问题:
+
+Do models converge faster with Seneca? (§ 7.1)
+
+Seneca 能否缩短模型收敛时间? (原文第 7.1 节)
+
+Does Seneca scale with hardware resources? (§ 7.2)
+
+Seneca 能否随硬件资源增加而扩展? (原文第 7.2 节)
+
+Does Seneca scale with the number of training jobs? (§ 7.3)
+
+Seneca 能否随并发训练作业数增加而扩展? (原文第 7.3 节)
+
+How does Seneca perform on different models and datasets? (§ 7.4)
+
+Seneca 在不同模型和数据集上表现如何? (原文第 7.4 节)
+
+## 8.1 端到端训练性能
+
+We demonstrate how four popular DNN model architectures converge by 250 epochs using Seneca on the Azure server, as illustrated in Figure 9. For this evaluation, we choose two GPU-intensive (VGG-19 and DenseNet-169) and two less GPU-intensive models (ResNet-18 and ResNet-50) training on ImageNet-1K which is a dataset commonly used to evaluate image model accuracies [22, 29, 54]. We choose PyTorch and DALI for comparison as training to convergence takes a considerable amount of time and the two open-sourced dataloaders are widely used and stable. We show the top-5 accuracy with respect to the time spent training. First, we observe that Seneca enables DNN models to achieve convergence accuracies significantly faster than PyTorch and DALI. Second, models trained with Seneca follow the same trend in accuracy as those trained with PyTorch and DALI, with an error of less than 2.83% in the final training accuracy. This demonstrates that our optimizations (MDP and ODS) do not impact on training accuracy.
+
+图 9 展示 Azure 上四种常用 DNN 架构训练 250 个 epoch 的收敛情况. 选取 GPU 计算密集的 VGG-19, DenseNet-169, 以及相对较轻的 ResNet-18, ResNet-50, 使用常见图像准确率评估数据集 ImageNet-1K [22, 29, 54]. 由于训练到收敛耗时较长, 对照选择稳定且广泛使用的开源 PyTorch 和 DALI. 图中展示 top-5 准确率随训练时间变化. Seneca 明显更快达到收敛准确率; 准确率变化趋势与两种对照一致, 最终准确率差异小于 2.83%, 表明 MDP 和 ODS 没有损害训练准确率.
+
+<div class="paper-shared">
+
+![Azure 上四个模型在 ImageNet-1K 上训练的 top-5 准确率. Seneca 更快完成 250 个 epoch, 未损害准确率.](/assets/images/posts/seneca/figure-09.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 9: Top-5 accuracy of training four ML models on the Imagenet-1K dataset using the Azure VM. Seneca completes 250 epochs significantly faster without compromising accuracy.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 9: Azure 上四个模型在 ImageNet-1K 上训练的 top-5 准确率. Seneca 更快完成 250 个 epoch, 未损害准确率.</span>
+
+Next, we investigate time to convergence by measuring the end-to-end model training time for the DNN models in Figure 9. Compared to the PyTorch dataloader, Seneca enables these models to complete the 250 epochs and achieve accuracies of 86.1% for ResNet-18, 90.82% for ResNet-50, 78.78% for VGG-19, and 89.05% for DenseNet-169, with respective speed improvements of 48.51%, 38.09%, 49.16%, and 47.83%. When compared against DALI, the improvements are 66.88%, 70.00%, 68.53%, and 60.70% respectively. For single-job training, Seneca outperforms the other two dataloaders, thanks to MDP which enables caching samples in decoded and augmented formats.
+
+进一步测量图 9 的端到端训练时间. 完成 250 个 epoch 后, ResNet-18, ResNet-50, VGG-19, DenseNet-169 的准确率分别为 86.1%, 90.82%, 78.78%, 89.05%. 相比 PyTorch, 对应训练加速幅度分别为 48.51%, 38.09%, 49.16%, 47.83%; 相比 DALI, 分别为 66.88%, 70.00%, 68.53%, 60.70%. 单作业场景中, MDP 允许缓存解码和增强样本, 因而 Seneca 优于这两种加载器.
+
+We also simulate a real-world training environment on the AWS server using a scheduler to launch jobs arriving at random times. We limit the number of concurrent jobs to two. Figure 10 shows the training progress for 12 jobs (a mix of large and small models) on the ImageNet-1K dataset sharing the same DSI pipeline, each trained for 50 epochs. We make three key observations: (1) Seneca reduces the total training time to 45.23% of PyTorch. (2) Unlike PyTorch, where each job has an independent data pipeline, Seneca's caching system allows data sharing, reducing redundant fetch and preprocessing operations. (3) the last job (DenseNet-169) completed in 6.97 hours compared to the sixth job (DenseNet-169) which completed in 7.84 hours since it ran alone during the second half, fully utilizing the DSI resources.
+
+我们还在 AWS 上模拟实际训练环境, 由调度器启动随机到达的作业, 同时最多运行两个. 图 10 展示 12 个大小模型混合的作业, 共享 ImageNet-1K 的 DSI 流水线, 各训练 50 个 epoch. 有三点观察: 1) 本段原文称 Seneca 将总训练时间降至 PyTorch 的 45.23%. 2) PyTorch 各作业使用独立数据流水线, Seneca 则共享缓存, 减少重复取数和预处理. 3) 最后一个 DenseNet-169 作业耗时 6.97 小时, 第六个同模型作业耗时 7.84 小时; 最后一个作业在后半程独占 DSI 资源, 因而更快完成.
+
+<div class="paper-shared">
+
+![AWS [8] 上五种模型组成的 12 个图像分类作业, 每个训练 50 个 epoch. 多作业场景下, Seneca 比 PyTorch 缩短训练时间 45.23%.](/assets/images/posts/seneca/figure-10.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 10: The model training time for 12 image classification jobs (50 epochs each) for 5 different models on the AWS server [8]. For the multi-job training, Seneca reduces the training time by 45.23% compared to PyTorch.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 10: AWS [8] 上五种模型组成的 12 个图像分类作业, 每个训练 50 个 epoch. 多作业场景下, Seneca 比 PyTorch 缩短训练时间 45.23%.</span>
+
+## 8.2 对硬件配置的敏感性
+
+We evaluate Seneca's performance across different training nodes and configurations to demonstrate its scalability on larger and distributed systems using the OpenImages dataset. We evaluate across the in-house, AWS, and Azure servers to cover a wide range of training systems. We test on the in-house and Azure servers to evaluate multi-node distributed training and on the in-house, AWS, and Azure servers to evaluate concurrent training across three distinct training systems.
+
+我们使用 OpenImages, 在本地, AWS 和 Azure 多种训练节点与配置上评估 Seneca. 本地与 Azure 用于多节点分布式训练, 三类系统共同用于比较并发训练, 覆盖更大规模和不同硬件条件.
+
+We evaluate Seneca's performance on distributed systems by measuring single-job training throughput on two in-house and two Azure servers in distributed data parallel mode with remote caching (Figure 11). Network bandwidth and gradient communication are key considerations in this setup. On 2× in-house servers, Seneca is 1.6× faster than MINIO and 1.62× faster than Seneca on a single in-house server. While gradient communication overhead is negligible due to ring-reduce [56], the 10 Gbps network bottlenecks throughput, limiting scaling to 1.62× instead of the expected ≈ 2×. On an Azure server with 80 Gbps, this bottleneck is eliminated, allowing Seneca to scale by 1.89× going from one to two nodes. On 2×Azure nodes, Seneca outperforms MINIO, the next best by 42.39%.
+
+图 11 测量双本地服务器和双 Azure 服务器在分布式数据并行模式下的单作业训练吞吐量, 使用远程缓存. 网络带宽和梯度通信是关键因素. 双本地服务器上, Seneca 吞吐量为 MINIO 的 1.6 倍, 为单机 Seneca 的 1.62 倍. ring-reduce [56] 使梯度通信开销很小, 但 10 Gbps 网络成为瓶颈, 扩展收益只有 1.62 倍, 未达到预期约 2 倍. Azure 的 80 Gbps 网络消除了该瓶颈, 从一台增至两台时, Seneca 吞吐量达到 1.89 倍. 双 Azure 上, Seneca 比次优 MINIO 快 42.39%.
+
+<div class="paper-shared">
+
+![一台和两台本地/Azure 服务器上的单作业分布式训练吞吐量. 两台 Azure 上 Seneca 的速度为单台的 1.89 倍.](/assets/images/posts/seneca/figure-11.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 11: Throughput for single job distributed training on one and two in-house and Azure servers. On two Azure nodes, Seneca is 1.89× faster than one.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 11: 一台和两台本地/Azure 服务器上的单作业分布式训练吞吐量. 两台 Azure 上 Seneca 的速度为单台的 1.89 倍.</span>
+
+Next, we evaluate Seneca's scalability across various ML training systems. Figure 12 shows throughput for two jobs training concurrently on the in-house, AWS, and Azure servers. While the AWS and Azure servers have slower remote storage bandwidths, they are faster overall, with more powerful GPUs, which are better suited for ML training [38] as shown in Table 5. We make three observations: (1) Seneca's throughput increases by 4.44× when moving from the in-house server (2×RTX5000) to the Azure server (4×A100) (2) Seneca outperforms the next best dataloader by 1.61× on Azure (vs. Quiver), 1.93× on AWS (vs. MINIO), and 1.52× on the in-house server (vs. DALI-CPU). (3) DALI-GPU fails for two or more concurrent jobs on the in-house and AWS servers due to insufficient GPU memory.
+
+图 12 比较三类系统上两个作业并发训练的吞吐量. AWS 和 Azure 的远程存储带宽较低, 但 GPU 更强, 更适合 ML 训练 [38], 整体性能更高, 见表 5. 有三点观察: 1) 从双 RTX 5000 本地服务器换到四 A100 的 Azure, Seneca 吞吐量达到 4.44 倍. 2) Seneca 分别达到 Azure 次优 Quiver 的 1.61 倍, AWS 次优 MINIO 的 1.93 倍, 本地次优 DALI-CPU 的 1.52 倍. 3) 本地和 AWS 上两个及以上作业并发时, DALI-GPU 因显存不足而无法运行.
+
+<div class="paper-shared">
+
+![不同硬件上两个作业并发训练的吞吐量. Seneca 在多种系统配置中均有良好表现.](/assets/images/posts/seneca/figure-12.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 12: Throughput for training 2 jobs concurrently on different hardware platforms. Seneca performs well across a wide range of system configurations.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 12: 不同硬件上两个作业并发训练的吞吐量. Seneca 在多种系统配置中均有良好表现.</span>
+
+Finally, we evaluate Seneca's cache hit rate with varying cache sizes to evaluate its performance with larger datasets and limited cache capacity. Figure 13 presents the cache hit rate, calculated as the total cache hits across all partitions divided by the number of samples in the dataset, during concurrent training of AlexNet, ResNet-50, and MobileNetV2 on ImageNet-1K. Seneca achieves a 54% hit rate with just 20% of the dataset cached, 11% higher than Quiver, the next best. Seneca improves the hit rate by replacing uncached samples with cached ones not seen in the current epoch. Even with 40% of the dataset cached, Seneca maintains the highest hit rate of 66%. With 60% and 80% cached, SHADE's hit rate surpasses Seneca but throughput is still the slowest due to it's single threaded design. MINIO and MDP show hit rates roughly equal to the percentage of cached data since they do not implement specialized policies to improve the hit rate.
+
+我们改变缓存大小, 检查大数据集与有限容量下的命中率. 图 13 在 ImageNet-1K 上并发训练 AlexNet, ResNet-50 和 MobileNetV2, 将各分区总命中数除以数据集样本数作为命中率. 仅缓存 20% 数据时, Seneca 命中率达到 54%, 比次优 Quiver 高 11%. 它用当前 epoch 尚未使用的缓存样本替换未命中项, 提高命中率. 缓存 40% 数据时, Seneca 仍以 66% 领先. 缓存 60% 和 80% 时, SHADE 命中率更高, 但因单线程设计, 吞吐量仍最低. MINIO 和 MDP 没有专门提高命中率的采样策略, 命中率大致等于缓存比例.
+
+<div class="paper-shared">
+
+![三个模型并发训练时的缓存命中率. 仅缓存 20% 数据, Seneca 即达到 54% 命中率.](/assets/images/posts/seneca/figure-13.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 13: Cache hit rate when concurrently training three models. Seneca improves cache efficiency, achieving 54% hit rate with only 20% of the dataset cached.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 13: 三个模型并发训练时的缓存命中率. 仅缓存 20% 数据, Seneca 即达到 54% 命中率.</span>
+
+## 8.3 对并发负载的敏感性
+
+We evaluate Seneca's impact on concurrent model training by measuring DSI pipeline throughput on the Azure server with 400 GB remote cache while varying the number of concurrent jobs (Figure 14). We use the OpenImages dataset as it is larger than the size of the remote cache and thus represents a common scenario. We also show the GPU and CPU utilization for four concurrently training jobs in Table 8 to show that Seneca saturates GPU resources.
+
+图 14 在配有 400 GB 远程缓存的 Azure 上改变并发作业数, 测量 DSI 吞吐量. OpenImages 大于缓存容量, 代表常见场景. 表 8 还列出四个并发作业的 CPU 和 GPU 利用率, 展示 Seneca 能充分利用 GPU.
+
+<div class="paper-shared">
+
+![四 A100 的 Azure 上最多四个并发模型的总 DSI 吞吐量. 四作业时, Seneca 为 Quiver 的 1.81 倍.](/assets/images/posts/seneca/figure-14.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 14: Aggregate DSI throughput for up to four concurrent models on the Azure server with 4×A100 GPUs. Seneca boosts DSI pipeline throughput by 1.81× compared to Quiver for four jobs.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 14: 四 A100 的 Azure 上最多四个并发模型的总 DSI 吞吐量. 四作业时, Seneca 为 Quiver 的 1.81 倍.</span>
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 8: CPU and GPU utilization for four concurrently training jobs on the in-house server using various dataloaders.</span>
+
+| Resource | PyTorch | DALI-CPU | MINIO | Quiver | MDP | Seneca |
+|:---|:---|:---|:---|:---|:---|:---|
+| CPU | 88% | 88% | 91% | 96% | 43% | 54% |
+| GPU | 72% | 76% | 79% | 80% | 98% | 98% |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 8: 本地服务器上四个并发训练作业的 CPU 与 GPU 利用率.</span>
+
+| 资源 | PyTorch | DALI-CPU | MINIO | Quiver | MDP | Seneca |
+|:---|:---|:---|:---|:---|:---|:---|
+| CPU | 88% | 88% | 91% | 96% | 43% | 54% |
+| GPU | 72% | 76% | 79% | 80% | 98% | 98% |
+
+</div>
+
+</div>
+
+We make five observations: (1) Our optimizations, MDP and Seneca outperform all other dataloaders by at least 28.97% (single job on MINIO vs single job on Seneca). (2) For four concurrently training jobs, Seneca is the best performing and outperforms Quiver, the next best performing dataloader by 1.81×. (3) For four or more concurrent jobs on a single Azure server, the performance of Seneca is bounded by the GPU at 98% utilization (Table 8), limiting speedup with added concurrency. (4) PyTorch, DALI, MINIO, and Quiver are limited by I/O and CPU preprocessing and do not scale well with concurrent jobs. (5) Seneca outperforms SHADE by 13.18× due to SHADE's single-threaded design.
+
+有五点观察: 1) MDP 和 Seneca 优于其他加载器, 至少提高 28.97% (单作业 Seneca 对比 MINIO). 2) 四作业并发时, Seneca 表现最好, 吞吐量为次优 Quiver 的 1.81 倍. 3) 单台 Azure 上四个及更多作业并发时, GPU 利用率达到 98% (表 8), GPU 成为瓶颈, 继续增加并发的收益受限. 4) PyTorch, DALI, MINIO, Quiver 受 IO 和 CPU 预处理限制, 并发扩展性较差. 5) SHADE 采用单线程设计, Seneca 吞吐量为其 13.18 倍.
+
+## 8.4 对模型和数据集的敏感性
+
+Finally, we show Seneca's generality across different ML models, datasets, and hardware setups. For each dataloader, we train two models concurrently and measure the first epoch completion time (ECT) and the average ECT for subsequent epochs. The first epoch time represents execution with cold page and user-level caches, while subsequent epoch times reflect execution with warmed-up caches. We exclude SHADE due to its single-threaded design. For this evaluation, we use two transformer models-ViT [16], and SwinT [37] and three DNN models-VGG-19, ResNet-50, and AlexNet to cover a wide range of model architectures.
+
+最后比较不同模型, 数据集和硬件配置. 每种加载器并发训练两个模型, 测量首个 epoch 完成时间 (ECT) 和后续 epoch 的平均 ECT. 首轮代表页缓存和用户态缓存均未预热, 后续轮次代表缓存已预热. SHADE 因单线程设计不纳入此项实验. 模型包括 Transformer 架构的 ViT [16], SwinT [37], 以及 VGG-19, ResNet-50, AlexNet 三种 DNN, 覆盖多种结构.
+
+We make three observations for training with ImageNet-1K on one Azure server with 400 GB remote cache (Figure 15a): (1) Seneca's stable ECT for the largest vision transformer (ViT-h) is 31.36% lower than the next best dataloader, PyTorch while for ResNet-50, it is 3.45× faster than MINIO. (2) When the dataset size (142 GB) is significantly smaller than DRAM size (880 GB), the entire dataset is in page-cache and PyTorch's stable ECT is faster than DALI by at least 31.36% (VGG-19). (3) MINIO and Quiver's encoded data cache cannot mitigate redundant decoding and augmentation on the CPU, reducing the gains from their optimizations.
+
+图 15a 在单台 Azure, 400 GB 远程缓存和 ImageNet-1K 下得到三点观察: 1) 最大视觉 Transformer ViT-h 的稳定 ECT 比次优 PyTorch 低 31.36%; ResNet-50 的训练速度为 MINIO 的 3.45 倍. 2) 142 GB 数据集远小于 880 GB DRAM, 全部驻留页缓存, PyTorch 的稳定 ECT 因而比 DALI 至少快 31.36% (VGG-19). 3) MINIO 和 Quiver 缓存编码数据, 无法消除 CPU 上重复解码与增强, 限制了收益.
+
+Next, to understand the impact of larger sample sizes (2.75× larger than ImageNet-1K) on training, we examine the ECTs for models shown in Figure 15b with the OpenImages dataset on the AWS server with 400 GB remote cache. We make four observations: (1) On the AWS system, DSI pipeline is a bottleneck due to limited I/O bandwidth and CPU threads. On this system, training VGG-19 with Seneca is 1.91× faster than with DALI-CPU. (2) By caching more data samples in the decoded form to mitigate the higher DSI overheads, Seneca's stable ECT is lower by 87.22% for AlexNet, 87.15% for ViT, 85.53% for ResNet-50, and 47.85% for VGG-19 compared to the DALI-CPU, the next best dataloader. (3) Caching dataloaders (MINIO, and Quiver) reduce fetch stalls by caching encoded data, reducing stable ECT by up to 39.85% (ResNet-50 on MINIO). (4) On the V100 GPUs of the AWS server, DALI-GPU fails for concurrent training jobs due to limited GPU memory.
+
+为考察更大样本的影响, 图 15b 在 AWS, 400 GB 远程缓存上使用平均样本大小为 ImageNet-1K 2.75 倍的 OpenImages. 有四点观察: 1) AWS 的 IO 带宽和 CPU 线程有限, DSI 成为瓶颈; Seneca 训练 VGG-19 的速度为 DALI-CPU 的 1.91 倍. 2) Seneca 缓存更多解码数据以降低 DSI 开销, 相比次优 DALI-CPU, AlexNet, ViT, ResNet-50, VGG-19 的稳定 ECT 分别降低 87.22%, 87.15%, 85.53%, 47.85%. 3) MINIO 和 Quiver 通过缓存编码数据减少取数停顿, 稳定 ECT 最多降低 39.85% (MINIO 上的 ResNet-50). 4) AWS V100 显存有限, DALI-GPU 无法运行并发训练作业.
+
+For ImageNet-22K (1.4 TB) on the Azure server with 400 GB remote cache (Figure 15c), we make four observations: (1) PyTorch, DALI-CPU, and DALI-GPU which depend on the page-cache perform poorly for large datasets. (2) Due to the limited cache size, MDP allocates 100% of the available memory for caching raw data, thus performing similar to MINIO. (3) Thanks to ODS, Seneca's ECT is 29.35% lower on average when compared to the next best dataloader across all evaluated models. (4) Seneca reduces stable ECT for SwinT by 8.37× by mitigating I/O and preprocessing bottlenecks.
+
+图 15c 在 Azure, 400 GB 远程缓存上使用 1.4 TB ImageNet-22K. 有四点观察: 1) 依赖页缓存的 PyTorch, DALI-CPU 和 DALI-GPU 在大数据集上表现较差. 2) 缓存容量有限, MDP 将全部空间用于原始编码数据, 表现与 MINIO 接近. 3) ODS 使 Seneca 在全部模型上的 ECT 比各自次优加载器平均低 29.35%. 4) 通过缓解 IO 与预处理瓶颈, Seneca 将 SwinT 的稳定 ECT 缩短至约 1/8.37.
+
+<div class="paper-shared">
+
+![不同数据集, 服务器和加载器下, 两个 DNN 模型并发训练的稳定 epoch 完成时间 (柱) 与首轮完成时间 (线). 首轮未预热缓存, 后续轮次使用缓存. 越低越好.](/assets/images/posts/seneca/figure-15.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 15: Stable epoch completion time (bars) and first-epoch time (lines) for concurrent training of popular DNN models (two jobs) across different datasets, servers, and dataloaders. The first epoch reflects training when the cache is not warmed up, while subsequent epochs represent training with the cache in use. Lower is better.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 15: 不同数据集, 服务器和加载器下, 两个 DNN 模型并发训练的稳定 epoch 完成时间 (柱) 与首轮完成时间 (线). 首轮未预热缓存, 后续轮次使用缓存. 越低越好.</span>
+
+# 9. 结论
+
+We present Seneca, a cache partitioning and data sampling system for optimizing concurrent DNN training on distributed systems. Seneca consists of two techniques: model-driven partitioning that finds the best way to partition the cache to improve DSI throughput and opportunistic data sampling that preferentially selects cached data samples to maximize the cache hit rate. In doing so, Seneca reduces model training time and multi-job makespan by 45.23% and improves the DSI pipeline throughput by up to 3.45× on concurrent jobs.
+
+本文提出 Seneca, 通过缓存划分和数据采样优化分布式系统中的并发 DNN 训练. MDP 找出提高 DSI 吞吐量的最佳缓存划分, ODS 优先选择缓存样本以提高命中率. 因而, Seneca 将模型训练时间和多作业总完成时间缩短 45.23%, 并发作业的 DSI 吞吐量最高达到对照方案的 3.45 倍.
+
+# 10. 致谢
+
+We would like to thank our shepherd, Ali Anwar, and the anonymous reviewers for their constructive feedback. We also thank Syracuse University Information Technology Services (ITS) for providing computing resources and support. This research was supported in part by the National Science Foundation under award numbers CNS-2008453, CSR-2323100, CAREER-2338457, CSR-2402328, and CAREER-2443515, and by Samsung through the Alternative Sustainable and Intelligent Computing Industry-University Cooperative Research Center (NSF #1822165). This work is also supported through the Global Research Support Program in the Digital Field supervised by the Institute for Information and Communications Technology Planning and Evaluation (IITP) under Grant RS-2024-00428758, funded by the Ministry of Science and ICT (MSIT), South Korea. Any opinions, findings, conclusions, or recommendations expressed in this material are those of the authors and do not necessarily reflect the views of the supporting agencies.
+
+感谢论文指导评审 Ali Anwar 和匿名评审提供的建设性意见, 以及 Syracuse University Information Technology Services (ITS) 提供的计算资源与支持. 本研究部分得到美国国家科学基金 CNS-2008453, CSR-2323100, CAREER-2338457, CSR-2402328, CAREER-2443515 项目支持, 以及 Samsung 通过 Alternative Sustainable and Intelligent Computing Industry-University Cooperative Research Center (NSF #1822165) 提供的支持. 本研究还得到韩国科学技术信息通信部 (MSIT) 资助, 由信息通信企划评价院 (IITP) 管理的数字领域全球研究支持项目 RS-2024-00428758 支持. 本文观点, 发现, 结论与建议属于作者, 不一定代表资助机构立场.
+
+# 11. 参考文献
+
+<div class="paper-shared">
+
+[1] Flexible I/O tester. `https://github.com/axboe/fio`.
+
+[2] ImageNet-22K. `https://image-net.org/download-images.php`.
+
+[3] PyTorch. `https://pytorch.org`.
+
+[4] Redis. `https://redis.io`.
+
+[5] Martín Abadi, Ashish Agarwal, Paul Barham, Eugene Brevdo, Zhifeng Chen, Craig Citro, Greg S. Corrado, Andy Davis, Jeffrey Dean, Matthieu Devin, Sanjay Ghemawat, Ian Goodfellow, Andrew Harp, Geoffrey Irving, Michael Isard, Yangqing Jia, Rafal Jozefowicz, Lukasz Kaiser, Manjunath Kudlur, Josh Levenberg, Dandelion Mané, Rajat Monga, Sherry Moore, Derek Murray, Chris Olah, Mike Schuster, Jonathon Shlens, Benoit Steiner, Ilya Sutskever, Kunal Talwar, Paul Tucker, Vincent Vanhoucke, Vijay Vasudevan, Fernanda Viégas, Oriol Vinyals, Pete Warden, Martin Wattenberg, Martin Wicke, Yuan Yu, and Xiaoqiang Zheng. TensorFlow: Large-scale machine learning on heterogeneous systems, 2015. Software available from `https://www.tensorflow.org/`.
+
+[6] Andrew Audibert, Yang Chen, Dan Graur, Ana Klimovic, Jirí Simsa, and Chandramohan A. Thekkath. tf.data service: A case for disaggregating ML input data processing. In ACM Symposium on Cloud Computing (SoCC), pages 358-375, 2023. `https://doi.org/10.1145/3620678.3624666`.
+
+[7] Amazon Web Services (AWS). Amazon EC2 P2 instances. powerful, scalable GPU instances for highperformance computing. `https://aws.amazon.com/ec2/instance-types/p2/,2023`.
+
+[8] Amazon Web Services (AWS). Amazon EC2 P3 instances. accelerate machine learning and high performance computing applications with powerful GPUs. `https://aws.amazon.com/ec2/instance-types/p3/,2023`.
+
+[9] Amazon Web Services (AWS). AWS EC2 X1 instance types. `https://aws.amazon.com/ec2/instance-types/x2i/,2024`.
+
+[10] Azure. 'E' family memory optimized VM size series. `https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/memory-optimized/e-family?tabs=epsv6%2Ceasv6%2Cev5%2Cedv5%2Ceasv5%2Cepsv5,2025`.
+
+[11] Azure. NC_A100_v4 sizes series. `https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/gpu-accelerated/nca100v4-series?tabs=sizebasic,2025`.
+
+[12] Yixin Bao, Yanghua Peng, Yangrui Chen, and Chuan Wu. Preemptive all-reduce scheduling for expediting distributed dnn training. In IEEE INFOCOM 2020IEEE Conference on Computer Communications, pages 626-635. IEEE, 2020. `https://ieeexplore.ieee.org/document/9155446`.
+
+[13] Weijian Chen, Shuibing He, Yaowen Xu, Xuechen Zhang, Siling Yang, Shuang Hu, Xian-He Sun, and Gang Chen. iCache: An importance-sampling-informed cache for accelerating I/O-bound DNN model training. In 2023 IEEE International Symposium on High-Performance Computer Architecture (HPCA), pages 220-232. IEEE, 2023. `https://ieeexplore.ieee.org/document/10070964`.
+
+[14] Jeffrey Dean, Greg Corrado, Rajat Monga, Kai Chen, Matthieu Devin, Mark Mao, Marc'aurelio Ranzato, Andrew Senior, Paul Tucker, Ke Yang, et al. Large scale distributed deep networks. Advances in neural information processing systems, 25, 2012. `https://dl.acm.org/doi/10.5555/2999134.2999271`.
+
+[15] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. ImageNet: A large-scale hierarchical image database. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 248-255, 2009. `https://doi.org/10.1109/CVPR.2009.5206848`.
+
+[16] Alexey Dosovitskiy. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint `arXiv:2010.11929`, 2020. `https://arxiv.org/pdf/2010.11929/1000`.
+
+[17] Nikoli Dryden, Roman Böhringer, Tal Ben-Nun, and Torsten Hoefler. Clairvoyant prefetching for distributed machine learning I/O. In ACM International Conference for High Performance Computing, Networking, Storage and Analysis (SC), pages 92:1-92-15, 2021. `https://doi.org/10.1145/3458817.3476181`.
+
+[18] Dmitry Duplyakin, Robert Ricci, Aleksander Maricq, Gary Wong, Jonathon Duerig, Eric Eide, Leigh Stoller, Mike Hibler, David Johnson, Kirk Webb, et al. The design and operation of CloudLab. In USENIX Annual Technical Conference (ATC), pages 1- 14, 2019. `https://www.usenix.org/conference/atc19/presentation/duplyakin`.
+
+[19] GCP. GCP GPU platforms. `https://cloud.google.com/compute/docs/gpus#nvidia_p100_gpus,2024`.
+
+[20] Dan Graur, Damien Aymon, Dan Kluser, Tanguy Albrici, Chandramohan A Thekkath, and Ana Klimovic. Cachew: Machine learning input data processing as a service. In USENIX Annual Technical Conference (ATC), pages 689-706, 2022. `https://www.usenix.org/conference/atc22/presentation/graur`.
+
+[21] Dan Graur, Oto Mraz, Muyu Li, Sepehr Pourghannad, Chandramohan A Thekkath, and Ana Klimovic. Pecan: Cost-efficient ml data preprocessing with automatic transformation ordering and hybrid placement. In USENIX Annual Technical Conference (ATC), pages 649-665, 2024. `https://www.usenix.org/conference/atc24/presentation/graur`.
+
+[22] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 770-778, 2016. `https://doi.org/10.1109/CVPR.2016.90`.
+
+[23] Yanping Huang, Youlong Cheng, Ankur Bapna, Orhan Firat, Dehao Chen, Mia Chen, HyoukJoong Lee, Jiquan Ngiam, Quoc V Le, Yonghui Wu, et al. Gpipe: Efficient training of giant neural networks using pipeline parallelism. Advances in neural information processing systems, 32, 2019. `https://proceedings.neurips.cc/paper_files/paper/2019/hash/093f65e080a295f8076b1c5722a46aa2-Abstract.html`.
+
+[24] Alexander Isenko, Ruben Mayer, Jeffrey Jedele, and Hans-Arno Jacobsen. Where is my training bottleneck? hidden trade-offs in deep learning preprocessing pipelines. In Proceedings of the 2022 International Conference on Management of Data, pages 1825-1839, 2022. `https://dl.acm.org/doi/abs/10.1145/3514221.3517848`.
+
+[25] Angelos Katharopoulos and François Fleuret. Not all samples are created equal: Deep learning with importance sampling. In PMLR International Conference on Machine Learning (ICML), pages 2525- 2534, 2018. `http://proceedings.mlr.press/v80/katharopoulos18a.html`.
+
+[26] Redwan Ibne Seraj Khan, Ahmad Hossein Yazdani, Yuqi Fu, Arnab K Paul, Bo Ji, Xun Jian, Yue Cheng, and Ali R Butt. SHADE: Enable fundamental cacheability for distributed deep learning training. In USENIX Conference on File and Storage Technologies (FAST), pages 135- 152, 2023. `https://www.usenix.org/conference/fast23/presentation/khan`.
+
+[27] Taeyoon Kim, ChanHo Park, Mansur Mukimbekov, Heelim Hong, Minseok Kim, Ze Jin, Changdae Kim, Ji-Yong Shin, and Myeongjae Jeon. Fusionflow: Accelerating data preprocessing for machine learning with CPU-GPU cooperation. Proceedings of the VLDB Endowment, 17(4): 863-876, 2023. `https://doi.org/10.14778/3636218.3636238`.
+
+[28] Ivan Krasin, Tom Duerig, Neil Alldrin, Vittorio Ferrari, Sami Abu-El-Haija, Alina Kuznetsova, Hassan Rom, Jasper Uijlings, Stefan Popov, Siyamalan Kamali, Matteo Malloci, Jordi Pont-Tuset, Andreas Veit, Serge Belongie, Vicente Gomes, Abhinav Gupta, Chen Sun, Gal Chechik, David Cai, Zheyun Feng, Dhyanesh Narayanan, and Kevin Murphy. Openimages dataset. `https://storage.googleapis.com/openimages/web/index.html,2017`.
+
+[29] Alex Krizhevsky, Ilya Sutskever, and Geoffrey E. Hinton. ImageNet classification with deep convolutional neural networks. In Conference on Neural Information Processing Systems (NIPS), pages 1106-1114, 2012. `https://proceedings.neurips.cc/paper/2012/hash/c399862d3b9d6b76c8436e924a68c45b-Abstract.html`.
+
+[30] Michael Kuchnik, Ana Klimovic, Jiri Simsa, Virginia Smith, and George Amvrosiadis. Plumber: Diagnosing and removing performance bottlenecks in machine learning data pipelines. Proceedings of Machine Learning and Systems, 4:33-51, 2022. `https://proceedings.mlsys.org/paper_files/paper/2022/hash/d0e90e9a9310570dfa643aa3b2da6e89-Abstract.html`.
+
+[31] Abhishek Vijaya Kumar and Muthian Sivathanu. Quiver: An informed storage cache for deep learning. In Conference on File and Storage Technologies (FAST), pages 283-296, 2020. `https://www.usenix.org/conference/fast20/presentation/kumar`.
+
+[32] Yann LeCun, Léon Bottou, Genevieve B Orr, and KlausRobert Müller. Efficient backprop. In Neural networks: Tricks of the trade, pages 9-50. Springer, 2002.
+
+[33] Gyewon Lee, Irene Lee, Hyeonmin Ha, Kyunggeun Lee, Hwarim Hyun, Ahnjae Shin, and Byung-Gon Chun. Refurbish your training data: Reusing partially augmented samples for faster deep neural network training. In USENIX Annual Technical Conference (ATC), pages 537-550, 2021. `https://www.usenix.org/conference/atc21/presentation/lee`.
+
+[34] Mu Li, David G Andersen, Alexander J Smola, and Kai Yu. Communication efficient distributed machine learning with the parameter server. Advances in Neural Information Processing Systems, 27, 2014. `https://papers.nips.cc/paper_files/paper/2014/hash/935ad074f32d1e8f085a143449894cdc-Abstract.html`.
+
+[35] Gangmuk Lim, Jeongseob Ahn, Wencong Xiao, Youngjin Kwon, and Myeongjae Jeon. Zico: Efficient GPU memory sharing for concurrent DNN training. In 2021 USENIX Annual Technical Conference (USENIX ATC 21), pages 161-175, 2021. `https://www.usenix.org/conference/atc21/presentation/lim`.
+
+[36] Jie Liu, Bogdan Nicolae, and Dong Li. Lobster: Load balance-aware I/O for distributed DNN training. In ACM International Conference on Parallel Processing (ICPP), pages 1-11, 2022. `https://dl.acm.org/doi/abs/10.1145/3545008.3545090`.
+
+[37] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin transformer: Hierarchical vision transformer using shifted windows. In Proceedings of the IEEE/CVF international conference on computer vision, pages 10012-10022, 2021. `https://ieeexplore.ieee.org/document/9710580`.
+
+[38] Stefano Markidis, Steven Wei Der Chien, Erwin Laure, Ivy Bo Peng, and Jeffrey S Vetter. Nvidia tensor core programmability, performance & precision. In 2018 IEEE international parallel and distributed processing symposium workshops (IPDPSW), pages 522- 531. IEEE, 2018. `https://ieeexplore.ieee.org/document/8425458`.
+
+[39] Jayashree Mohan. MSR-fiddle/DS-Analyzer. `https://github.com/msr-fiddle/DS-Analyzer/tree/main,2021`.
+
+[40] Jayashree Mohan, Amar Phanishayee, Janardhan Kulkarni, and Vijay Chidambaram. Looking beyond GPUs for DNN scheduling on multi-tenant clusters. In USENIX Symposium on Operating Systems Design and Implementation (OSDI), pages 579- 596, 2022. `https://www.usenix.org/conference/osdi22/presentation/mohan`.
+
+[41] Jayashree Mohan, Amar Phanishayee, Ashish Raniwala, and Vijay Chidambaram. Analyzing and mitigating data stalls in DNN training. Proceedings of the Very Large Data Bases Endowment (PVLDB), 14(5): 771- 784, 2021. `http://www.vldb.org/pvldb/vol14/p771-mohan.pdf`.
+
+[42] Derek Gordon Murray, Jiri Simsa, Ana Klimovic, and Ihor Indyk. tf.data: A machine learning data processing framework. Proceedings of Very Large Data Bases Endowment (PVLDB), 14(12): 2945- 2958, 2021. `http://www.vldb.org/pvldb/vol14/p2945-klimovic.pdf`.
+
+[43] NVIDIA. NVIDIA Data Loading Library. `https://developer.nvidia.com/dali,2023`.
+
+[44] NVIDIA. NVIDIA A100. `https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-nvidia-us-2188504-web.pdf,2024`.
+
+[45] NVIDIA. NVIDIA H100. `https://www.nvidia.com/en-us/data-center/h100/,2024`.
+
+[46] NVIDIA. NVIDIA P100. `https://images.nvidia.com/content/tesla/pdf/nvidia-tesla-p100-datasheet.pdf,2024`.
+
+[47] NVIDIA. NVIDIA TESLA K20. `https://www.nvidia.com/content/PDF/kepler/NV_DS_TeslaK_Family_May_2012_LR.pdf,2024`.
+
+[48] NVIDIA. NVIDIA TESLA K40. `https://www.nvidia.com/content/PDF/kepler/nvidia-tesla-k40.pdf,2024`.
+
+[49] NVIDIA. NVIDIA TESLA K80. `https://www.nvidia.com/en-gb/data-center/tesla-k80/,2024`.
+
+[50] NVIDIA. NVIDIA V100. `https://images.nvidia.com/content/technologies/volta/pdf/volta-v100-datasheet-update-us-1165301-r5.pdf,2024`.
+
+[51] NVIDIA. NVLink and NVLink Switch. `https://www.nvidia.com/en-us/data-center/nvlink/,2024`.
+
+[52] Pyeongsu Park, Heetaek Jeong, and Jangwoo Kim. Trainbox: an extreme-scale neural network training server architecture by systematically balancing operations. In 2020 53rd Annual IEEE/ACM International Symposium on Microarchitecture (MICRO), pages 825- 838. IEEE, 2020. `https://ieeexplore.ieee.org/document/9251955`.
+
+[53] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et al. Pytorch: An imperative style, highperformance deep learning library. Advances in neural information processing systems, 32, 2019. `https://proceedings.neurips.cc/paper/2019/hash/bdbca288fee7f92f2bfa9f7012727740-Abstract.html`.
+
+[54] Christian Pinto, Yiannis Gkoufas, Andrea Reale, Seetharami Seelam, and Steven Eliuk. Hoard: A distributed data caching system to accelerate deep learning training on the cloud. arXiv preprint `arXiv:1812.00669`, 2018. `https://doi.org/10.48550/arXiv.1812.00669`.
+
+[55] Rajat Raina, Anand Madhavan, and Andrew Y Ng. Large-scale deep unsupervised learning using graphics processors. In Proceedings of the 26th annual international conference on machine learning, pages 873-880, 2009. `https://dl.acm.org/doi/10.1145/1553374.1553486`.
+
+[56] Zhenheng Tang, Shaohuai Shi, Wei Wang, Bo Li, and Xiaowen Chu. Communication-efficient distributed deep learning: A comprehensive survey. arXiv preprint `arXiv:2003.06307`, 2020. `https://doi.org/10.48550/arXiv.2003.06307`.
+
+[57] Taegeon Um, Byungsoo Oh, Byeongchan Seo, Minhyeok Kweun, Goeun Kim, and Woo-Yeon Lee. FastFlow: Accelerating deep learning model training with smart offloading of input data pipeline. Proceedings of the Very Large Data Bases Endowment (PVLDB), 16(5): 1086-1099, 2023. `https://www.vldb.org/pvldb/vol16/p1086-um.pdf`.
+
+[58] Qizhen Weng, Wencong Xiao, Yinghao Yu, Wei Wang, Cheng Wang, Jian He, Yong Li, Liping Zhang, Wei Lin, and Yu Ding. MLaaS in the wild: Workload analysis and scheduling in large-scale heterogeneous GPU clusters. In 19th USENIX Symposium on Networked Systems Design and Implementation (NSDI 22), pages 945- 960, 2022. `https://www.usenix.org/conference/nsdi22/presentation/weng`.
+
+[59] Hanyu Zhao, Zhi Yang, Yu Cheng, Chao Tian, Shiru Ren, Wencong Xiao, Man Yuan, Langshi Chen, Kaibo Liu, Yang Zhang, et al. Goldminer: Elastic scaling of training data pre-processing pipelines for deep learning. Proceedings of the ACM on Management of Data, 1(2): 1- 25, 2023. `https://doi.org/10.1145/3589773`.
+
+[60] Mark Zhao, Emanuel Adamiak, and Christos Kozyrakis. cedar: Optimized and unified machine learning input data pipelines. Proc. VLDB `Endow.`, 2025. `https://doi.org/10.14778/3705829.3705861`.
+
+[61] Mark Zhao, Niket Agarwal, Aarti Basant, Bugra Gedik, Satadru Pan, Mustafa Ozdal, Rakesh Komuravelli, Jerry Pan, Tianshu Bao, Haowei Lu, Sundaram Narayanan, Jack Langman, Kevin Wilfong, Harsha Rastogi, CaroleJean Wu, Christos Kozyrakis, and Parik Pol. Understanding data storage and ingestion for large-scale deep recommendation model training: industrial product. In ACM International Symposium on Computer Architecture (ISCA), pages 1042-1057, 2022. `https://doi.org/10.1145/3470496.3533044`.
+
+</div>
+
+# 12. 实验材料附录
+
+Abstract This paper proposes Seneca, a system that alleviates input data preprocessing bottlenecks and reduces training time for concurrent jobs. It introduces two key techniques: (1) a performance model for the data pipeline that optimally partitions the cache among three types of data, and (2) a cache-aware sampling strategy where Seneca prioritizes serving cached data over uncached data during random batch sampling. This artifact includes the code and the steps to train a model using Seneca and comparing it against popular baselines. The experiments have been performed on an in-house server as well as VMs from AWS and Azure.
+
+**摘要.** 本文提出 Seneca, 缓解输入预处理瓶颈并缩短并发作业训练时间. 它包含两项技术: 为数据流水线建立性能模型, 在三种数据形态间优化缓存划分; 以及感知缓存状态的采样策略, 在随机批次采样时优先提供已缓存数据. 实验材料包含使用 Seneca 训练模型并与常用基线比较的代码和步骤. 实验在本地服务器及 AWS, Azure 虚拟机上完成.
+
+## 12.1 范围
+
+The provided code and scripts support the reproduction and evaluation of the following:
+
+提供的代码与脚本支持复现和评估以下内容:
+
+Training performance of image models using Seneca under varying cache allocations.
+
+不同缓存分配下, Seneca 的图像模型训练性能.
+
+Impact of Seneca on final model accuracy.
+
+Seneca 对最终模型准确率的影响.
+
+Comparative performance of popular open-source dataloaders, including PyTorch and NVIDIA DALI.
+
+PyTorch 和 NVIDIA DALI 等常用开源数据加载器的性能对比.
+
+Performance evaluation of academic systems such as SHADE, MINIO, and Quiver.
+
+SHADE, MINIO, Quiver 等研究系统的性能评估.
+
+Support for training and evaluating multiple models and model types using Seneca.
+
+使用 Seneca 训练和评估多个模型及不同模型类型.
+
+## 12.2 内容
+
+### 12.2.1 PyTorch 与 Torchvision
+
+The implementation accompanying this work is developed using PyTorch, a widely adopted open-source library for machine learning model training and inference, and TorchVision, a companion library that provides efficient image and video data loading and preprocessing utilities.
+
+实验实现使用 PyTorch 和 TorchVision. 前者是广泛采用的开源机器学习训练与推理库, 后者提供高效图像和视频数据加载与预处理工具.
+
+While the artifact is built on top of PyTorch and TorchVision, the underlying concepts and design are generalizable and can be applied to a wide range of machine learning libraries which have compute-intensive data preprocessing pipelines.
+
+虽然实现基于 PyTorch 与 TorchVision, 其设计思想并不限于这两个库, 也可用于其他具有计算密集型预处理流水线的机器学习库.
+
+### 12.2.2 Redis
+
+This work uses Redis as the in-memory datastore for caching data samples in various stages of processing -- such as encoded, decoded, or pre-processed forms. Redis was chosen for its simplicity, low-latency performance, and broad community support. However, the design is not tied to Redis; any high-performance in-memory key-value store can be used as a drop-in replacement.
+
+本实现使用 Redis 作为内存数据存储, 缓存编码, 解码或其他预处理阶段的样本. 选择 Redis 是因为它简单, 延迟低且社区支持广泛, 但设计并不依赖 Redis; 其他高性能内存键值存储也可直接替换.
+
+The maximum memory allocated for caching can be configured via a flag passed to the training script or by directly modifying the redis configuration file. If the cache is deployed on the same node as the training job, care must be taken to provision sufficient memory to accommodate both the cache and the training process. Alternatively, the cache can be hosted on a separate node or distributed across a cluster of caching nodes, depending on workload size and memory constraints.
+
+最大缓存内存可通过训练脚本参数或 Redis 配置文件设置. 若缓存与训练作业部署在同一节点, 必须为两者预留足够内存. 也可根据负载规模与内存限制, 将缓存部署到独立节点, 或分布到多个缓存节点.
+
+### 12.2.3 数据加载器对比
+
+Seneca has been evaluated against several dataloaders, including:
+
+Seneca 与以下加载器进行了比较:
+
+PyTorch's native dataloader
+
+PyTorch 原生数据加载器.
+
+NVIDIA DALI, both with and without GPU offload
+
+启用或不启用 GPU 卸载的 NVIDIA DALI.
+
+Dataloaders from prior academic and industry works, such as SHADE, MINIO, and Quiver
+
+研究和工业界已有的数据加载器, 如 SHADE, MINIO, Quiver.
+
+All baseline implementations are integrated on top of a common PyTorch version to ensure consistency. Each dataloader can be selected and evaluated using appropriate flags in the provided training script, enabling reproducible and fair comparisons across different data loading backends.
+
+所有基线都集成在相同 PyTorch 版本上以保证一致性. 可通过训练脚本参数选择加载器并进行评估, 使不同后端之间的比较公平且可复现.
+
+### 12.2.4 Docker 容器
+
+To simplify setup, we provide a pre-built open-source Docker container with all the necessary tools, dependencies, and libraries required to run Seneca. This container is based on the NVIDIA PyTorch base image from the NGC catalog (`https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch`), ensuring compatibility with GPU-accelerated workloads.
+
+为简化环境搭建, 我们提供预构建的开源 Docker 容器, 包含运行 Seneca 所需工具, 依赖和库. 它基于 NGC 的 NVIDIA PyTorch 镜像 (`https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch`), 保证与 GPU 加速负载兼容.
+
+You can access the container via the link provided in § A.0.4. For step-by-step setup instructions, please refer to the detailed documentation available in our GitHub repository: `https://github.com/swiftomkar/seneca-fast26-pytorch/blob/master/AEC_readme.md`
+
+可通过原文第 A.0.4 节提供的链接获取容器. 详细安装步骤见 GitHub 仓库中的说明: `https://github.com/swiftomkar/seneca-fast26-pytorch/blob/master/AEC_readme.md`.
+
+## 12.3 托管位置
+
+The artifact is available on github repositories:
+
+实验材料位于以下仓库:
+
+PyTorch: `https://github.com/swiftomkar/seneca-fast26-pytorch`
+
+PyTorch 代码: `https://github.com/swiftomkar/seneca-fast26-pytorch`.
+
+TorchVision: `https://github.com/swiftomkar/seneca-fast26-torchvision`
+
+TorchVision 代码: `https://github.com/swiftomkar/seneca-fast26-torchvision`.
+
+Seneca Docker: `https://hub.docker.com/repository/docker/omkarbdesai/seneca_cuda11.7_cudnn8.5/general`
+
+Seneca Docker 镜像: `https://hub.docker.com/repository/docker/omkarbdesai/seneca_cuda11.7_cudnn8.5/general`.
+
+## 12.4 运行要求
+
+To run Seneca, you will need an NVIDIA GPU with CUDA support. The system has been tested on NVIDIA Quadro RTX 5000, V100, and A100 GPUs. Please ensure the machine has sufficient DRAM for local caching in addition to the memory required by the training process. Alternatively, you may configure a remote caching node.
+
+运行 Seneca 需要支持 CUDA 的 NVIDIA GPU. 系统已在 NVIDIA Quadro RTX 5000, V100 和 A100 上测试. 除训练进程所需内存外, 主机还需足够 DRAM 用于本地缓存; 也可配置远程缓存节点.
+
+Our evaluations were conducted on machines with a minimum of 115 GB of DRAM and a 16-core CPU. If you opt for a remote caching setup, ensure that the system has sufficient network bandwidth to maintain optimal performance.
+
+实验机器至少具有 115 GB DRAM 和 16 核 CPU. 使用远程缓存时, 应确保网络带宽足够, 以维持良好性能.

@@ -1,0 +1,75 @@
+# TCP 状态转换详解
+
+# 1. TCP 的状态转换图示
+
+![状态转换图解](/assets/images/posts/tcp-state-transition/tcp-state-transition.webp)
+
+## 1.1 TCP 标志位
+
++ `CWR(Congestion Window Reduce)`: 拥塞窗口减少标志, 由发送端设置, 用来表明发送端接收到了设置 `ECE` 标志的 TCP 包, 发送端通过降低发送窗口的大小来降低发送速率;
++ `ECE(ECN Echo)`: ECN 响应标志, 在 TCP 的 3 次握手时表明一个 TCP 端是具备[ECN(Explicit Congestion Notification)](https://zh.wikipedia.org/wiki/%E6%98%BE%E5%BC%8F%E6%8B%A5%E5%A1%9E%E9%80%9A%E7%9F%A5)功能的, 并且表明接收到的 TCP 包的 IP 头部的 ECN 被设置为 11, 更多信息请参考[RFC793](https://tools.ietf.org/html/rfc793);
++ `URG(Urgent)`: 表示紧急标志 (The Urgent Pointer) 有效, 目前已经很少使用;
++ `ACK(Acknowledgment)`: 取值为 `1` 时表示确认号有效, 这是一个确认的 TCP 包, 取值为 `0` 则不是确认包;
++ `PSH(Push)`: 该标志置位时, 一般表示发送端缓存中已经没有待发送的数据, 接收端不将该数据进行队列处理, 而是尽可能快将数据转由应用处理, 在处理 `Telnet` 或 `Rlogin` 等交互模式的连接时, 该标志总是被置位的;
++ `RST(Reset)`: 用于复位相应的 TCP 连接, 通常在发生异常或者错误的时候会触发复位 TCP 连接;
++ `SYN(Synchronize)`: 同步序列编号 (Synchronize Sequence Numbers) 有效, 该标志仅在三次握手建立 TCP 连接时有效, 它提示 TCP 连接的服务端检查序列编号, 该序列编号为 TCP 连接初始端 (一般是客户端) 的初始序列编号;
++ `FIN(Finish)`: 带有该标志置位的数据包用来结束一个 TCP 会话, 用来释放连接, 表明发送方已经没有数据发送了;
+
+## 1.2 TCP 的状态含义
+
++ `CLOSED`: 虚拟的起始点, 在连接超时或者关闭时候进入此状态, 这并不是一个真正的状态, 而是一个假想的起点和终点;
++ `LISTEN`: 表示服务器端的某个 SOCKET 处于监听状态, 可以接受客户端的连接;
++ `SYN_SENT`: 表示客户端已经发送了 `SYN` 报文. 当客户端 SOCKET 执行 `connect()` 进行连接时, 它首先发送 `SYN` 报文, 然后随即进入到 `SYN_SENT` 状态, 该状态
++ `SYN_RCVD`: 表示服务器已经接收到了 `SYN` 报文, 并且已经向客户端发送了 `SYN` 和 `ACK` 报文. 在正常情况下, 这是服务器端的一个短暂的中间状态, 基本上用 `netstat` 很难看到这种状态. 当 TCP 连接处于此状态时, 再收到客户端的 `ACK` 报文, 它就会进入到 `ESTABLISHED` 状态;
++ `ESTABLISHED`: 表示 TCP 连接已经成功建立, 数据可以进行传输;
++ `FIN_WAIT_1`: 表示主动关闭连接的一方已经向对方发送了 `FIN` 报文;
++ `FIN_WAIT_2`: 表示主动关闭连接的一方已经收到了对方发送的 `ACK` 报文. 该状态有时可以用 netstat 看到;
++ `CLOSE_WAIT`: 表示被动关闭连接的一方已经收到了对方发送的 `FIN` 报文, 并且自己已经发送了一个 `ACK` 报文给对方. 接下来需要检查自己是否还有数据要发送给对方, 如果没有的话就可以执行 `close()` 关闭这个 SOCKET 并发送 `FIN` 报文给对方, 即关闭自己到对方这个方向的连接. 有数据的话依据具体的策略 (继续发送或者丢弃) 去执行;
++ `CLOSING`: 表示主动关闭连接的一方收到了对方发送的 `FIN` 报文, 并没有收到对方的 `ACK` 报文, 表示双方都正在关闭 SOCKET 连接. 这种状态比较少见, 但当双方几乎在同时 `close()` 一个 SOCKET 的话, 就出现了双方同时发送 `FIN` 报文的情况, 这时就会出现 `CLOSING` 状态;
++ `LAST_ACK`: 表示被动关闭连接的一方已经发送了 `FIN` 报文, 正在等待对方的 `ACK` 报文;
++ `TIME_WAIT`: 表示主动关闭的一方已经收到了对方的 `FIN` 报文, 并且也已经发送出了 `ACK` 报文.`TIME_WAIT ` 状态下的 TCP 连接会等待 `2*MSL` (`Max Segment Lifetime`, 最大分段生存期, 指一个 TCP 报文在 Internet 上的最长生存时间. 每个具体的 TCP 协议实现都必须选择一个确定的 `MSL` 值,`RFC 1122` 建议是 `2 分钟`, 但 `BSD` 传统实现采用了 `30 秒`, Linux 可以 `cat /proc/sys/net/ipv4/tcp_fin_timeout` 看到本机的这个值);
+
+# 2. TCP 的握手与挥手
+
+![TCP通信过程](/assets/images/posts/tcp-state-transition/tcp-communication.webp)
+
+## 2.1 三次握手
+
++ `Client` 和 `Server` 的初始状态都是关闭状态,`Server` 进入 `LISTEN` 状态后被动等待连接的建立;
++ `Client` 主动建立连接, 向 `Server` 发送 TCP 建连的报文, 在报文中标志位 `SYN被置为1`, 将序列号 `seq被设置为x` (传送报文时的第一个字节序号为 x), 由于 `SYN` 标记在逻辑上占用一个序列号, 因此实际数据传输的时候, TCP 传输的数据中第一个 byte 对应的系列号为 `x+1`, 这个 `SYN` 包发送以后,`Client` 进入 `SYN_SENT` 状态, 等待 `Server` 回复 ACK 确认包;
++ `Server` 在收到连接请求报文之后, 发送确认报文. 在确认报文中标志位 `SYN被置为1`,`ACK被置为1`, 同时确认号 `ack = x + 1`, 并设置 `seq = y`, 发送完此确认包之后,`Server` 进入 `SYN_RCVD` 状态;
++ `Client` 收到确认报文后, 回复确认收到数据包, 数据包中标志位 `ACK被置为1`, 确认号 `ack = y + 1`, 然后 `Client` 进入 `ESTABLISHED`,`Client` 的 TCP 通知上层应用进程, 连接已经建立成功;
++ `Server` 收到 `Client` 的回复确认数据包后,`Server` 也进入 `ESTABLISHED` 状态, 同时通知其上层应用进程当前 TCP 连接已经建立;
+
+## 2.2 四次挥手
+
+
+
+
+
+
+在 B 接收到 A 的确认包后, B 立即进入关闭状态. A 和 B 都进入关闭状态后整个 TCP 连接释放.
+
++ 初始状态下 `Client` 和 `Server` 都是处于 `ESTABLISHED` 状态;
++ 当应用层没有带发送的数据并且要 `Client` 关闭 TCP 连接的时候, A 在要释放连接的报文中将标志位 `FIN设置为1`,`ACK设置为1`, 将序列号 `seq设置为u`, 确认号 `ack设置为v`, 然后 `Client` 进入 `FIN_WAIT_1` 状态等待 `Server` 的确认;
++ `Server` 收到 `Client` 的 `FIN包` 之后, 发送确认包 (由于 `FIN包` 与 `SYN包` 都在逻辑上占 `1byte`, 因此确认号 `ack = u + 1`, 而这个报文段自己的序号为 `seq = v`), 然后 `Server` 进入 `CLOSE_WAIT` 状态, TCP 服务器进程通知应用层进程;
++ `Client` 收到 `Server` 的确认包之后,`Client` 进入 `FIN_WAIT_2` 状态;
++ 如果 `Server` 已经没有要向 `Client` 发送的数据, 上层应用进程就通知 TCP 释放连接,`Server` 就会发送释放连接的数据包 (标志位 `FIN被置为1`,`ACK被置为1`, 序列号 `seq = v`, 确认号 `ack = u + 1`), 然后 `Server` 进入 `LAST_ACK` 状态;
++ 当 `Client` 收到释放连接的数据包后, 必须要发送确认数据包, 在确认报文中将标志位 `ACK置为1`, 确认号 `ack = v + 1`, 序列号 `seq = u + 1`, 然后 `Client` 进入 `TIME_WAIT` 状态, 在 `TIME_WAIT` 状态下,`Client` 经过 `2MSL` 的事件后就会进入 `CLOSED` 状态;
++ 当 `Server` 收到 `Client` 的确认包之后,`Server` 立刻进入 `CLOSED` 状态, 当 `Client` 和 `Server` 都进入 `CLOSED` 状态后, 整个 TCP 连接将被释放;
+
+## 2.3 一些问题
+
+## 2.4 为什么建立连接协议是三次握手, 而关闭连接却是四次握手呢?
+
+服务端的 LISTEN 状态下的 SOCKET 当收到 SYN 报文的连接请求后, 它可以把 ACK 和 SYN(ACK 起应答作用, 而 SYN 起同步作用) 放在一个报文里来发送. 但关闭连接时, 当收到对方的 FIN 报文通知时, 它仅仅表示对方没有数据发送给你了; 但未必你所有的数据都全部发送给对方了, 所以你可以未必会马上会关闭 SOCKET, 也即你可能还需要发送一些数据给对方之后, 再发送 FIN 报文给对方来表示你同意现在可以关闭连接了, 所以它这里的 ACK 报文和 FIN 报文多数情况下都是分开发送的.
+
+## 2.5 为什么 TIME_WAIT 状态还需要等 2MSL 后才能返回到 CLOSED 状态?
+
++ **可靠的实现 TCP 全双工连接的终止:** TCP 协议在关闭连接的四次握手过程中, 最终的 ACK 是由主动关闭连接的一端 (后面统称 A 端) 发出的, 如果这个 ` ACK` 丢失, 对方 (后面统称 B 端) 将重发出最终的 `FIN`, 因此 A 端必须维护状态信息 (TIME_WAIT) 允许它重发最终的 `ACK`. 如果 A 端不维持 `TIME_WAIT ` 状态, 而是处于 `CLOSED ` 状态, 那么 A 端将响应 `RST` 分节, B 端收到后将此分节解释成一个错误. 因而, 要实现 TCP 全双工连接的正常终止, 必须处理终止过程中四个分节任何一个分节的丢失情况, 主动关闭连接的 A 端必须维持 `TIME_WAIT` 状态 .
+
++ **允许老的重复分节在网络中消逝 (`避免同一端口对应多个套接字`):** TCP 分节可能由于路由器异常而迷途, 在迷途期间, TCP 发送端可能因确认超时而重发这个分节, 迷途的分节在路由器修复后也会被送到最终目的地, 这个迟到的迷途分节到达时可能会引起问题. 在关闭前一个连接之后, 马上又重新建立起一个相同的 IP 和端口之间的新连接, 前一个连接的迷途重复分组在前一个连接终止后到达, 而被新连接收到了. 为了避免这个情况, TCP 协议不允许处于 `TIME_WAIT` 状态的连接启动一个新的可用连接, 因为 `TIME_WAIT` 状态持续 `2MSL`, 就可以保证当成功建立一个新 TCP 连接的时候, 来自旧连接重复分组已经在网络中消逝;
+
+## 2.6 关闭 TCP 连接一定需要四次挥手吗?
+
+不一定, 四次挥手关闭 TCP 连接是最安全的做法. 但在有些时候, 我们不喜欢 `TIME_WAIT` 状态 (如当 `MSL` 数值设置过大导致服务器端有太多 ` TIME_WAIT` 状态的 TCP 连接, 减少这些条目数可以更快地关闭连接, 为新连接释放更多资源), 这时我们可以通过设置 SOCKET 变量的 `SO_LINGER` 标志来避免 SOCKET 在 close() 之后进入 `TIME_WAIT` 状态, 这时将通过发送 `RST` 强制终止 `TCP` 连接 (取代正常的 TCP 四次握手的终止方式);

@@ -1,0 +1,131 @@
+# Shadowsocks 一键安装脚本
+
+# 1. Shadowsocks 介绍
+
+Shadowsocks(中文名称: 影梭) 是使用 Python 等语言开发的, 基于 Apache 许可证开源的代理软件. Shadowsocks 使用 socks5 代理, 用于保护网络流量. Shadowsocks 分为服务器端和客户端. 在使用之前, 需要先将服务器端部署在支持 Python 等的服务器上面, 然后通过客户端连接并创建本地代理. 此外用户也可以选择购买基于 Shadowsocks 的商业服务, 以获得更加稳定可靠的服务, 或者免去自行部署的麻烦. 目前开发者 Clowwindy 由于一些原因已宣布停止维护, shadowsocksR 的作者已表示会继续开发新版本.
+
+对于想要使用 SS 的用户来说, 相比在网路上买一些月供几十的 SS 服务商的出售的 SS 账户, 自己倒不如买个便宜点的 VPS 自己构建一个 SS 服务器, 为防止 VPS 资源过剩, 自己也可以干点别的事情, 这里给出了使用三种语言搭建 SS 服务器的一键安装脚本, 供大家使用.
+
+# 2. Python 一键脚本
+
+1. 适用条件: 系统为 CentOS 6,7, Debian, Ubuntu , 内存≥128M
+
+2. 配置: 服务器端口默认为 8585 , 客户端端口为 1080 , 密码默认为 password
+
+3. 一键脚本 (使用 root 用户):
+
+   ```bash
+   wget --no-check-certificate https://raw.githubusercontent.com/CUBEGWZ/Shadowsocks/master/Python/shadowsocks.sh
+   chmod +x shadowsocks.sh
+   ./shadowsocks.sh 2>&1 | tee shadowsocks.log
+   ```
+
+4. 卸载与其他配置:
+  卸载方式: `./shadowsocks.sh uninstall`  
+ - 单用户配置文件 Sample:  
+    配置文件路径:`/etc/shadowsocks.json`  
+
+  ```bash
+  {
+      "server":"0.0.0.0",
+      "server_port":8585,
+      "local_address":"127.0.0.1",
+      "local_port":1080,
+      "password":"password",
+      "timeout":300,
+      "method":"aes-256-cfb",
+      "fast_open": false
+  }
+  ```
+
+ - 多用户多端口配置文件 Sample:   
+    配置文件路径:`/etc/shadowsocks.json`
+
+  ```bash
+  {
+      "server":"0.0.0.0",
+      "local_address":"127.0.0.1",
+      "local_port":1080,
+      "port_password":{
+      "8585":"password0",
+      "9001":"password1",
+      "9002":"password2",
+      "9003":"password3",
+      "9004":"password4"
+      },
+      "timeout":300,
+      "method":"aes-256-cfb",
+      "fast_open": false
+  }
+  ```
+
+# 3. GO 一键脚本
+
+1. 适用条件: 系统为 CentOS, Debian, Ubuntu , 内存≥128M
+
+2. 配置: 服务器端口默认为 8585 , 客户端端口为 1080 , 密码默认为 password
+
+3. 一键脚本 (使用 root 用户):
+
+   ```bash
+   wget --no-check-certificate https://raw.githubusercontent.com/CUBEGWZ/Shadowsocks/master/Go/shadowsocks-go.sh
+   chmod +x shadowsocks-go.sh
+   ./shadowsocks-go.sh 2>&1 | tee shadowsocks-go.log
+   ```
+
+4. 卸载与其他配置:
+  卸载方式: `./shadowsocks-go.sh uninstall`
+ - 多用户多端口配置文件 Sample:  
+    配置文件路径:`/etc/shadowsocks.json`
+
+  ```bash
+  {
+      "port_password":{
+      "8585":"password0",
+      "9001":"password1",
+      "9002":"password2",
+      "9003":"password3",
+      "9004":"password4"
+      },
+      "method":"aes-256-cfb",
+      "timeout":600
+  }
+  ```
+
+# 4. Libev 一键脚本
+
+1. 适用条件: 系统为 CentOS 32 或 64 位, 内存≥128M
+
+2. 配置: 服务器端口默认为 8585 , 客户端端口为 1080 , 密码默认为 password
+
+3. 一键脚本 (使用 root 用户):
+
+   ```bash
+   wget --no-check-certificate https://raw.githubusercontent.com/CUBEGWZ/Shadowsocks/master/Libev/shadowsocks-libev.sh
+   chmod +x shadowsocks-libev.sh
+   ```
+
+4. 卸载与其他配置:
+  卸载方式: `./shadowsocks-libev.sh uninstall`
+ - 修改配置文件 `/etc/shadowsocks-libev/config.json`, 同时启用 IPv4 与 IPv6 支持:
+
+      ```bash
+      {
+          "server":["[::0]","0.0.0.0"],
+          "server_port":your_server_port,
+          "local_address":"127.0.0.1",
+          "local_port":1080,
+          "password":"password",
+          "timeout":600,
+          "method":"aes-256-cfb"
+      }
+      ```
+
+# 5. Shadowsocks 操作命令
+
+- 启动:`/etc/init.d/shadowsocks start`
+- 停止:`/etc/init.d/shadowsocks stop`
+- 重启:`/etc/init.d/shadowsocks restart`
+- 状态:`/etc/init.d/shadowsocks status`
+
+---

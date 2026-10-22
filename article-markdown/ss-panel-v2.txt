@@ -1,0 +1,75 @@
+# 基于 SS-Panel V2 的 SS 面板式管理系统
+
+# 1. 说明
+
+本人之前接触过 Shadowsocks 这个软件, 感觉其实是挺好用的, 因为这款软件最初的着力点是便捷的连接, 通信的速度, 所以使用起来的感受相比之前使用的 VPN 还是好了太多太多. 如果是针对于像我一样有些固执的人来说, 我是绝对会为了个人的方便以及使用的稳定性而购置一台服务器并进行搭建 Shadowsocks 服务器的, 但是针对于那些 Shadowsocks 服务商来说, 租赁出去的服务器的限制条件无非是使用时间以及使用流量. 因此, 针对于限制流量这一方面的话, Shadowsocks 自身就无法做到了, 这也是本文的初衷, 可视化的界面管理工具的出现以及流量监控等功能的出现也会减少维护的繁琐程度, OK, 进入正文.
+
+注: 这里所说的前端与后端是指用户看到的部分以及用户看不到的部分, 看到的部分就是 SS-Panel V2 的界面 (即前端), 看不到的部分就是运行在后面的 Shadowsocks 等部分 (即后端).
+
+# 2. 正文
+
+>## 1. ShadowsocksR 多用户版服务端安装教程 (后端)
+
+## 2.1 安装基本库:
+
+1. CentOS 系统:
+
+   ```bash
+   yum install python-setuptools
+   easy_install pip
+   yum install git
+   ```
+2. Ubuntu/Debian 系统 (推荐):
+
+   ```bash
+   apt-get update
+   apt-get install python-pip git -y
+   ```
+
+注: 如果要使用 salsa20 和 chacha20 算法, 请安装 [libsodium](https://github.com/jedisct1/libsodium), 最新版本请点击[这里](https://github.com/jedisct1/libsodium/releases).
+
+## 2.2 安装 cymysql
+
+```bash
+pip install cymysql
+```
+## 2.3 获取 ShadowsocksR 源代码
+
+```bash
+git clone -b manyuser https://github.com/breakwa11/shadowsocks.git
+```
+执行完毕后此目录会新建一个 shadowsocks 目录, 其中根目录 (当前目录) 的是多用户版 (用户数据存放在数据库中), 子目录 (当前目录下的 shadowsocks 目录) 中的是单用户版 (用户数据存放在文件中).
+
+## 2.4 服务端配置
+
+在多用户版的根目录中, 复制 `mysql.json` 文件为 `usermysql.json`, 然后修改 `usermysql.json` 并找到对应的信息栏目 (一定要记住! ! !):
+
+```bash
+cp mysql.json usermysql.json
+vi usermysql.json
+```
+
+```bash
+"host": "127.0.0.1", //前端mysql域名/IP
+"port": 3306, //mysql端口
+"user": "ss", //mysql用户名
+"password": "pass", //mysql密码
+"db": "shadowsocks", //数据库名
+```
+
+## 2.5 配置文件 config.json
+
+在多用户版的根目录将文件 config.json 复制一份到 user-config.json, 然后编辑:
+```bash
+cp config.json user-config.json
+vi user-config.json
+```
+```bash
+"method":"aes-256-cfb", //修改成您要的加密方式的名称
+"protocol": "auth_sha1_compatible", //修改成您要的协议插件名称
+"obfs": "tls1.0_session_auth_compatible", //修改成您要的混淆插件名称
+```
+
+
+
+> 本文的主要内容来源于[逗比根据地](https://www.dou-bi.co/ss-jc30/)

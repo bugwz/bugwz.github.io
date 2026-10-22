@@ -1,0 +1,960 @@
+# 3FS 集群部署笔记
+
+# 1. 3FS 介绍
+
+3FS (Fire-Flyer File System) 是一款高性能分布式文件系统. 本文详细介绍了在 CentOS 8.5 环境下, 从依赖安装, 编译配置到集群部署的全过程, 包括 Soft-RoCE 模拟 RDMA, FoundationDB 和 ClickHouse 的配置, 以及存储拓扑和客户端挂载. 适用于开发者快速搭建高性能存储集群.
+
+3FS (Fire-Flyer File System) 项目仓库: https://github.com/deepseek-ai/3FS.
+
+# 2. 编译安装
+
+为了支持多种运行环境的编译安装, 3FS 提供了一些 [Dockerfile](https://github.com/deepseek-ai/3FS/tree/main/dockerfile) 可供参考.
+
+## 2.1 安装依赖软件
+
+本测试环境使用的系统版本是 CentOS 8.5.2111, 是比较老的系统版本, 为了能够顺利编译安装 3FS, 需要安装一些依赖软件.
+
+这里是在每台需要运行 3FS 的机器上执行下面的编译安装命令.
+
+**/etc/yum.repos.d/centos-all.repo 文件内容:**
+```bash
+[appstream]
+name=CentOS-8.5.2111 - AppStream - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/AppStream/$basearch/os/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/AppStream/$basearch/os/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/AppStream/$basearch/os/
+enabled=1
+gpgcheck=0
+priority=1
+
+[baseos]
+name=CentOS-8.5.2111 - BaseOS - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/BaseOS/$basearch/os/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/BaseOS/$basearch/os/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/BaseOS/$basearch/os/
+enabled=1
+gpgcheck=0
+priority=1
+
+[cr]
+name=CentOS-8.5.2111 - ContinuousRelease - aliyun
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/cr/$basearch/os/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/cr/$basearch/os/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/cr/$basearch/os/
+enabled=0
+gpgcheck=0
+priority=1
+
+[debuginfo]
+name=CentOS-8.5.2111 - Debuginfo - aliyun
+baseurl=https://mirrors.aliyun.com/centos-debuginfo/8/$basearch/
+enabled=0
+gpgcheck=0
+priority=1
+
+[devel]
+name=CentOS-8.5.2111 - Devel - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/Devel/$basearch/os/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/Devel/$basearch/os/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/Devel/$basearch/os/
+enabled=0
+gpgcheck=0
+priority=1
+
+[extras]
+name=CentOS-8.5.2111 - Extras - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/extras/$basearch/os/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/extras/$basearch/os/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/extras/$basearch/os/
+enabled=1
+gpgcheck=0
+priority=1
+
+[fasttrack]
+name=CentOS-8.5.2111 - FastTrack - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/fasttrack/$basearch/os/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/fasttrack/$basearch/os/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/fasttrack/$basearch/os/
+enabled=0
+gpgcheck=0
+priority=1
+
+[ha]
+name=CentOS-8.5.2111 - HighAvailability - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/HighAvailability/$basearch/os/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/HighAvailability/$basearch/os/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/HighAvailability/$basearch/os/
+enabled=0
+gpgcheck=0
+priority=1
+
+[plus]
+name=CentOS-8.5.2111 - Plus - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/centosplus/$basearch/os/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/centosplus/$basearch/os/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/centosplus/$basearch/os/
+enabled=0
+gpgcheck=0
+priority=1
+
+[powertools]
+name=CentOS-8.5.2111 - PowerTools - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/PowerTools/$basearch/os/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/PowerTools/$basearch/os/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/PowerTools/$basearch/os/
+enabled=1
+gpgcheck=0
+priority=1
+
+[baseos-source]
+name=CentOS-8.5.2111 - BaseOS-Source - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/BaseOS/$basearch/Source/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/BaseOS/$basearch/Source/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/BaseOS/$basearch/Source/
+enabled=0
+gpgcheck=0
+priority=1
+
+[appstream-source]
+name=CentOS-8.5.2111 - AppStream-Source - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/AppStream/Source/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/AppStream/Source/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/AppStream/Source/
+enabled=0
+gpgcheck=0
+priority=1
+
+[extras-source]
+name=CentOS-8.5.2111 - Extras-Source - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/extras/Source/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/extras/Source/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/extras/Source/
+enabled=0
+gpgcheck=0
+priority=1
+
+[plus-source]
+name=CentOS-8.5.2111 - Plus-Source - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/centosplus/Source/
+        https://mirrors.tuna.tsinghua.edu.cn/centos-vault/8.5.2111/centosplus/Source/
+        https://mirrors.ustc.edu.cn/centos-vault/8.5.2111/centosplus/Source/
+enabled=0
+gpgcheck=0
+priority=1
+```
+
+**/etc/yum.repos.d/centos-epel-all.repo 文件内容:**
+```bash
+[epel-modular]
+name=CentOS-8-EPEL - EPEL-Modular - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/$releasever/Modular/$basearch
+        https://mirrors.tuna.tsinghua.edu.cn/epel/$releasever/Modular/$basearch
+        https://mirrors.ustc.edu.cn/epel/$releasever/Modular/$basearch
+enabled=1
+gpgcheck=0
+priority=1
+
+[epel-modular-debuginfo]
+name=CentOS-8-EPEL - EPEL-Modular-DebugInfo - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/$releasever/Modular/$basearch/debug
+        https://mirrors.tuna.tsinghua.edu.cn/epel/$releasever/Modular/$basearch/debug
+        https://mirrors.ustc.edu.cn/epel/$releasever/Modular/$basearch/debug
+enabled=0
+gpgcheck=0
+priority=1
+
+[epel-modular-source]
+name=CentOS-8-EPEL - EPEL-Modular-Source - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/$releasever/Modular/SRPMS
+        https://mirrors.tuna.tsinghua.edu.cn/epel/$releasever/Modular/SRPMS
+        https://mirrors.ustc.edu.cn/epel/$releasever/Modular/SRPMS
+enabled=0
+gpgcheck=0
+priority=1
+
+[epel-testing-modular]
+name=CentOS-8-EPEL - EPEL-Testing-Modular - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/testing/$releasever/Modular/$basearch
+        https://mirrors.tuna.tsinghua.edu.cn/epel/testing/$releasever/Modular/$basearch
+        https://mirrors.ustc.edu.cn/epel/testing/$releasever/Modular/$basearch
+enabled=0
+gpgcheck=0
+priority=1
+
+[epel-testing-modular-debuginfo]
+name=CentOS-8-EPEL - EPEL-Testing-Modular-DebugInfo - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/testing/$releasever/Modular/$basearch/debug
+        https://mirrors.tuna.tsinghua.edu.cn/epel/testing/$releasever/Modular/$basearch/debug
+        https://mirrors.ustc.edu.cn/epel/testing/$releasever/Modular/$basearch/debug
+enabled=0
+gpgcheck=0
+priority=1
+
+[epel-testing-modular-source]
+name=CentOS-8-EPEL - EPEL-Testing-Modular-Source - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/testing/$releasever/Modular/SRPMS
+        https://mirrors.tuna.tsinghua.edu.cn/epel/testing/$releasever/Modular/SRPMS
+        https://mirrors.ustc.edu.cn/epel/testing/$releasever/Modular/SRPMS
+enabled=0
+gpgcheck=0
+priority=1
+
+[epel-testing]
+name=CentOS-8-EPEL - EPEL-Testing - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/testing/$releasever/Everything/$basearch
+        https://mirrors.tuna.tsinghua.edu.cn/epel/testing/$releasever/Everything/$basearch
+        https://mirrors.ustc.edu.cn/epel/testing/$releasever/Everything/$basearch
+enabled=0
+gpgcheck=0
+priority=1
+
+[epel-testing-debuginfo]
+name=CentOS-8-EPEL - EPEL-Testing-DebugInfo - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/testing/$releasever/Everything/$basearch/debug
+        https://mirrors.tuna.tsinghua.edu.cn/epel/testing/$releasever/Everything/$basearch/debug
+        https://mirrors.ustc.edu.cn/epel/testing/$releasever/Everything/$basearch/debug
+enabled=0
+gpgcheck=0
+priority=1
+
+[epel-testing-source]
+name=CentOS-8-EPEL - EPEL-Testing-Source - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/testing/$releasever/Everything/SRPMS
+        https://mirrors.tuna.tsinghua.edu.cn/epel/testing/$releasever/Everything/SRPMS
+        https://mirrors.ustc.edu.cn/epel/testing/$releasever/Everything/SRPMS
+enabled=0
+gpgcheck=0
+priority=1
+
+[epel]
+name=CentOS-8-EPEL - EPEL - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/$releasever/Everything/$basearch
+        https://mirrors.tuna.tsinghua.edu.cn/epel/$releasever/Everything/$basearch
+        https://mirrors.ustc.edu.cn/epel/$releasever/Everything/$basearch
+enabled=1
+gpgcheck=0
+priority=1
+
+[epel-debuginfo]
+name=CentOS-8-EPEL - EPEL-Debug - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/$releasever/Everything/$basearch/debug
+        https://mirrors.tuna.tsinghua.edu.cn/epel/$releasever/Everything/$basearch/debug
+        https://mirrors.ustc.edu.cn/epel/$releasever/Everything/$basearch/debug
+enabled=0
+gpgcheck=0
+priority=1
+
+[epel-source]
+name=CentOS-8-EPEL - EPEL-Source - aliyun,tsinghua,ustc
+baseurl=https://mirrors.aliyun.com/epel/$releasever/Everything/SRPMS
+        https://mirrors.tuna.tsinghua.edu.cn/epel/$releasever/Everything/SRPMS
+        https://mirrors.ustc.edu.cn/epel/$releasever/Everything/SRPMS
+enabled=0
+gpgcheck=0
+priority=1
+```
+
+
+**环境初始化相关命令:**
+```bash
+# 备份并替换 repo 配置
+mkdir -p /root/3fs/oldrepo
+mv /etc/yum.repos.d/* /root/3fs/oldrepo/
+vi /etc/yum.repos.d/centos-all.repo
+vi /etc/yum.repos.d/centos-epel-all.repo
+
+# 安装依赖软件
+dnf clean all
+dnf reinstall -y epel-release
+rm -rf /etc/yum.repos.d/epel*
+dnf install -y wget git meson cmake cargo perl lld gcc gcc-c++ autoconf
+               lz4 lz4-devel xz xz-devel double-conversion-devel libdwarf-devel \
+               libunwind-devel libaio-devel libuv-devel gmock-devel gperftools \
+               gperftools-devel openssl-devel boost1.78 boost1.78-devel mono-devel \
+               libevent-devel libibverbs-devel numactl-devel python3-devel bzip2-devel \
+               libzstd-devel snappy-devel libsodium-devel libatomic gcc-toolset-11 \
+               gcc-toolset-11-elfutils-devel gtest gtest-devel gcc-toolset-11-libatomic-devel
+dnf reinstall -y kernel-headers glibc-headers
+dnf remove -y fuse fuse-libs gflags gflags-devel glog glog-devel
+dnf clean all
+
+# 配置 gcc11 环境
+ln -s /opt/rh/gcc-toolset-11/root/usr/libexec/gcc/x86_64-redhat-linux/11 /usr/libexec/gcc/x86_64-redhat-linux/11
+ln -s /opt/rh/gcc-toolset-11/root/usr/lib/gcc/x86_64-redhat-linux/11 /usr/lib/gcc/x86_64-redhat-linux/11
+ln -s /opt/rh/gcc-toolset-11/root/usr/include/c++/11 /usr/include/c++/11
+echo "source /opt/rh/gcc-toolset-11/enable" >> /root/.bashrc
+echo "export PATH=/opt/rh/gcc-toolset-11/root/usr/bin:\$PATH" >> /root/.bashrc
+source /root/.bashrc
+
+# 安装 fuse
+mkdir -p /root/3fs/fuse
+cd /root/3fs/fuse
+wget https://github.com/libfuse/libfuse/releases/download/fuse-3.16.2/fuse-3.16.2.tar.gz
+tar -zxf fuse-3.16.2.tar.gz
+cd fuse-3.16.2
+mkdir build
+cd build
+meson setup ..
+meson configure -D default_library=both
+meson setup --reconfigure ../
+ninja
+ninja install
+
+# 安装 foundationdb
+mkdir -p /root/3fs/foundationdb
+cd /root/3fs/foundationdb
+wget https://github.com/apple/foundationdb/releases/download/7.3.63/foundationdb-clients-7.3.63-1.el7.x86_64.rpm
+wget https://github.com/apple/foundationdb/releases/download/7.3.63/foundationdb-server-7.3.63-1.el7.x86_64.rpm
+rpm -ivh foundationdb-clients-7.3.63-1.el7.x86_64.rpm
+rpm -ivh foundationdb-server-7.3.63-1.el7.x86_64.rpm
+
+# 安装 clang14
+mkdir -p /root/3fs/clang
+cd /root/3fs/clang
+wget https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.6/clang+llvm-14.0.6-x86_64-linux-gnu-rhel-8.4.tar.xz
+tar -xf clang+llvm-14.0.6-x86_64-linux-gnu-rhel-8.4.tar.xz
+mv clang+llvm-14.0.6-x86_64-linux-gnu-rhel-8.4 /usr/local/clang-llvm-14
+ln -s /usr/local/clang-llvm-14/bin/clang++ /usr/local/clang-llvm-14/bin/clang++-14
+ln -s /usr/local/clang-llvm-14/bin/clang-tidy /usr/local/clang-llvm-14/bin/clang-tidy-14
+ln -s /usr/local/clang-llvm-14/bin/clang-format /usr/local/clang-llvm-14/bin/clang-format-14
+ln -s /usr/local/clang-llvm-14/bin/clang-format /usr/bin/clang-format-14
+echo "export PATH=\$PATH:/usr/local/clang-llvm-14/bin" >> /root/.bashrc
+
+# 安装 rust
+export RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
+export RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+. "/root/.cargo/env"
+
+# 安装 gflags
+mkdir -p /root/3fs/gflags
+cd /root/3fs/gflags
+wget https://mirrors.aliyun.com/centos/8-stream/PowerTools/x86_64/os/Packages/gflags-2.2.2-1.el8.x86_64.rpm
+wget https://mirrors.aliyun.com/centos/8-stream/PowerTools/x86_64/os/Packages/gflags-devel-2.2.2-1.el8.x86_64.rpm
+rpm -ivh gflags-2.2.2-1.el8.x86_64.rpm
+rpm -ivh gflags-devel-2.2.2-1.el8.x86_64.rpm
+wget https://github.com/google/glog/archive/refs/tags/v0.4.0.tar.gz
+tar -zxvf v0.4.0.tar.gz
+cd glog-0.4.0
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=ON
+cmake --build build --target install
+```
+
+
+## 2.2 编译 3FS
+
+本次编译指定了我使用的编译版本, 以便于你来复现我的操作, 当然你也可以尝试编译编译最新的代码.
+
+> **注意:** 你可以选择一台机器编译, 然后将编译产物传输到其他机器中, 但是你需要确保这一批机器的操作系统和硬件配置保持一致, 否则可能会出现编译后的产物在其他机器上运行失败的问题 (比如由于机器的指令集不同导致无法运行).
+
+**相关命令:**
+```bash
+mkdir -p /root/3fs
+cd /root/3fs
+git clone https://github.com/deepseek-ai/3FS.git
+cd 3FS
+git checkout -f ee9a5cee0a85c64f4797bf380257350ca1becd36
+git submodule update --init --recursive
+./patches/apply.sh
+cargo build --release
+cmake -S . -B build -DCMAKE_CXX_COMPILER=clang++-14 -DCMAKE_C_COMPILER=clang-14 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build -j 32
+```
+
+# 3. 初始化运行环境
+
+**机器节点信息:**
+|机器|IP|相关组件|
+|:--:|:--:|:--:|
+|host01|10.10.10.1|Soft-RoCE, FoundationDB Server, ClickHouse Server|
+|host02|10.10.10.2|Soft-RoCE|
+|host03|10.10.10.3|Soft-RoCE|
+
+
+## 3.1 配置 Soft-RoCE 环境
+
+由于测试环境无 RDMA 硬件网卡设备, 所以我们需要配置 Soft-RoCE 来模拟 RDMA 网络. 上述三台机器上都需要配置 Soft-RoCE 环境.
+
+**相关命令:**
+```bash
+# 安装依赖软件
+dnf -y install iproute libibverbs libibverbs-utils infiniband-diags perftest
+
+# 加载内核驱动
+lsmod | grep rdma
+modprobe rdma_rxe
+
+# 新增 rdma 网卡
+# 其中 rxe_0 是新增的 rdma 设备名, ens1 为 Soft-RoCE 设备所绑定的网络设备名
+rdma link add rxe0 type rxe netdev ens1
+rdma link show
+
+# 列出 rdma 设备
+ibv_devices
+
+# 显示 ib 状态
+ibstat
+ibstatus
+
+
+# rdma 带宽测试, 工具来自于 perftest
+# 服务器
+ib_send_bw -a -n 1000000 -c RC -d rxe0 -q 10 -i 1
+# 客户端
+ib_send_bw -a -n 1000000 -c RC -d rxe0 -q 10 -i 1 10.10.10.1
+
+# rdma 延迟测试, 工具来自于 perftest
+# 服务器
+ib_send_lat -a -d mlx5_bond_0 -F -n 1000 -p 18515
+# 客户端
+ib_send_lat -a -d mlx5_bond_0 10.10.10.1 -F -n 1000 -p 18515
+```
+
+## 3.2 配置 FoundationDB
+
+修改 10.10.10.1 上的 FoundationDB Server 监听端口.
+
+**相关命令:**
+```bash
+# 安装 FoundationDB (如果之前没有安装)
+mkdir -p /root/3fs/foundationdb
+cd /root/3fs/foundationdb
+wget https://github.com/apple/foundationdb/releases/download/7.3.63/foundationdb-clients-7.3.63-1.el7.x86_64.rpm
+wget https://github.com/apple/foundationdb/releases/download/7.3.63/foundationdb-server-7.3.63-1.el7.x86_64.rpm
+rpm -ivh foundationdb-clients-7.3.63-1.el7.x86_64.rpm
+rpm -ivh foundationdb-server-7.3.63-1.el7.x86_64.rpm
+ll /usr/lib64/libfdb_c.so
+
+# 修改 fdb server 监听端口
+cat /etc/foundationdb/fdb.cluster
+vi /etc/foundationdb/fdb.cluster
+
+# 启动 fdb
+systemctl start foundationdb.service
+systemctl status foundationdb.service
+
+# 停止 fdb
+systemctl stop foundationdb.service
+
+# 查看服务状态
+fdbcli --exec "status details"
+
+# 查询 fdb 中存储的数据
+fdbcli --exec "getrange '' \xff"
+
+# 清空 fdb 中存储的数据
+# 如果安装步骤执行出错, 会导致存储在 fdb 中数据异常, 可能需要清空 fbd 数据后重新执行
+# 也可以使用 fdbcli --exec "writemode on; clearrange '' \xff" 来清空数据
+systemctl stop foundationdb.service
+rm -rf /var/lib/foundationdb/data/*
+systemctl start foundationdb.service
+fdbcli --exec "configure new single ssd"
+```
+
+## 3.3 配置 ClickHouse
+
+修改 10.10.10.1 上的 ClickHouse 配置, 以允许远程连接.
+
+**相关命令:**
+```bash
+# 安装 ClickHouse (如果之前没有安装)
+dnf install -y yum-utils
+yum-config-manager --add-repo https://packages.clickhouse.com/rpm/clickhouse.repo
+dnf install -y clickhouse-server clickhouse-client
+
+# 查看配置文件
+ls -al /etc/clickhouse-server/
+
+# 修改监听端口
+ls -al /etc/clickhouse-server/config.xml
+chmod 777 /etc/clickhouse-server/config.xml
+# 编辑配置文件
+# 取消其中 <listen_host>::</listen_host> 注释
+# 修改其中 <tcp_port>39000</tcp_port> 为 39000
+vi /etc/clickhouse-server/config.xml
+chmod 400 /etc/clickhouse-server/config.xml
+
+# 修改用户密码
+ls -al /etc/clickhouse-server/users.xml
+chmod 777 /etc/clickhouse-server/users.xml
+# 编辑配置文件, 在 <password></password> 中指定明文密码为 default123
+vi /etc/clickhouse-server/users.xml
+chmod 400 /etc/clickhouse-server/users.xml
+
+# 启动服务
+systemctl start clickhouse-server
+systemctl enable clickhouse-server
+systemctl status clickhouse-server
+
+# 停止服务
+systemctl stop clickhouse-server
+
+# 初始化 3fs 库表结构
+clickhouse-client --port 39000 --password default123 -n < /root/3fs/3FS/deploy/sql/3fs-monitor.sql
+```
+
+# 4. 部署 3FS 集群
+
+参考官方文档: [deploy](https://github.com/deepseek-ai/3FS/blob/ee9a5cee0a85c64f4797bf380257350ca1becd36/deploy/README.md)
+
+**机器节点信息:**
+|机器|IP|组件角色|
+|:--:|:--:|:--:|
+|host01|10.10.10.1|monitor_collector, mgmtd, meta, storage|
+|host02|10.10.10.2|storage|
+|host03|10.10.10.3|storage, fuse_client|
+
+## 4.1 配置 monitor_collector
+
+以下操作仅在 10.10.10.1 机器上执行.
+
+**相关命令:**
+```bash
+# 初始化运行目录和文件
+mkdir -p /opt/3fs/{bin,etc} /var/log/3fs
+cp /root/3fs/3FS/build/bin/monitor_collector_main /opt/3fs/bin
+cp /root/3fs/3FS/configs/monitor_collector_main.toml /opt/3fs/etc
+cp /root/3fs/3FS/deploy/systemd/monitor_collector_main.service /usr/lib/systemd/system
+ldd /opt/3fs/bin/monitor_collector_main
+
+# 修改配置文件[开始]
+# 修改其中的 [server.monitor_collector.reporter.clickhouse] 字段为 clickhouse 服务信息
+vi /opt/3fs/etc/monitor_collector_main.toml
+# 示例内容如下:
+[server.monitor_collector.reporter.clickhouse]
+db = '3fs'
+host = '10.10.10.1'
+user = 'default'
+passwd = 'default123'
+port = '39000'
+# 修改配置文件[结束]
+
+# 启动服务
+systemctl start monitor_collector_main
+systemctl status monitor_collector_main
+
+# 停止服务
+systemctl stop monitor_collector_main
+```
+
+
+## 4.2 配置 admin_cli
+
+以下操作在所有部署机器上执行.
+
+**相关命令:**
+```bash
+# 初始化本机运行目录和文件
+mkdir -p /opt/3fs/{bin,etc} /var/log/3fs
+cp /root/3fs/3FS/build/bin/admin_cli /opt/3fs/bin/
+cp /root/3fs/3FS/configs/admin_cli.toml /opt/3fs/etc/
+ldd /opt/3fs/bin/admin_cli
+cp /etc/foundationdb/fdb.cluster /opt/3fs/etc/
+
+# 从 10.10.10.1 中拉取 fdb 连接配置
+scp root@10.10.10.1:/etc/foundationdb/fdb.cluster /opt/3fs/etc/
+
+# 修改配置文件[开始]
+vi /opt/3fs/etc/admin_cli.toml
+# 修改示例内容如下: (以下仅展示修改的配置内容)
+cluster_id = 'stage'
+
+[fdb]
+clusterFile = '/opt/3fs/etc/fdb.cluster'
+
+[ib_devices]
+# 注意: 由于 3fs 内部限制了本地 rdma 网卡数量, 对应配置 kMaxDeviceCnt 为 4, 因此实际部署环境中
+#       存在多个 rdma 网卡可能会导致异常, 我们可以通过 device_filter 参数来选择想要使用的网卡.
+device_filter = ['rxe0']
+# 修改配置文件[结束]
+
+# 查看 admin_cli 命令
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml help
+```
+
+
+## 4.3 配置 mgmtd
+
+以下操作仅在 10.10.10.1 机器上执行.
+
+**相关命令:**
+```bash
+# 初始化本机运行目录和文件
+mkdir -p /opt/3fs/{bin,etc} /var/log/3fs
+cp /root/3fs/3FS/build/bin/mgmtd_main /opt/3fs/bin/
+cp /root/3fs/3FS/configs/{mgmtd_main.toml,mgmtd_main_launcher.toml,mgmtd_main_app.toml} /opt/3fs/etc/
+cp /root/3fs/3FS/deploy/systemd/mgmtd_main.service /usr/lib/systemd/system
+
+# 修改配置文件
+# 修改配置文件 mgmtd_main_app.toml [开始]
+vi /opt/3fs/etc/mgmtd_main_app.toml
+node_id = 1
+# 修改配置文件 mgmtd_main_app.toml [结束]
+
+
+# 修改配置文件 mgmtd_main_launcher.toml [开始]
+vi /opt/3fs/etc/mgmtd_main_launcher.toml
+cluster_id = 'stage'
+
+[fdb]
+clusterFile = '/opt/3fs/etc/fdb.cluster'
+# 修改配置文件 mgmtd_main_launcher.toml [结束]
+
+
+# 修改配置文件 mgmtd_main.toml [开始]
+vi /opt/3fs/etc/mgmtd_main.toml
+[common.monitor.reporters.monitor_collector]
+remote_ip = "10.10.10.1:10000"
+# 修改配置文件 mgmtd_main.toml [结束]
+
+# 初始化集群
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml "init-cluster --mgmtd /opt/3fs/etc/mgmtd_main.toml 1 1048576 4"
+
+# 启动服务
+systemctl start mgmtd_main
+systemctl status mgmtd_main
+
+# 查看集群节点
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "list-nodes"
+```
+
+**初始化集群的参数解释:**
++ `chaintableid`: 这里参数为 1.
++ `chunksize`: 这里参数为 1048576.
++ `stripesize`: 这里参数为 4.
+
+
+**相关输出信息:**
+```bash
+[root@host01 data]# /opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml "init-cluster --mgmtd /opt/3fs/etc/mgmtd_main.toml 1 1048576 4"
+> Execute init-cluster --mgmtd /opt/3fs/etc/mgmtd_main.toml 1 1048576 4
+Init filesystem, root directory layout: chain table ChainTableId(1), chunksize 1048576, stripesize 4
+
+Init config for MGMTD version 1
+> Time: 41ms 220us 660ns
+
+[root@host01 data]# /opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "list-nodes"
+> Execute list-nodes
+Id  Type   Status         Hostname   Pid   Tags  LastHeartbeatTime  ConfigVersion  ReleaseVersion
+1   MGMTD  PRIMARY_MGMTD  host01     6208  []    N/A                0(UPTODATE)    250523-dev-1-999999-ee9a5cee
+> Time: 375ms 823us 249ns
+```
+
+
+## 4.4 配置 meta
+
+以下操作仅在 10.10.10.1 机器上执行.
+
+**相关命令:**
+```bash
+# 初始化本机运行目录和文件
+mkdir -p /opt/3fs/{bin,etc} /var/log/3fs
+cp /root/3fs/3FS/build/bin/meta_main /opt/3fs/bin
+cp /root/3fs/3FS/configs/{meta_main_launcher.toml,meta_main.toml,meta_main_app.toml} /opt/3fs/etc
+cp /root/3fs/3FS/deploy/systemd/meta_main.service /usr/lib/systemd/system
+ldd /opt/3fs/bin/meta_main
+
+
+# 修改配置文件
+# 修改配置文件 meta_main_app.toml [开始]
+vi /opt/3fs/etc/meta_main_app.toml
+node_id = 100
+# 修改配置文件 meta_main_app.toml [结束]
+
+
+# 修改配置文件 meta_main_launcher.toml [开始]
+vi /opt/3fs/etc/meta_main_launcher.toml
+cluster_id = 'stage'
+
+[mgmtd_client]
+mgmtd_server_addresses = ["RDMA://10.10.10.1:8000"]
+# 修改配置文件 meta_main_launcher.toml [结束]
+
+
+# 修改配置文件 meta_main.toml [开始]
+vi /opt/3fs/etc/meta_main.toml
+[common.monitor.reporters.monitor_collector]
+remote_ip = '10.10.10.1:10000'
+
+[server.fdb]
+clusterFile = '/opt/3fs/etc/fdb.cluster'
+
+[server.mgmtd_client]
+mgmtd_server_addresses = ["RDMA://10.10.10.1:8000"]
+# 修改配置文件 meta_main.toml [结束]
+
+
+# 上传 meta 配置
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "set-config --type META --file /opt/3fs/etc/meta_main.toml"
+
+# 启动服务
+systemctl start meta_main
+systemctl status meta_main
+
+# 查看集群节点
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "list-nodes"
+```
+
+
+**相关输出信息:**
+```bash
+[root@host01 data]# /opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "set-config --type META --file /opt/3fs/etc/meta_main.toml"
+> Execute set-config --type META --file /opt/3fs/etc/meta_main.toml
+Succeed
+ConfigVersion  1
+> Time: 153ms 391us 74ns
+```
+
+
+## 4.5 配置 storage
+
+这一步骤会在每台部署机器上格式化两个硬盘用作存储硬盘. 以下操作在所有部署机器上执行.
+
+**相关命令:**
+```bash
+# 初始化本机运行目录和文件
+mkdir -p /opt/3fs/{bin,etc} /var/log/3fs
+cp /root/3fs/3FS/build/bin/storage_main /opt/3fs/bin
+cp /root/3fs/3FS/configs/{storage_main_launcher.toml,storage_main.toml,storage_main_app.toml} /opt/3fs/etc
+cp /root/3fs/3FS/deploy/systemd/storage_main.service /usr/lib/systemd/system
+
+# 修改配置文件
+# 修改配置文件 storage_main_app.toml [开始]
+# 由于是三台机器, 所以这里的 node_id 分别设置为 10001, 10002, 10003
+vi /opt/3fs/etc/storage_main_app.toml
+node_id = 10001
+# 修改配置文件 storage_main_app.toml [结束]
+
+
+# 修改配置文件 storage_main_launcher.toml [开始]
+vi /opt/3fs/etc/storage_main_launcher.toml
+cluster_id = 'stage'
+
+[mgmtd_client]
+mgmtd_server_addresses = ["RDMA://10.10.10.1:8000"]
+# 修改配置文件 storage_main_launcher.toml [结束]
+
+
+# 修改配置文件 storage_main.toml [开始]
+vi /opt/3fs/etc/storage_main.toml
+[common.monitor.reporters.monitor_collector]
+remote_ip = "10.10.10.1:10000"
+
+# 由于我的测试环境内核版本低于 5.1, 因此无法使用 io_uring 特性
+[server.aio_read_worker]
+enable_io_uring = false
+
+# 由于 mgmtd 和 storage 混部, 所以会导致监听端口冲突, 这里需要修改 storage 监听端口
+[server.base.groups.listener]
+listen_port = 8800
+
+# 由于 mgmtd 和 storage 混部, 所以会导致监听端口冲突, 这里需要修改 storage 监听端口
+[server.base.groups.listener]
+listen_port = 9900
+
+[server.mgmtd]
+mgmtd_server_addresses = ["RDMA://10.10.10.1:8000"]
+
+[server.targets]
+target_paths = ["/storage/data1/3fs","/storage/data2/3fs",]
+# 修改配置文件 storage_main.toml [结束]
+
+# 调整 fs 配置
+cat /proc/sys/fs/aio-max-nr
+sysctl -w fs.aio-max-nr=67108864
+
+# 格式化并挂载硬盘
+mkdir -p /storage/data{1..2}
+wipefs -a /dev/sdc
+wipefs -a /dev/sdd
+dd if=/dev/zero of=/dev/sdc bs=1M count=100
+dd if=/dev/zero of=/dev/sdd bs=1M count=100
+mkfs.xfs -L data1 /dev/sdc
+mkfs.xfs -L data2 /dev/sdd
+mount -o noatime,nodiratime -L data1 /storage/data1
+mount -o noatime,nodiratime -L data2 /storage/data2
+
+# 创建数据目录
+mkdir -p /storage/data{1..2}/3fs
+
+# 上传 storage 配置
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "set-config --type STORAGE --file /opt/3fs/etc/storage_main.toml"
+
+# 启动服务
+systemctl start storage_main
+systemctl status storage_main
+
+# 查看存储服务
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "list-nodes"
+
+# 查看存储目录数据
+ls -al /storage/data1/3fs/
+ls -al /storage/data1/3fs/engine/
+```
+
+
+**相关输出信息:**
+```bash
+[root@host01 data]# /opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "set-config --type STORAGE --file /opt/3fs/etc/storage_main.toml"
+> Execute set-config --type STORAGE --file /opt/3fs/etc/storage_main.toml
+Succeed
+ConfigVersion  1
+> Time: 166ms 577us 72ns
+
+[root@host02 data]# /opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "set-config --type STORAGE --file /opt/3fs/etc/storage_main.toml"
+> Execute set-config --type STORAGE --file /opt/3fs/etc/storage_main.toml
+Succeed
+ConfigVersion  2
+> Time: 366ms 424us 627ns
+
+[root@host03 data]# /opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "set-config --type STORAGE --file /opt/3fs/etc/storage_main.toml"
+> Execute set-config --type STORAGE --file /opt/3fs/etc/storage_main.toml
+Succeed
+ConfigVersion  3
+> Time: 393ms 313us 534ns
+```
+
+
+## 4.6 配置存储拓扑
+
+以下操作仅在任意一台机器上执行即可.
+
+**相关命令:**
+```bash
+# 创建管理员用户
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "user-add --root --admin 0 root"
+
+# 保存 token 到 /opt/3fs/etc/token.txt
+echo "AAB8Mv7T8QC4wbtj2wCvb6vx" > /opt/3fs/etc/token.txt
+cat /opt/3fs/etc/token.txt
+
+# 安装 Pyomo 和 HiGHS 所依赖的环境
+pip3.8 install -r /root/3fs/3FS/deploy/data_placement/requirements.txt
+
+# 生成数据放置方案
+# 注意: --num_nodes 和 --replication_factor 的某些组合可能无法生成方案
+python3.8 /root/3fs/3FS/deploy/data_placement/src/model/data_placement.py \
+          -ql -relax -type CR --num_nodes 3 --replication_factor 3 --min_targets_per_disk 3
+
+# 生成存储目标和链表
+# output 目录中将生成以下 3 个文件: create_target_cmd.txt, generated_chains.csv 和 generated_chain_table.csv.
+# 
+# 参数解释:
+#   node_id_begin 和 node_id_end 表示起始 storage 的 node_id
+#   num_disks_per_node 表示每个 node 上硬盘的数量
+#   num_targets_per_disk 表示每块硬盘上存储 target 的数量
+python3.8 /root/3fs/3FS/deploy/data_placement/src/setup/gen_chain_table.py \
+          --chain_table_type CR \
+          --node_id_begin 10001 \
+          --node_id_end 10003 \
+          --num_disks_per_node 2 \
+          --num_targets_per_disk 3 \
+          --target_id_prefix 1 \
+          --chain_id_prefix 9 \
+          --incidence_matrix_path output/DataPlacementModel-v_3-b_3-r_3-k_3-λ_2-lb_1-ub_1/incidence_matrix.pickle
+
+# 创建 target
+/opt/3fs/bin/admin_cli --cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' \
+                       --config.user_info.token $(<"/opt/3fs/etc/token.txt") < output/create_target_cmd.txt
+
+# 创建 chains
+/opt/3fs/bin/admin_cli --cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' \
+                       --config.user_info.token $(<"/opt/3fs/etc/token.txt") "upload-chains output/generated_chains.csv"
+
+# 创建 chain table
+/opt/3fs/bin/admin_cli --cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' \
+                       --config.user_info.token $(<"/opt/3fs/etc/token.txt") "upload-chain-table --desc stage 1 output/generated_chain_table.csv"
+
+# 查看配置
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "list-targets"
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "list-chains"
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "list-chain-tables"
+```
+
+**相关输出信息:**
+```bash
+[root@host01 data]# /opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "user-add --root --admin 0 root"
+> Execute user-add --root --admin 0 root
+Uid                0
+Name               root
+Token              AACHi58S8QA8c9hP2wAOFNel(Expired at N/A)
+IsRootUser         true
+IsAdmin            true
+Gid                0
+SupplementaryGids
+> Time: 13ms 237us 420ns
+```
+
+
+## 4.7 客户端挂载使用
+
+**相关命令:**
+```bash
+# 初始化本机运行目录和文件
+mkdir -p /opt/3fs/{bin,etc} /var/log/3fs
+cp /root/3fs/3FS/build/bin/hf3fs_fuse_main /opt/3fs/bin
+cp /root/3fs/3FS/configs/{hf3fs_fuse_main_launcher.toml,hf3fs_fuse_main.toml,hf3fs_fuse_main_app.toml} /opt/3fs/etc
+cp /root/3fs/3FS/deploy/systemd/hf3fs_fuse_main.service /usr/lib/systemd/system
+
+# 保存 token 到 /opt/3fs/etc/token.txt
+echo "AAB8Mv7T8QC4wbtj2wCvb6vx" > /opt/3fs/etc/token.txt
+cat /opt/3fs/etc/token.txt
+
+# 修改配置文件
+# 修改配置文件 hf3fs_fuse_main_launcher.toml [开始]
+vi /opt/3fs/etc/hf3fs_fuse_main_launcher.toml
+cluster_id = 'stage'
+mountpoint = '/3fs/stage'
+token_file = '/opt/3fs/etc/token.txt'
+
+[ib_devices]
+device_filter = ['rxe0']
+
+[mgmtd_client]
+mgmtd_server_addresses = ["RDMA://10.10.10.1:8000"]
+# 修改配置文件 hf3fs_fuse_main_launcher.toml [结束]
+
+
+# 修改配置文件 hf3fs_fuse_main.toml [开始]
+vi /opt/3fs/etc/hf3fs_fuse_main.toml
+[common.monitor.reporters.monitor_collector]
+remote_ip = '10.10.10.1:10000'
+
+[mgmtd]
+mgmtd_server_addresses = ["RDMA://10.10.10.1:8000"]
+# 修改配置文件 hf3fs_fuse_main.toml [结束]
+
+
+# 应用 fuse client 配置
+/opt/3fs/bin/admin_cli -cfg /opt/3fs/etc/admin_cli.toml --config.mgmtd_client.mgmtd_server_addresses '["RDMA://10.10.10.1:8000"]' "set-config --type FUSE --file /opt/3fs/etc/hf3fs_fuse_main.toml"
+
+
+# 挂载客户端
+mkdir -p /3fs/stage
+systemctl start hf3fs_fuse_main
+systemctl status hf3fs_fuse_main
+mount | grep '/3fs/stage'
+```
+
+# 5. 集群监控
+
+目前 3FS 的监控指标数据存储在 clickHouse 中, 我们可以使用 Grafana 来查询展示对应的监控指标数据. 为此我整理了大量的监控指标面板数据并将其共享到了 Grafana Dashboards 中, 你可以在 [grafana/dashboard/3fs](https://grafana.com/grafana/dashboards/?search=3fs) 查询并获取对应的面板信息.
+
+以下仅列出部分监控面板.
+
+
+
+![3FS Cluster](/assets/images/posts/3fs-deploy/3fs-dashboard-cluster.webp)
+
+
+
+![3FS Storage](/assets/images/posts/3fs-deploy/3fs-dashboard-storage.webp)
+
+
+
+![3FS Storage Detail](/assets/images/posts/3fs-deploy/3fs-dashboard-storage-detail.webp)
+
+
+
+# 6. 参考资料
++ https://github.com/deepseek-ai/3FS/blob/ee9a5cee0a85c64f4797bf380257350ca1becd36/deploy/README.md

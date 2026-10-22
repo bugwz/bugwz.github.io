@@ -1,0 +1,494 @@
+# ceph-ansible 集群部署运维指南
+
+本文详细介绍了使用 ceph-ansible 部署和运维 Ceph 集群的过程, 包括各版本及其依赖的 Ansible 版本的对应关系, 自定义模块与任务的结构, 集群部署, 运维操作及相关示例. 特别强调了环境配置, 节点连通性验证, MDS 和 OSD 组件的管理, 以及安全和性能优化注意事项.
+
+# 1. 项目介绍
+
+以下分析基于 ceph-ansible stable-6.0 分支代码.
+
+## 1.1 版本与对应关系
+
+目前 ceph-ansible 采用不同的代码分支来支持部署不同版本的 ceph 集群, 且每个代码分支需要特定的 ansible 版本支持, 具体的对应关系如下 (以下对应关系更新于 2025/05/23 ):
+
+|ceph-ansible 分支|支持的 ceph 版本|依赖的 ansible 核心版本|依赖的 ansible 发布版本包|
+|:--:|:--:|:--:|:--:|
+|stable-3.0|Jewel(V10), Luminous(V12)|2.4|-|
+|stable-3.1|Luminous(V12), Mimic(V13)|2.4|-|
+|stable-3.2|Luminous(V12), Mimic(V13)|2.6|-|
+|stable-4.0|Nautilus(V14)|2.9|-|
+|stable-5.0|Octopus(V15)|2.9|-|
+|stable-6.0|Pacific(V16)|2.10|2.10/3.x|
+|stable-7.0|Quincy(V17)|2.15|8.x|
+|stable-8.0|Reef(V18)|2.15/2.16|8.x/9.x|
+|stable-9.0|Squid(V19)|2.15/2.16|8.x/9.x|
+|main|devel|2.15/2.16|8.x/9.x|
+
+
+补充 Ansible 的社区更新日志对应信息,[原始地址](https://docs.ansible.com/ansible/devel/reference_appendices/release_and_maintenance.html#ansible-community-changelogs) :
+
+|Ansible 社区软件包|状态|依赖的核心版本|
+|:--:|:--:|:--:|
+|12.0.0|开发中 (未发布)|2.19|
+|[11.x](https://github.com/ansible-community/ansible-build-data/blob/main/11/CHANGELOG-v11.md)|当前|2.18|
+|[10.x](https://github.com/ansible-community/ansible-build-data/blob/main/10/CHANGELOG-v10.md)|10.7 之后 EOL|2.17|
+|[9.x](https://github.com/ansible-community/ansible-build-data/blob/main/9/CHANGELOG-v9.rst)|9.13 之后 EOL|2.16|
+|[8.x](https://github.com/ansible-community/ansible-build-data/blob/main/8/CHANGELOG-v8.rst)|不再维护 (生命周期结束)|2.15|
+|[7.x](https://github.com/ansible-community/ansible-build-data/blob/main/7/CHANGELOG-v7.rst)|不再维护 (生命周期结束)|2.14|
+|[6.x](https://github.com/ansible-community/ansible-build-data/blob/main/6/CHANGELOG-v6.rst)|不再维护 (生命周期结束)|2.13|
+|[5.x](https://github.com/ansible-community/ansible-build-data/blob/main/5/CHANGELOG-v5.rst)|不再维护 (生命周期结束)|2.12|
+|[4.x](https://github.com/ansible-community/ansible-build-data/blob/main/4/CHANGELOG-v4.rst)|不再维护 (生命周期结束)|2.11|
+|[3.x](https://github.com/ansible-community/ansible-build-data/blob/main/3/CHANGELOG-v3.rst)|不再维护 (生命周期结束)|2.10|
+|[2.10](https://github.com/ansible-community/ansible-build-data/blob/main/2.10/CHANGELOG-v2.10.rst)|不再维护 (生命周期结束)|2.10|
+
+## 1.2 目录结构
+
+```bash
+.
+├── contrib
+├── docs
+├── group_vars
+├── infrastructure-playbooks
+├── library
+├── module_utils
+├── plugins
+├── profiles
+├── roles
+├── tests
+├── requirements.txt
+├── requirements.yml
+├── site-container.yml.sample
+├── site.yml.sample
+```
+
++ `docs` : [ceph-ansible doc](https://docs.ceph.com/projects/ceph-ansible/en/stable-6.0/) 的原始文档, 用于展示不同分支版本的文档资料;
++ `group_vars` : 定义 Ceph 不同组件 (mon, osd 等) 的一些初始配置, 在部署集群时会修改其中的配置进行自定义的集群部署;
++ `infrastructure-playbooks` : Ceph 相关的 ansible 的 playbooks , 主要用于管控操作 Ceph 集群;
++ `library` : Ceph 相关的自定义 ansible 模块, 用于完成 Ceph 相关的一些操作;
++ `roles` : Ceph 相关的自定义 ansible 任务, 后续会通过 include_role 和 import_role 的方式引入并执行这些任务;
++ `tests` : 测试代码;
+
+
+## 1.3 自定义模块
+
+ceph-ansible 为了更好的编写部署, 管控的 playbooks , 引入了很多自定义的模块, 用于更好的操作 ceph 集群. 这些自定义模块均位于 ./library 目录.
+
++ `ceph_add_user_buckets.py` : 创建 bucket 和 user 对象, 调用 boto 和 radosgw 相关库的实现;
++ `ceph_crush_rule.py` : 依据不同的 state 执行不同的操作. present 表示新增 crush rule , absent 表示移除 crush rule , info 表示查看 crush rule 信息;
++ `ceph_crush.py` : 获取 crush map 并排列 item 节点信息;
++ `ceph_dashboard_user.py` : 依据不同的 state 执行不同的操作. present 表示新增加 dashboard 的用户并设置角色/密码等 , absent 表示移除 dashboard 的用户 , info 表示查看 dashboard 的用户信息;
++ `ceph_ec_profile.py` : 依据不同的 state 执行不同的操作. present 表示设置纠删码配置, absent 表示删除纠删码配置;
++ `ceph_fs.py` : 依据不同的 state 执行不同的操作. present 表示设置文件系统配置, absent 表示删除文件系统配置, info 表示查看文件系统配置;
++ `ceph_key.py` : 依据不同的 state 执行不同的操作. present/update 表示设置密钥信息, absent 表示删除密钥信息, info 表示查看密钥信息, list 表示遍历所有密钥信息, fetch_initial_keys 表示获取特定密钥信息, generate_secret 表示生成密钥内容;
++ `ceph_mgr_module.py` : 
++ `ceph_osd_flag.py` : 依据不同的 state 执行不同的操作. present 表示设置 osd flag , absent 表示重置 osd flag ;
++ `ceph_osd.py` : 依据不同的 state 执行不同的操作. destroy 表示销毁 osd 且单次只能操作一个, down 表示下线 osd , in 表示接入 osd , out 表示移除 osd , purge 表示清除 osd 且单次只能操作一个 , rm 表示删除 osd ;
++ `ceph_pool.py` : 操作 pool 相关;
++ `ceph_volumn_simple_activate.py` : 
++ `ceph_volumn_simple_scan.py` : 
++ `ceph_volumn.py` : 
++ `cephadm_adopt.py` : 采用具有 cephadm 的 ceph 集群;
++ `cephadm_bootstrap.py` : 通过 cephadm 引导 ceph 集群;
++ `igw_client.py` : 管理 iscsi 网关客户端定义;
++ `igw_gateway.py` : 管理 iscsi 网关定义;
++ `igw_lun.py` : 管理 ceph-rbd 映像以作为 iscsi lun 呈现给客户端;
++ `igw_purge.py` : 提供清除功能以删除 iscsi 网关;
++ `radosgw_caps.py` : 管理 RADOS 网关管理功能;
++ `radosgw_realm.py` : 管理 RADOS 网关领域;
++ `radosgw_user.py` : 管理 RADOS 网关用户;
++ `radosgw_zone.py` : 管理 RADOS 网关区域;
++ `radosgw_zonegroup.py` : 管理 RADOS 网关区域组;
+
+## 1.4 自定义任务
+
+ceph-ansible 内部抽象了一些任务列表, 目录位于: ./roles.
+
++ `ceph-client` : 创建分发用户密钥;
++ `ceph-common` : 配置 ceph 的安装仓库, 配置内存分配器等;
++ `ceph-config` : 创建 ceph 的数据目录, 生成集群配置文件等;
++ `ceph-container-common` : 拉取 ceph 相关的容器镜像;
++ `ceph-container-engine` : 初始化容器引擎的基础信息 (仓库地址等);
++ `ceph-crash` : 创建 ceph-crash 的 systemd 单元文件, 启动 ceph-crash 服务;
++ `ceph-dashboard` : 调整 dashboard 的配置;
++ `ceph-defaults` : 包含 ceph 所有组件的基础的默认配置;
++ `ceph-facts` : 获取集群设备信息, 获取集群 crush 信息, 设置 grafana/radosgw 地址信息等;
++ `ceph-fetch-keys` : 复制 ceph 和 bootstrap 的密钥到本地的指定目录;
++ `ceph-grafana` : 变更 grafana 相关配置, 启动 grafana 服务;
++ `ceph-handler` : 包含的 handlers 的程序, 主要涉及到对 ceph 相关的进程进行一些重启操作:
++ `ceph-infra` : 修改一些防火墙, 时间同步等的配置;
++ `ceph-iscsi-gw` : 配置 iscsi-gw 相关服务;
++ `ceph-mds` : 配置并启动 mds 服务;
++ `ceph-mgr` : 配置并启动 mgr 服务;
++ `ceph-mon` : 配置并启动 mon 服务;
++ `ceph-nfs` : 配置并启动 nfs 服务;
++ `ceph-node-exporter` : 配置并启动 node-exporter 服务;
++ `ceph-osd` : 配置并启动 osd 服务;
++ `ceph-prometheus` : 配置并启动 prometheus 服务;
++ `ceph-rbd-mirror` : 配置并启动 rbd-mirror 服务;
++ `ceph-rgw` : 配置并启动 rgw 服务;
++ `ceph-rgw-loadbalancer` : 配置并启动 mgr-loadbalancer 服务;
++ `ceph-validate` : 部署 ceph 之前验证各种环境的配置是否正常;
+
+
+# 2. 集群部署
+
+**建议使用如下的 python/ansible 环境运行 ceph-ansible :**
+```bash
+# stable-6.0
+pyenv install 3.8.16
+pip install ansible==2.10.7
+
+# stable-7.0
+pyenv install 3.10.14
+pip install ansible==8.7.0
+
+# stable-8.0
+pyenv install 3.10.14
+pip install ansible==9.8.0
+
+# stable-9.0
+pyenv install 3.10.14
+pip install ansible==9.8.0
+```
+
+**下载 ceph-ansible 并安装依赖:**
+```bash
+git clone https://github.com/ceph/ceph-ansible.git
+git checkout $branch
+pip install -r requirements.txt
+ansible-galaxy install -r requirements.yml
+```
+
+**相关操作命令:**
+```bash
+# 探测节点
+ansible -i hosts.ini -m ping all
+
+# 采集节点信息
+ansible -i hosts.ini -m setup all
+
+# 部署集群
+ansible-playbook -vvvv -i hosts.ini site.yml
+
+# 销毁集群
+ansible-playbook -vvvv -i hosts.ini infrastructure-playbooks/purge-cluster.yml
+
+# 变更 mds
+ansible-playbook -vvvv -i hosts.ini site.yml --limit mdss
+
+# 变更 osd
+ansible-playbook -vvvv -i hosts.ini site.yml --limit osds
+
+# 清理异常的 lvm 
+sudo dmsetup ls
+while IFS= read -r line; do
+    oline=$line
+    nline=${line%-osd--block-*}
+    sudo dmsetup remove $oline
+    sudo lvremove /dev/mapper/$oline
+    sudo rm -rf /dev/$nline
+done < <(sudo dmsetup ls | grep "ceph--" | awk -F ' ' '{print $1}')
+
+# 查看 crush map
+ceph osd getcrushmap -o crushmap.file
+crushtool -d crushmap.file -o crushmap-human.file
+cat crushmap-human.file
+```
+
+# 3. 集群运维
+
+以下运维脚本基于 stable-6.0 分支代码.
+
+## 3.1 移除 MDS 组件
+
+ceph-ansible 提供了移除 mds 的相关脚本, 但是对于 cephfs 相关 pool 的删除仍需手动操作. 详细操作步骤如下.
+
+```bash
+# 确保 hosts.ini 配置文件与集群最新的配置文件一致
+vi hosts.ini
+
+# 验证集群节点连通性,必要时需要将当前控制节点的公钥传输给对应节点
+ansible -i hosts.ini -m ping all
+
+# 移除 MDS 组件(最后移除 active 状态的 MDS)
+ansible-playbook infrastructure-playbooks/shrink-mds.yml -vvvv -i hosts.ini -e mds_to_kill=ceph02
+ansible-playbook infrastructure-playbooks/shrink-mds.yml -vvvv -i hosts.ini -e mds_to_kill=ceph01
+
+# 查看集群状态
+ceph fs status
+ceph osd pool ls detail
+
+# 移除 CephFS 相关 Pool
+ceph tell mon.\* injectargs '--mon-allow-pool-delete=true'
+ceph osd pool delete cephfs_metadata cephfs_metadata --yes-i-really-really-mean-it
+ceph osd pool delete cephfs_data cephfs_data --yes-i-really-really-mean-it
+ceph tell mon.\* injectargs '--mon-allow-pool-delete=false'
+
+# 修改 hosts.ini 文件,移除 mdss 配置
+vi hosts.ini
+
+# 查看集群状态
+ceph fs status
+ceph osd pool ls detail
+```
+
+## 3.2 新增 MDS 组件
+
+该步骤新增 MDS 的操作是基于新增 OSD 组件之后的进行的操作, 所以步骤较为繁琐, 如果是在没有新增 OSD 组件的情况下, 且是在现有机器节点中新增 MDS 组件, 则不需要修改对应的 host_vars 目录中文件.
+
+```bash
+# 确保 hosts.ini 配置文件与集群最新的配置文件一致,并新增 mdss 配置
+vi hosts.ini
+
+# 修改 cephfs 的配置 ,主要是 meta pool 和 data pool 的配置, 以及其他的配置(内存大小,trim cache 的时间控制配置等)
+vi group_vars/all.yml
+
+# 新增 MDS 组件的节点信息
+ls -al host_vars/
+vi host_vars/ceph04.yml
+vi host_vars/ceph05.yml
+vi host_vars/ceph06.yml
+
+# 更新当前控制节点的 hosts 文件
+vi /etc/hosts
+
+# 验证集群节点连通性,必要时需要将当前控制节点的公钥传输给对应节点
+ansible -i hosts.ini -m ping all
+
+# 采集机器节点信息,如果在操作时本地没有采集到新增机器节点的信息,可能会导致操作异常
+ansible -i hosts.ini -m setup all
+
+# 新增 MDS 组件
+ansible-playbook -vvvv -i hosts.ini site.yml --limit mdss
+
+# 查看集群状态
+ceph fs status
+ceph osd pool ls detail
+```
+
+新增 MDS 组件的相关示例文件如下:
+**hosts.ini**
+```bash
+[mgrs]
+ceph01
+ceph02
+ceph03
+
+[mons]
+ceph01
+ceph02
+ceph03
+
+[mdss]
+ceph04
+ceph05
+ceph06
+
+[clients]
+ceph01
+ceph02
+ceph03
+ceph04
+ceph05
+ceph06
+
+[osds]
+ceph01
+ceph02
+ceph03
+ceph04
+ceph05
+ceph06
+
+[grafana-server]
+ceph01
+ceph02
+ceph03
+ceph04
+ceph05
+ceph06
+```
+
+**group_vars/all.yml**
+```bash
+# cephfs
+cephfs: cephfs
+cephfs_metadata_pool:
+  name: cephfs_metadata
+  pg_num: 256
+  pgp_num: 256
+  size: 3
+  min_size: 1
+  rule_name: cephfs_rule
+  pg_autoscale_mode: off
+cephfs_data_pool:
+  name: cephfs_data
+  pg_num: 1024
+  pgp_num: 1024
+  size: 2
+  min_size: 1
+  rule_name: cephfs_rule
+  pg_autoscale_mode: off
+
+# other
+ceph_conf_overrides:
+  osd:
+    osd memory target: 11779558604
+  mds:
+    mds cache trim interval: 10
+    mds cache trim threshold: 262144
+    mds cache memory limit: 34359738368
+```
+
+
+## 3.3 新增 OSD 组件
+
+需要注意新增的 OSD 是否会与现有的 OSD 位于同一个 crush rule, 如果只是为了扩容现有 rbd/cephfs 的存储空间, 通常会位于同一个 crush rule; 如果新增的 OSD 是为了承接新功能且需要与现有存储隔离开, 那可能就需要创建并加入到新的 crush rule 中, 为此我们需要修改对应 group_vars 和 host_vars 目录中的相关文件.
+
+```bash
+# 备份集群配置
+ceph osd getcrushmap -o crushmap.file
+crushtool -d crushmap.file -o crushmap-human.file
+ceph osd crush class ls
+ceph osd crush rule ls
+ceph osd crush tree
+
+# 确保 hosts.ini 配置文件与集群最新的配置文件一致,并新增 osds 配置
+vi hosts.ini
+
+# 修改文件中关于 osd 对象存储,内存限制等配置
+vi group_vars/all.yml
+
+# 注意是否加入现有的 crush rule 中,从而要修改对应的配置
+# 修改文件中 devices 及 crush rule 等相关配置
+vi group_vars/osds.yml
+
+# 新增对应 OSD 组件所在节点的信息
+vi host_vars/ceph04.yml
+vi host_vars/ceph05.yml
+vi host_vars/ceph06.yml
+
+# 更新当前控制节点的 hosts 文件
+vi /etc/hosts
+
+# 验证集群节点连通性,必要时需要将当前控制节点的公钥传输给对应节点
+ansible -i hosts.ini -m ping all
+
+# 采集机器节点信息,如果在操作时本地没有采集到新增机器节点的信息,可能会导致操作异常
+ansible -i hosts.ini -m setup all
+
+# 新增 OSD 组件
+ansible-playbook -vvvv -i hosts.ini site.yml --limit "ceph04,ceph05,ceph06"
+
+# 查看集群状态
+ceph -s
+ceph osd tree
+ceph osd crush class ls
+ceph osd crush rule ls
+ceph osd crush tree
+```
+
+如果是创建新的 crush rule 并新增 OSD 组件的情况下, 相关的参考配置及解释如下:
++ 新增的 crush rule 名称为 cephfs_rule : 使当前集群新增 cephfs 的功能, 并且 cephfs 相关的数据存储在独立的 osd 组件中;
++ 新增 3 台机器, 每台机器上部署 6 块硬盘用于存储 osd 数据;
+
+**hosts.ini**
+```bash
+[mgrs]
+ceph01
+ceph02
+ceph03
+
+[mons]
+ceph01
+ceph02
+ceph03
+
+[clients]
+ceph01
+ceph02
+ceph03
+ceph04
+ceph05
+ceph06
+
+[osds]
+ceph01
+ceph02
+ceph03
+ceph04
+ceph05
+ceph06
+
+[grafana-server]
+ceph01
+ceph02
+ceph03
+ceph04
+ceph05
+ceph06
+```
+
+**group_vars/all.yml**
+```bash
+# osd
+osd_objectstore: bluestore
+osd_memory_target: 11779558604
+
+# other
+ceph_conf_overrides:
+  osd:
+    osd memory target: 11779558604
+```
+
+**group_vars/osds.yml**
+```bash
+---
+dummy:
+devices:
+  - /dev/nvme0n1
+  - /dev/nvme1n1
+  - /dev/nvme2n1
+  - /dev/nvme3n1
+  - /dev/nvme4n1
+  - /dev/nvme5n1
+
+create_crush_tree: true
+crush_rule_config: true
+
+crush_rule_cephfs:
+  name: cephfs_rule
+  root: cephfs
+  type: host
+  default: false
+
+crush_rules:
+  - "{{ crush_rule_cephfs }}"
+```
+
+**host_vars/ceph04.yml**
+```bash
+monitor_interface: bond0
+radosgw_interface: bond0
+
+devices:
+  - /dev/nvme0n1
+  - /dev/nvme1n1
+  - /dev/nvme2n1
+  - /dev/nvme3n1
+  - /dev/nvme4n1
+  - /dev/nvme5n1
+
+osd_crush_location:
+  root: cephfs
+  host: ceph04
+```
+
+
+# 4. 相关资料
++ https://github.com/ceph/ceph-ansible
++ https://docs.ceph.com/projects/ceph-ansible/en/latest/
++ https://docs.ansible.com/ansible/devel/reference_appendices/release_and_maintenance.html
++ https://docs.ansible.com/ansible/latest/collections/ansible/builtin/index.html
++ https://www.cnblogs.com/biglittleant/p/12857484.html
++ https://juejin.cn/post/6844904127785336839
++ https://wangchujiang.com/reference/docs/ansible.html

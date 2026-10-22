@@ -1,0 +1,119 @@
+.sorting-demo {
+  --sorting-demo-accent: var(--btn-bg, #49b1f5);
+  --sorting-demo-surface: color-mix(in srgb, var(--card-bg, #fff) 92%, var(--sorting-demo-accent));
+  box-sizing: border-box;
+  margin: 1.5rem 0;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border: 1px solid color-mix(in srgb, var(--font-color, #4c4948) 18%, transparent);
+  border-radius: 14px;
+  background: var(--sorting-demo-surface);
+  color: var(--font-color, #4c4948);
+  box-shadow: var(--card-box-shadow, 0 3px 8px rgba(7, 17, 27, .08));
+}
+
+.sorting-demo * {
+  box-sizing: border-box;
+}
+
+.sorting-demo__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sorting-demo__header p {
+  margin: .35rem 0 0 !important;
+  color: var(--grey, #858585);
+  font-size: .9rem;
+}
+
+.sorting-demo__status {
+  flex: 0 0 auto;
+  padding: .25rem .65rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sorting-demo-accent) 15%, transparent);
+  color: var(--font-color, #4c4948);
+  font-size: .82rem;
+}
+
+.sorting-demo__bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: clamp(.45rem, 2vw, 1rem);
+  min-height: 230px;
+  margin: 1.5rem 0;
+  padding: 1rem 1rem 0;
+  border-bottom: 2px solid color-mix(in srgb, var(--font-color, #4c4948) 24%, transparent);
+}
+
+.sorting-demo__bar {
+  display: grid;
+  place-items: start center;
+  width: min(12%, 56px);
+  min-width: 34px;
+  height: calc(var(--value) * 22px);
+  padding-top: .45rem;
+  border-radius: 8px 8px 0 0;
+  background: var(--sorting-demo-accent);
+  color: var(--white, #fff);
+  font-weight: 700;
+  transition: height .25s ease, background-color .25s ease, transform .25s ease;
+}
+
+.sorting-demo__bar[data-state='comparing'] {
+  background: #f6a623;
+  transform: translateY(-8px);
+}
+
+.sorting-demo__bar[data-state='sorted'] {
+  background: #35b779;
+}
+
+.sorting-demo__controls {
+  display: flex;
+  justify-content: center;
+  gap: .75rem;
+}
+
+.sorting-demo__controls button {
+  min-height: 44px;
+  padding: .55rem 1rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--sorting-demo-accent);
+  color: var(--white, #fff);
+  cursor: pointer;
+  font: inherit;
+}
+
+.sorting-demo__controls button:last-child {
+  background: color-mix(in srgb, var(--font-color, #4c4948) 12%, transparent);
+  color: var(--font-color, #4c4948);
+}
+
+.sorting-demo__controls button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+@media (max-width: 520px) {
+  .sorting-demo__header {
+    flex-direction: column;
+  }
+
+  .sorting-demo__bars {
+    min-height: 190px;
+  }
+
+  .sorting-demo__bar {
+    height: calc(var(--value) * 18px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sorting-demo__bar {
+    transition-duration: .01ms;
+  }
+}

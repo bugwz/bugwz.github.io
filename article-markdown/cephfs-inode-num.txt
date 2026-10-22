@@ -1,0 +1,318 @@
+# CephFS Inode 编号的申请与释放
+
+# 1. Inode 编号介绍
+
+## 1.1 编号规则
+
+在 CephFS 中 MDS 负责管理所有的 Inode 信息. CephFS 本身支持 [多 MDS](https://docs.ceph.com/en/latest/cephfs/multimds/) 策略, 为了避免多 MDS 分配的 Inode 出现冲突, 所以 MDS 在分配 Inode 的时候需要使用 RankID 来区分 Inode 的范围. 每个 MDS 中限制 Inode 分配范围的函数为 `InoTable::reset_state`, 每个 MDS 中负责的 Inode 范围为: `[(rank+1) << 40, ((rank+1) << 40))`, 即从 `(rank+1) << 40` 开始的连续 `1 << 40` 个 Inode.
+
+|MDSRank|起始 Inode 编号 (十进制)|起始 Inode 编号 (十六进制)|结束 Inode 编号 (十六进制)|管辖的 Inode 数量|
+|:---|:---|:---|:---|:---|
+|**0**|1,099,511,627,776|**0x10000000000**|**0x1FFFFFFFFF**|1,099,511,627,776|
+|**1**|2,199,023,255,552|**0x20000000000**|**0x2FFFFFFFFF**|1,099,511,627,776|
+|**2**|3,298,534,883,328|**0x30000000000**|**0x3FFFFFFFFF**|1,099,511,627,776|
+|**3**|4,398,046,511,104|**0x40000000000**|**0x4FFFFFFFFF**|1,099,511,627,776|
+|**4**|5,497,558,138,880|**0x50000000000**|**0x5FFFFFFFFF**|1,099,511,627,776|
+|**..**.|...|...|...|...|
+|**n**|(n+1) * (1 << 40)|**(n+1) << 40**|**(n+1) << 40 + (1 << 40) - 1**|**1 << 40**|
+
+
+**相关代码**:
+```c++
+class MDSRank {
+public:
+  InoTable *inotable = nullptr;
+}
+
+void InoTable::reset_state() {
+  free.clear();
+  // inode 开始编号
+  uint64_t start = (uint64_t)(rank + 1) << 40;
+  // inode 数量
+  uint64_t len = (uint64_t)1 << 40;
+  // 加入 free
+  free.insert(start, len);
+  // 设置 projected_free
+  projected_free = free;
+}
+
+class Session : public RefCountedObject {
+public:
+  session_info_t info;
+}
+
+struct session_info_t {
+  interval_set<inodeno_t> prealloc_inos;
+}
+```
+
+
+## 1.2 相关配置与命令
+
+**相关配置**:
++ `mds_client_prealloc_inos`:
+  + **含义**: 为每个客户端会话预分配的 inode 编号数量.
+  + **默认值**: 1000
+
+
+**相关命令**
+```bash
+# 查看 mds 中剩余的 inode
+cephfs-table-tool all show inode
+```
+
+
+# 2. Inode 编号申请逻辑
+
+MDS 为了提升 Inode 编号的分配效率, 会为每个 Session 预先分配一些 Inode 编号, 当客户端申请 Inode 编号的时候则会优先从 Session 中申请, 如果申请失败则会尝试从全局的 Inode 编号表中申请. 当客户端与 MDS 建立连接之后, 只有需要创建新的文件或者目录, 才会调用 `Server::prepare_new_inode` 函数来申请新的 Inode 编号.
+
+
+**`Server::prepare_new_inode` 函数的相关调用链路如下**:
+```mermaid
+graph TD
+    %% --- 定义样式 ---
+    classDef outer fill:#e1f5ff,stroke:#01579b,stroke-width:1px,color:#000;
+    classDef mid fill:#fff3e0,stroke:#e65100,stroke-width:1px,color:#000;
+    classDef final fill:#e8f5e8,stroke:#2e7d32,stroke-width:1px,color:#000;
+
+    %% --- 节点定义 ---
+    A[Server::dispatch_client_request]
+    B1[Server::handle_client_openc]
+    B2[Server::handle_client_mknod]
+    B3[Server::handle_client_mkdir]
+    B4[Server::handle_client_symlink]
+    C[Server::prepare_new_inode]
+    D[InoTable::project_alloc_id]
+
+    %% --- 链路定义 ---
+    A -- CEPH_MDS_OP_CREATE --> B1
+    A -- CEPH_MDS_OP_MKNOD --> B2
+    A -- CEPH_MDS_OP_MKDIR --> B3
+    A -- CEPH_MDS_OP_SYMLINK --> B4
+
+    B1 --> C
+    B2 --> C
+    B3 --> C
+    B4 --> C
+
+    C --> D
+
+    %% --- 样式绑定 ---
+    class A outer
+    class B1,B2,B3,B4 mid
+    class C mid
+    class D final
+```
+
+
+## 2.1 从 Session 中申请
+
+**执行流程**:
++ 检查是否允许使用预分配 inode 编号 (`allow_prealloc_inos`, 要求会话需要处于 open 状态);
++ 调用 `mdr->session->take_ino(_useino)` 获取 inode 号;
+  + **指定 inode 号模式**: 验证 inode 号属于会话预分配池 `info.prealloc_inos`, 然后从从当前状态集合中移除;
+    + 若在 `delegated_inos` 中, 则移除 (客户端重试场景);
+    + 若在 `free_prealloc_inos` 中, 则移除 (正常分配);
+    + 否则断言失败 (状态不一致);
+  + **自动分配模式**:
+    + 检查 `free_prealloc_inos` 是否为空;
+    + 取最小可用号段起始值 `range_start()`;
+    + 从 `free_prealloc_inos` 中移除该 inode 号;
++ 记录分配结果到 `mdr->used_prealloc_ino`;
+
+
+**相关代码**:
+```c++
+// Server::prepare_new_inode 函数中从 Session 中分配 Inode 的代码
+if (allow_prealloc_inos && (mdr->used_prealloc_ino = _inode->ino = mdr->session->take_ino(_useino))) {
+  if (mdcache->test_and_clear_taken_inos(_inode->ino)) {
+    _inode->ino = 0;
+    dout(10) << "prepare_new_inode used_prealloc " << mdr->used_prealloc_ino << " ("
+              << mdr->session->info.prealloc_inos.size() << " left)"
+              << " but has been taken, will try again!" << dendl;
+  }
+  else {
+    mds->sessionmap.mark_projected(mdr->session);
+    dout(10) << "prepare_new_inode used_prealloc " << mdr->used_prealloc_ino << " ("
+              << mdr->session->info.prealloc_inos.size() << " left)" << dendl;
+  }
+}
+
+// Session 类中 Inode 的相关变量
+class Session : public RefCountedObject {
+public:
+  // 记录已预分配但尚未提交到日志的inode号区间
+  interval_set<inodeno_t> pending_prealloc_inos;
+  // 记录可立即分配给客户端的空闲预分配inode号
+  interval_set<inodeno_t> free_prealloc_inos;
+  // 记录已正式分配给客户端的inode号
+  interval_set<inodeno_t> delegated_inos;
+}
+
+// 申请 Inode
+inodeno_t take_ino(inodeno_t ino = 0) {
+  // 指定inode号模式
+  if (ino) {
+    // 验证inode号是否在预分配池中
+    if (!info.prealloc_inos.contains(ino)) return 0;
+
+    // 检查inode号的当前状态并移除
+    if (delegated_inos.contains(ino)) {
+      delegated_inos.erase(ino);
+    }
+    else if (free_prealloc_inos.contains(ino)) {
+      free_prealloc_inos.erase(ino);
+    }
+    else {
+      ceph_assert(0);
+    }
+  }
+  // 自动分配模式
+  else if (!free_prealloc_inos.empty()) {
+    // 取第一个空闲inode号
+    ino = free_prealloc_inos.range_start();
+    free_prealloc_inos.erase(ino);
+  }
+  return ino;
+}
+```
+
+### 2.1.1 Inode 编号补充机制
+
+当 Session (会话) 中的可用 inode 数量小于 `mds_client_prealloc_inos` 的一半时, 则会从全局 inotable 中申请 inode 来扩容会话的可用 inode 数量到达 `mds_client_prealloc_inos`, 但是在实际扩容的时候是先将申请的 inode 放置到 `mdr->prealloc_inos` 中, 等待该请求处理完成后才会调用 `Server::apply_allocated_inos` 函数将新申请的 inode 赋值给 `session->free_prealloc_inos` 和 `session->info.prealloc_inos`.
+
+**可能的原因如下**:
++ 如果请求失败, MDR 中的预分配 inode 可以安全丢弃, 而不会污染 Session 的预分配池;
++ 多个并发请求可能同时需要预分配 inode, 通过 MDR 隔离可以避免竞争条件;
++ 预分配机制将 inode 分配压力分散到不同时间点, 而不是集中在文件创建时;
+
+**顾虑解答**:
++ 问题: 由于 Session 的 Inode 扩容是依赖于 mgr 请求结束后, 那么是否会存在多个并发请求同时检测到会话中可用的 inode 不够, 同时申请, 进而导致会话的 inode 超过 `mds_client_prealloc_inos` 配置的情况?
++ 答案: 不会出现, 由于在每次扩容的时候都会将新申请的 inode 计入 `pending_prealloc_inos` 中, 并且在判断当前会话的可用 inode 时调用的 `get_num_projected_prealloc_inos` 函数内部也会统计上 `pending_prealloc_inos` 的值, 所以不会出现会话的 inode 超过配置参数的情况.
+
+
+## 2.2 从全局 Inode 编号表中申请
+
+**执行流程**:
++ 当 `take_ino()` 返回 0 (预分配池为空或无效) 时, 执行全局分配;
++ 调用 `project_alloc_id()` 函数从全局 inotable 表中分配新的 inode 号;
+
+
+**相关函数**:
+```c++
+// 从全局 Inode 表中分配代码
+else {
+  mdr->alloc_ino = _inode->ino = mds->inotable->project_alloc_id(_useino);
+  if (mdcache->test_and_clear_taken_inos(_inode->ino)) {
+    mds->inotable->apply_alloc_id(_inode->ino);
+    _inode->ino = 0;
+    dout(10) << "prepare_new_inode alloc " << mdr->alloc_ino << " but has been taken, will try again!" << dendl;
+  }
+  else {
+    dout(10) << "prepare_new_inode alloc " << mdr->alloc_ino << dendl;
+  }
+}
+
+inodeno_t InoTable::project_alloc_id(inodeno_t id) {
+  dout(10) << "project_alloc_id " << id << " to " << projected_free << "/" << free << dendl;
+  ceph_assert(is_active());
+  if (!id)
+    id = projected_free.range_start();
+  projected_free.erase(id);
+  ++projected_version;
+  return id;
+}
+
+class MDSRank
+{
+public:
+  InoTable *inotable = nullptr;
+}
+
+class InoTable : public MDSTable {
+private:
+  interval_set<inodeno_t> free;
+  interval_set<inodeno_t> projected_free;
+}
+```
+
+
+
+# 3. Inode 编号释放逻辑
+
+目前没有观察到将 inode 释放给 session 的情况, 因此这里仅介绍释放到全局 Inode 表的情况, 后续有新的发现后会继续补充.
+
+## 3.1 释放给全局 Inode 编号表
+
+当会话关闭后, 完成 MDLog 的持久化操作之后, 会调用对应的 `C_MDS_session_finish::finish` 函数将会话中的 `pending_prealloc_inos` 和 `free_prealloc_inos` 中的 inode 归还给全局的 inode 表.
+
+**`InoTable::project_release_ids` 函数的相关调用链路如下**:
+```mermaid
+graph TD
+    %% 定义样式
+    classDef outerNode fill:#e1f5fe,stroke:#01579b,stroke-width:1px
+    classDef innerNode fill:#fff3e0,stroke:#e65100,stroke-width:1px
+    classDef finalNode fill:#e8f5e8,stroke:#2e7d32,stroke-width:1px
+
+    %% 最外层节点(调用链的起点)
+    S_handle_open["Server::handle_client_session"]
+    S_close_forced["Server::close_forced_opened_sessions"]
+    S_terminate["Server::terminate_sessions"]
+    S_kill["Server::kill_session"]
+    MDS_recovery["MDSRank::recovery_done"]
+
+    class S_handle_open,S_close_forced,S_terminate,S_kill,MDS_recovery outerNode
+
+    %% 中间节点
+    S_journal_close["Server::journal_close_session"]
+    C_finish["C_MDS_session_finish::finish"]
+    S_session_logged["Server::_session_logged"]
+    M_start_purge["MDCache::start_purge_inodes"]
+    M_purge["MDCache::purge_inodes"]
+
+    class S_journal_close,C_finish,S_session_logged,M_start_purge,M_purge innerNode
+
+    %% 最终节点
+    I_project["InoTable::project_release_ids"]
+    class I_project finalNode
+
+    %% 构建调用关系,核心路径在中间
+    %% 左侧分支:直接调用 journal_close_session
+    S_close_forced --> S_journal_close
+    S_terminate --> S_journal_close
+    S_kill --> S_journal_close
+
+    %% 右侧分支:从 recovery_done 开始的路径
+    MDS_recovery --> M_start_purge
+    M_start_purge --> M_purge
+
+    %% 中心主干:从 handle_client_session 开始
+    S_handle_open -- "CEPH_SESSION_REQUEST_CLOSE" --> S_journal_close
+    S_journal_close --> C_finish
+    C_finish --> S_session_logged
+    S_session_logged --> M_purge
+    M_purge --> I_project
+
+    %% 中心主干的另一条输入路径(开放会话)
+    S_handle_open -- "CEPH_SESSION_REQUEST_OPEN" --> C_finish
+```
+
+
+**相关代码**:
+```c++
+void InoTable::project_release_ids(const interval_set<inodeno_t> &ids) {
+  dout(10) << "project_release_ids " << ids << " to " << projected_free << "/" << free << dendl;
+  projected_free.insert(ids);
+  ++projected_version;
+}
+
+class InoTable : public MDSTable {
+private:
+  interval_set<inodeno_t> free;
+  interval_set<inodeno_t> projected_free;
+}
+```
+
+
+# 4. 参考资料
++ [cephfs 中 inode 号的分配](https://zhuanlan.zhihu.com/p/101040392)

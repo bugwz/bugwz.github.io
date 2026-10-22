@@ -1,0 +1,147 @@
+# AIMeter: 给自己的 AI 订阅做一个统一用量看板
+
+最开始是觉得 MiniMax 的订阅比较便宜, 就买了一份. 后来记得好像又买了阿里的订阅, 再之后陆续买了 GitHub Copilot, GPT 和 Claude 的订阅. 当时已经有一些工具能把用量放在一起看, 但需要在电脑上安装和使用. 我想在手机上也能随时查看, 于是开始考虑自己做一个应用, 或者做成一个网页.
+
+对比下来, 我更倾向于 **Web 的方式**. 把服务部署好以后, 手机和电脑都能通过浏览器访问, 不用给不同设备分别安装软件. **AIMeter** 就是基于这个想法做起来的, 用来查看各家订阅的用量, 剩余额度和历史记录.
+
+我也不想为了这个工具 再单独买一台服务器, 所以希望它能直接部署到 Vercel 或 Cloudflare 上. 现在这两种部署方式都已经支持, 也保留了容器部署的选择.
+
+项目已按 MIT 协议开源, 源码在 [GitHub: bugwz/AIMeter](https://github.com/bugwz/AIMeter). 想自己部署的话, 可以直接看 [Vercel 部署说明](https://github.com/bugwz/AIMeter/blob/9bf31087228440d37ee7ee3aa76e5ac9886386ed/deploy/vercel/README.md) 或 [Cloudflare Workers 部署说明](https://github.com/bugwz/AIMeter/blob/9bf31087228440d37ee7ee3aa76e5ac9886386ed/deploy/cloudflare/README.md); 接入账号前, 也可以先翻一下 [服务商接入文档](https://github.com/bugwz/AIMeter/blob/9bf31087228440d37ee7ee3aa76e5ac9886386ed/docs/providers/README.md).
+
+![AIMeter 用量看板与历史趋势展示示意图](/assets/images/posts/aimeter/project-banner.webp)
+
+上图参考项目界面制作, 用于展示用量看板和历史趋势, 并非原始截图.
+
+# 1. 社区项目
+
+社区里已经有一些工具在做类似的事情, 这里也放两个项目, 方便按自己的使用习惯选择.
+
+[CodexBar](https://github.com/steipete/CodexBar) 是一个 macOS 菜单栏工具, 可以查看 AI 服务的用量和额度重置时间. 如果主要在 Mac 上使用这些服务, 把用量放在菜单栏里, 随时点开看一下就很方便.
+
+[ccusage](https://github.com/ccusage/ccusage) 则偏向命令行统计. 它读取本地的编程助手使用记录, 整理 Token 用量和费用估算, 可以按天, 月或会话查看. 这类统计适合回看本地使用情况, 与直接查询账号还剩多少订阅额度有所区别.
+
+这两类工具分别照顾了桌面查看和本地统计的需求. AIMeter 更关注把多个账号的额度放到一个自己部署的网页上, 方便从手机或其他设备访问.
+
+# 2. 项目功能
+
+以下按 2026-03-15 的已提交版本介绍, 对应提交 [9bf3108](https://github.com/bugwz/AIMeter/tree/9bf31087228440d37ee7ee3aa76e5ac9886386ed). 下方截图来自项目仓库中的演示界面, 账号名称和用量为示例数据.
+
+## 2.1 服务商接入
+
+这个版本已经接入了 **12 类服务商**: [Aliyun](https://help.aliyun.com/zh/model-studio/coding-plan), [Antigravity](https://antigravity.google/), [Claude](https://claude.ai/), [Codex](https://developers.openai.com/codex/), [GitHub Copilot](https://github.com/features/copilot), [Cursor](https://cursor.com/), [Kimi](https://www.kimi.com/), [MiniMax](https://platform.minimax.io/), [Ollama](https://ollama.com/), [OpenCode](https://opencode.ai/), [OpenRouter](https://openrouter.ai/) 和 [z.ai](https://z.ai/).
+
+比如, 阿里接的是百炼相关的用量接口, OpenAI 这边接的是 Codex. 能看到哪些额度, 要看对应接口提供什么数据, 还不能把一个账号下所有产品的消费都算进来.
+
+各家的接入方式也不一样: 有的用 API Key, 有的走 OAuth 授权, 还有的需要 Cookie. 代码里为它们分别写了适配器, 负责获取和整理数据, 页面再按统一的格式展示.
+
+## 2.2 额度展示
+
+不同服务商对额度的定义差别很大. 有的按几个小时计算, 有的按周或月重置, 有的展示请求次数, 有的提供金额或余额. 即使都是 50%, 背后的含义也可能完全不同.
+
+AIMeter 会把一次查询得到的额度拆成几项来保存和展示. 每一项保留自己的名称, 已用比例, 用量和上限, 以及统计周期和重置时间. 如果接口还返回了费用信息, 也一起保存.
+
+比如阿里有会话, 周和月额度, Copilot 有不同类型的月度配额, OpenRouter 则有余额和设置了限额的 Key 用量. 它们都能放在看板里, **各自的单位和周期** 也会保留下来.
+
+这样一眼就能看出哪些订阅还有余量. 不过, 这些进度条不能直接相加, 算成一个总的剩余 Token 数.
+
+![AIMeter 用量看板, 按服务商展示额度和重置时间](/assets/images/posts/aimeter/dashboard.webp)
+
+## 2.3 历史记录与刷新
+
+除了看现在还剩多少, 也可以在历史页面里看看之前是怎么用的. AIMeter 会把每次采集的结果存进数据库, 在历史页面里画出变化趋势. 历史记录是 **接入后逐渐积累的**, 之前没采集过的数据不会自动补回来.
+
+页面上可以选择服务商, 时间范围和统计间隔, 查看用量变化.
+
+![AIMeter 历史记录, 用量趋势与统计图表](/assets/images/posts/aimeter/history.webp)
+
+查询也有失败的时候, 比如接口超时或者凭证过期. 如果还有上一次成功取得的数据, 刷新保护逻辑会先返回那份数据, 同时标明过期或错误状态; 没有旧数据可用时, 就返回错误.
+
+旧数据可以留着参考, 但要和刚刷新出来的数据区分开.
+
+## 2.4 数据接口
+
+除了在网页上看, 也可以通过 **Endpoint 接口** 获取订阅用量. 页面里可以选择服务商, 输出格式和时区, 生成请求地址或 cURL 命令, 再发送请求查看返回结果.
+
+![AIMeter Endpoint 页面, 服务商选择与接口结果预览](/assets/images/posts/aimeter/endpoint.webp)
+
+## 2.5 设置
+
+设置页可以分别修改普通访问密码和管理员密码, 也可以查看或重置 Cron Secret 与 Endpoint Secret. 前者用于定时刷新任务的鉴权, 后者用于外部程序访问用量接口.
+
+![AIMeter 设置页, 密码管理与已遮蔽的接口密钥](/assets/images/posts/aimeter/settings.webp)
+
+# 3. 部署方式
+
+目前项目提供 Vercel, Cloudflare Workers 和容器三种部署方式. 前两种对应我最初的需求, 容器则方便已经有服务器或 NAS 的人使用.
+
+|部署方式|数据存储|定时刷新方式|
+|:---|:---|:---|
+|Vercel|外部 PostgreSQL 或 MySQL|外部定时任务调用刷新 API|
+|Cloudflare Workers|D1, 或外部 PostgreSQL / MySQL|Workers Cron Triggers|
+|容器|SQLite, PostgreSQL 或 MySQL|Node.js 进程内调度器|
+
+不用单独买服务器, 也还是要配置数据库和定时任务. 平台本身的用量限制和费用也要留意, 不能把 Serverless 理解成一定免费.
+
+## 3.1 Vercel
+
+部署到 Vercel 时, 前端页面交给平台分发, 后端 API 作为函数运行. 账号配置和历史记录需要存到 **外部 PostgreSQL 或 MySQL**, 不能靠函数环境里的本地 SQLite 文件长期保存.
+
+定时刷新也要单独配置. Serverless 模式不会启动进程内调度器, 需要外部任务向 `/api/system/jobs/refresh` 发起 POST 请求, 并携带 `x-aimeter-cron-secret` 请求头完成鉴权.
+
+仓库的部署方案建议每 5 分钟触发一次, 提供了外部定时服务和 GitHub Actions 的配置示例. 每次触发时, 后端再检查各服务商自己的刷新间隔. 比如一个账号设置为 30 分钟刷新, 就不需要在每次 5 分钟触发时都请求上游.
+
+所以, 完成 Vercel 部署后, 还需要确认数据库和定时任务都已配置好. 具体步骤见 [Vercel 部署文档](https://github.com/bugwz/AIMeter/blob/9bf31087228440d37ee7ee3aa76e5ac9886386ed/deploy/vercel/README.md).
+
+## 3.2 Cloudflare Workers
+
+Cloudflare 这边, 应用可以放在 **Workers**, 数据存到 **D1**, 再用 **Cron Triggers** 定时刷新. 这样应用, 数据库和定时任务都可以在同一个平台里管理.
+
+仓库的 `wrangler.jsonc` 默认使用 Serverless 模式, 数据库引擎为 D1, 绑定名为 `DB`, 并配置了每 5 分钟触发一次的 Cron. 部署时要创建 D1 数据库, 再把它绑定到 Worker, 绑定名与配置保持一致.
+
+Worker 的定时处理函数会使用已保存的 Cron 密钥, 调用内部的刷新接口. 如果已有 MySQL 或 PostgreSQL, 也可以继续使用外部数据库, 并按需配置 Hyperdrive.
+
+这比较符合我一开始的想法: 看板能自己运行, 我也少操心一些部署和维护的事. 配置步骤见 [Cloudflare Workers 部署文档](https://github.com/bugwz/AIMeter/blob/9bf31087228440d37ee7ee3aa76e5ac9886386ed/deploy/cloudflare/README.md).
+
+## 3.3 容器
+
+项目也保留了 nginx 和 Node.js 组成的单容器部署方式, 可以挂载目录保存 SQLite 数据和日志, 并使用进程内调度器刷新用量.
+
+如果已经有一台长期运行的服务器或 NAS, 直接用容器也方便, 可以继续用自己熟悉的环境.
+
+# 4. 开发记录
+
+项目最早的初始化提交在 2026-03-08. 回头看后面的提交, 除了接入服务商和做页面, 还有不少时间花在了部署后的各种问题上.
+
+|日期|主要变化|
+|:---|:---|
+|2026-03-08 至 03-09|初始化项目, 添加 MIT 协议, 容器部署和接口文档|
+|2026-03-10 至 03-11|加入 Vercel 一键部署, 完善 Claude 和 Codex OAuth 流程, 接入 Antigravity|
+|2026-03-12 至 03-13|加入 Cloudflare Workers 和 D1, 修复模块加载, 初始化及请求处理问题|
+|2026-03-14|继续处理 Workers 兼容性, Hyperdrive, 数据库连接和历史图表|
+|2026-03-15|发布 v0.1, 补充部署与服务商文档, 修复时间字段和历史统计口径|
+
+## 4.1 运行环境适配
+
+前端使用 React, TypeScript, Vite 和 Tailwind CSS, 后端以 Express 和 TypeScript 为主. 服务商适配器负责获取并解析用量, 存储层保存账号配置和历史快照, 页面再通过 API 读取这些数据.
+
+本地能跑起来, 换到 Vercel 和 Workers 后也还有不少地方要调整. Vercel 这边修过模块路径, 依赖打包和构建问题; Workers 这边则处理过全局初始化, JSON 请求解析和异步响应的问题.
+
+为了复用 Express 后端, Workers 入口做了一层请求转换: 收到 Fetch Request 后交给 Express, 等后端处理完, 再转成 Fetch Response 返回. 数据库也做了相应调整, 包括 MySQL 的 Hyperdrive 适配, 以及 PostgreSQL 在 Workers 里跨请求使用连接时遇到的 I/O 问题.
+
+所以这部分工作里, 部署按钮只占很小的一块. 后面还要把首次初始化, 数据库读写和定时刷新逐个跑通.
+
+## 4.2 统计口径
+
+最新一次提交修的是历史统计选错额度项的问题. 用户选了默认关注的额度后, 统计就应该 **一直用这一项**. 如果某次记录里没有它, 就跳过这条记录, 不再拿另一种额度补上.
+
+比如同一个服务商同时有几个小时的额度和一周的额度, 虽然都显示百分比, 混在一起统计就不对了. 看图表时不容易注意到这个区别, 代码里却必须分清楚.
+
+# 5. 使用限制
+
+目前 AIMeter 主要用来看用量, 查额度和翻历史记录. 虽然一开始想的是统一管理订阅, 但这个版本还不会替你购买, 续费或取消订阅.
+
+接入也需要持续维护. 有些服务用的是内部接口, 有些需要解析页面, Cookie 还可能过期. 对方改了接口或页面, 这边就可能需要跟着改. [服务商文档](https://github.com/bugwz/AIMeter/blob/9bf31087228440d37ee7ee3aa76e5ac9886386ed/docs/providers/README.md) 记录了不同接入的认证方式和解析逻辑, 配置前可以先确认自己需要的服务是否适用.
+
+部署后, 查询用量所需的凭证会交给自己的实例保管, 所以初始化, 访问鉴权和 HTTPS 也要配置好.
+
+如果你也买了好几家的订阅, 想放到一个页面里看, 可以从 [项目仓库](https://github.com/bugwz/AIMeter) 试着部署一份. 已有服务器可以用容器, 不想再维护服务器则可以看看 Vercel 或 Cloudflare Workers 的方案.

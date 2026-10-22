@@ -1,0 +1,547 @@
+# Ceph 各组件端口使用分析
+
+# 1. 基础信息
+
+本文总结了 Ceph 集群及其监控组件的关键端口信息. Ceph 核心服务 (MON, MGR, OSD, MDS) 主要监听 `6789`, `3300` 及 `6800-7568` 范围内的端口, 用于集群通信与管理. 其中, MON 使用 `6789` (旧协议) 和 `3300` (新协议) 端口; MGR 额外监听 `9283` (Prometheus 指标), `8080/8443` (Dashboard) 及 `8765` (Agent) 等端口. OSD 在 `6800-7568` 范围内使用八个端口处理不同通信类型. 此外, 监控栈组件 (如 node-exporter 的 `9100`, prometheus 的 `9095`, alertmanager 的 `9093/9094`, grafana 的 `3000` ) 也列出了默认端口及修改方法. 文中还提供了查看服务状态和修改端口配置的相关命令.
+
+**注意: 以下的分析基于 [Ceph V20.2.0](https://github.com/ceph/ceph/tree/v20.2.0)**
+
+**相关命令**:
+```bash
+# 查看网络连接情况
+lsof -i -P -n | egrep "ceph|node-ex|prome|alertma|grafan"
+
+# 查看运行中服务信息
+ceph orch ls
+```
+
+# 2. 端口使用情况
+
+
+|组件|端口|端口简介|
+|:---:|:---:|:---:|
+|**mon**|6789|处理旧版 (TYPE_LEGACY) 协议的监听端口.|
+|**mon**|3300|处理新版 (TYPE_MSGR2) 协议的监听端口, 已在 IANA 注册.|
+|**mgr**|6800-7568 (2 个)|Active mgr 用于集群内部通信的随机端口.|
+|**mgr**|9283|Prometheus 模块端口, 暴露集群监控指标.|
+|**mgr**|8080 / 8443|Dashboard 面板的 HTTP/HTTPS 访问端口.|
+|**mgr**|7150-7300 (1 个)|Cephadm Agent 的 HTTP/HTTPS 服务端口 (开发中).|
+|**mgr**|8765|Cephadm Agent 默认端口, 用于接收 mgr 指令 (开发中).|
+|**osd**|6800-7568 (8 个)|用于公共服务, 集群通信, 前后端心跳的四个通信实例, 各占 2 个端口.|
+|**mds**|6800-7568 (2 个)|元数据服务用于通信的随机端口.|
+|**ceph-exporter**|9926 (默认)|暴露 Prometheus 格式的 Ceph 监控指标.|
+|**node-exporter**|9100 (默认)|暴露主机节点的监控指标.|
+|**prometheus**|9095 (默认)|Prometheus Web 服务与数据检索端口.|
+|**alertmanager**|9093 (默认)|Alertmanager Web 访问与 API 端口.|
+|**alertmanager**|9094 (默认)|多实例集群间的通信与状态同步端口.|
+|**grafana**|3000 (默认)|Grafana 监控面板的 Web 访问端口.|
+
+## 2.1 MON 端口情况
+
+**监听端口**:
++ `6789`:
+  + 处理 **TYPE_LEGACY** 协议的监听端口;
+  + 对应变量为 **CEPH_MON_PORT_LEGACY**;
+  + 端口监听执行链路为 **main** ->**make_mon_addrs** ->**`AsyncMessenger::bindv`**;
++ `3300`:
+  + 处理 **TYPE_MSGR2** 协议的监听端口, 该端口已经在 [IANA](https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml?search=ceph) 注册;
+  + 对应变量为 **CEPH_MON_PORT_IANA**;
+  + 端口监听执行链路为 **main** ->**make_mon_addrs** ->**`AsyncMessenger::bindv`**;
+
+
+
+**相关配置**:
++ **public_addr**: 外网可访问的 ip 地址;
++ **public_bind_addr**: 监听绑定的 ip 地址;
+
+
+|类别|示例 Monitor A|示例 Monitor B|作用|存储位置|
+|:--------:|:-----------:|:-----------:|:------:|:----------:|
+|**public_addr**|203.0.113.1:6789|203.0.113.2:6789|对外公布的逻辑地址|monmap, 消息头|
+|**public_bind_addr**|192.168.1.1:6789|10.0.1.1:6789|实际绑定的物理地址|socket 绑定|
+|**NAT 映射**|203.0.113.1 → 192.168.1.1|203.0.113.2 → 10.0.1.1|网络地址转换|路由器配置|
+|**客户端看到**|203.0.113.1:6789|203.0.113.2:6789|连接目标地址|客户端 monmap|
+
+
+### 2.1.1 修改端口
+
+**部署前修改端口**:
+```bash
+# 部署集群时指定监听地址信息
+cephadm --mon-addrv "[v2:10.1.1.10:13300,v1:10.1.1.10:16789]"
+```
+
+## 2.2 MGR 端口情况
+
+**监听端口**:
++ `6800 ~ 7568 范围内的两个端口`:
+  + 只有 active 的 mgr 才会在这个端口范围内选择两个端口执行监听;
+  + 端口监听执行链路:
+    + 收到 mgr_map 更新消息: **`MgrStandby::handle_mgr_map`** ->**判断当前 mgr 为 active 后执行 `Mgr::background_init`** ->**向 finisher 队列中添加 `Mgr::init` 函数**
+    + finisher 线程执行任务: **`Finisher::finisher_thread_entry`** ->**`Mgr::init`** ->**`DaemonServer::init`** ->**`AsyncMessenger::bindv`** ->**`Processor::bind`**
++ `9283`:
+  + 这是 mgr 服务中的 prometheus 模块的监听端口, 用于将 Ceph 集群的监控指标暴露给 Prometheus 监控系统;
+  + 可以直接访问对应 ip: 9283 来查看对应的 node exporter 的指标数据;
+  + 无论是 active 还是 standby 的 mgr 服务, 启动后都会监听该端口;
+  + 端口监听执行链路:
+    + 对于 active 节点:
+      + 收到 mgr_map 更新消息: **`MgrStandby::handle_mgr_map`** ->**判断当前 mgr 为 active 后执行 `Mgr::background_init`** ->**向 finisher 队列中添加 `Mgr::init` 函数**
+      + finisher 线程执行任务: **`Mgr::init`** ->**`PyModuleRegistry::active_start`** ->**执行 `ActivePyModules::start_one`** -> ->**加入 finisher 线程延迟创建 module 线程服务**
+    + 对于 standby 节点:
+      + 收到 mgr_map 更新消息: **`MgrStandby::handle_mgr_map`** ->**`PyModuleRegistry::standby_start`** ->**筛选 mgr 中含有 MgrStandbyModule 基类的模块后执行 `StandbyPyModules::start_one`** ->**加入 finisher 线程延迟创建 module 线程服务**
++ `8080` 或 `8443`:
+  + `8080` 是 dashboard 面板不使用 ssl 的默认监听端口;
+  + `8443` 是 dashboard 面板使用 ssl 的默认监听端口;
+  + 无论是 active 还是 standby 的 mgr 服务, 启动后都会监听该端口中一个, 使用了 ssl 的端口就无法使用非 ssl 的端口;
+  + 端口监听执行链路: 与 `9283` 端口的监听执行链路相同;
++ `7150 ~ 7300 范围内的一个端口`:
+  + 这是 cephadm agent 的 http/https 服务端口, 用于接收来自 mgr 的指令和配置更新;
+  + 使用 CherryPy 作为服务器提供服务;
+  + 主要处理两个路径的请求, /data 路径处理主机元数据上报, /node-proxy 路径处理节点代理相关功能;
+  + 按照官方的解释, 该功能处于开发中的状态,https://docs.ceph.com/en/latest/cephadm/compatibility/;
+  + 只有 active 的 mgr 才会监听该端口;
+  + 端口监听执行链路: 和其他 active mgr 的模块的流程一致;
++ `8765`:
+  + 这是 cephadm agent 在集群节点上运行的默认监听端口, 接收来自 mgr 的推送配置, 还在 prometheus 容器的配置文件中使用, 用于拉取集群的配置信息;
+  + 可以访问 http://10.1.1.10:8765/sd/ 查看支持的接口列表;
+  + 按照官方的解释, 该功能处于开发中的状态,https://docs.ceph.com/en/latest/cephadm/compatibility/;
+  + 只有 active 的 mgr 才会监听该端口;
+  + 端口监听执行链路: 和其他 active mgr 的模块的流程一致;
+
+
+**相关配置**:
++ **ms_bind_port_min**: 定义了 Ceph 相关服务进程端口池的起始端口号, 默认为 `6800`;
++ **ms_bind_port_max**: 定义了 Ceph 相关服务进程端口池的结束端口号, 默认为 `7568`;
+
+
+**相关命令**:
+```bash
+# 查看模块信息
+ceph mgr module ls
+```
+
+
+**相关日志**:
+```bash
+# 6800 ~ 7568 范围内的两个端口
+2025-10-01T06:42:50.359+0000 7fe9c8422640 20 mgr.server init init will bind to [v2:10.1.1.10:0/0,v1:10.1.1.10:0/0]
+2025-10-01T06:42:50.359+0000 7fe9c8422640 10 --  bindv [v2:10.1.1.10:0/0,v1:10.1.1.10:0/0] public --
+2025-10-01T06:42:50.359+0000 7fe9c8422640 10  Processor -- bind [v2:10.1.1.10:0/0,v1:10.1.1.10:0/0]
+2025-10-01T06:42:50.359+0000 7fe9c8422640 10  Processor -- bind bound on random port v2:10.1.1.10:6800/0
+2025-10-01T06:42:50.360+0000 7fe9c8422640 10  Processor -- bind bound on random port v1:10.1.1.10:6801/0
+2025-10-01T06:42:50.360+0000 7fe9c8422640 10  Processor -- bind bound to [v2:10.1.1.10:6800/0,v1:10.1.1.10:6801/0]
+
+# 9283 端口
+2025-10-01T06:33:47.353+0000 7f30545ec640  0 [prometheus INFO root] server_addr: :: server_port: 9283
+2025-10-01T06:34:21.439+0000 7f509d78b640  0 [prometheus INFO root] Starting engine...
+2025-10-01T06:34:21.544+0000 7f509d78b640  0 [prometheus INFO cherrypy.error] [01/Oct/2025:06:34:21] ENGINE Serving on http://:::9283
+2025-10-01T06:34:21.544+0000 7f509d78b640  0 [prometheus INFO root] Engine started.
+
+# 8443 端口
+2025-10-01T06:42:50.681+0000 7fe9b7340640  0 [dashboard INFO root] server: ssl=yes host=:: port=8443
+2025-10-01T06:42:51.105+0000 7fe9b7340640  0 [dashboard INFO root] Configured CherryPy, starting engine...
+2025-10-01T06:42:51.105+0000 7fe9b7340640  4 mgr set_uri  module dashboard set URI 'https://10.1.1.10:8443/'
+2025-10-01T06:42:51.546+0000 7fe9b7340640  0 [dashboard INFO dashboard.module] Engine started.
+
+# 7150 ~ 7300 范围内的一个端口
+# 8765 端口
+2025-10-01T06:33:47.323+0000 7f30606c4640  0 [cephadm DEBUG root] Starting cherrypy engine...
+2025-10-01T06:33:48.585+0000 7f30606c4640  0 [cephadm DEBUG root] Cephadm agent endpoint using 7150
+2025-10-01T06:42:51.928+0000 7fe9bab87640  0 [cephadm INFO cherrypy.error] [01/Oct/205:06:42:51] ENGINE Serving on http://10.1.1.10:8765
+2025-10-01T06:42:51.928+0000 7fe9bab87640  0 log_channel(cephadm) log [INF] : [01/Oct/205:06:42:51] ENGINE Serving on http://10.1.1.10:8765
+2025-10-01T06:42:51.929+0000 7fe9bab87640  0 [cephadm DEBUG root] Cherrypy engine started.
+2025-10-01T06:33:48.820+0000 7f30606c4640  0 [cephadm DEBUG root] _kick_serve_loop
+```
+
+
+
+### 2.2.1 修改端口
+
+**部署前修改端口**:
+```bash
+# 修改基础配置文件内容
+vi /root/cephadm.conf
+[global]
+  ms_bind_port_min = 16800
+  ms_bind_port_max = 17568
+
+# 部署集群前指定基础配置文件
+cephadm --mon-ip 10.1.1.10 --config /root/cephadm.conf
+```
+
+
+**修改已部署服务的端口**:
+```bash
+# ============== 修改 9283 端口 ==============
+# 查看当前端口
+ceph config get mgr mgr/prometheus/server_port
+curl -s http://10.1.1.10:8765/sd/prometheus/sd-config?service=mgr-prometheus | jq
+
+# 修改端口
+ceph config set mgr mgr/prometheus/server_port 19283
+
+# 验证端口修改是否成功
+# 可访问验证 http://10.1.1.10:19283
+ceph config get mgr mgr/prometheus/server_port
+curl -s http://10.1.1.10:8765/sd/prometheus/sd-config?service=mgr-prometheus | jq
+
+
+# ============== 修改 8080/8443 端口 ==============
+# 查看当前端口
+ceph config get mgr mgr/dashboard/server_port
+ceph config get mgr mgr/dashboard/ssl_server_port
+
+# 修改端口并应用
+ceph config set mgr mgr/dashboard/server_port 18080
+ceph config set mgr mgr/dashboard/ssl_server_port 18443
+ceph mgr module disable dashboard
+ceph mgr module enable dashboard
+
+# 访问网站验证 https://10.1.1.10:18443
+
+
+# ============== 修改 8765 端口 ==============
+# 查看当前端口
+ceph config get mgr mgr/cephadm/service_discovery_port
+
+# 修改端口
+ceph config set mgr mgr/cephadm/service_discovery_port 18765
+
+# 访问网站验证 http://10.1.1.10:18765/sd/
+```
+
+
+## 2.3 OSD 端口情况
+
+**监听端口**:
++ `6800 ~ 7568 范围内的八个端口`:
+  + 这八个端口分别给 ms_public, ms_cluster, ms_hb_front_server, ms_hb_back_server 这四个不同的 messenger 实例, 每个实例两个端口 (TYPE_LEGACY/TYPE_MSGR2), 用于处理不同类型的网络通信;
+    + ms_public: 处理来自客户端的请求 (如 rados 客户端, rbd, cephfs 客户端等);
+    + ms_cluster: 处理 osd 之间的集群内部通信, 处理 pg 相关的复制, 恢复, 再平衡等操作, 处理 mon 的集群管理通信;
+    + ms_hb_front_server: 接收来自其他 osd 的前端心跳探测, 用于检测 osd 的公共服务是否可达;
+    + ms_hb_back_server: 接收来自其他 osd 的后端心跳探测, 用于检测 osd 的集群服务是否可达;
+  + 端口监听执行链路:
+    + 以上四个 messgnger 实例的绑定链路相同: **main** ->**`AsyncMessenger::bindv`** ->**`Processor::bind`** ->**set_port**;
+
+
+**相关配置**:
++ **ms_bind_port_min**: 定义了 Ceph 相关服务进程端口池的起始端口号, 默认为 `6800`;
++ **ms_bind_port_max**: 定义了 Ceph 相关服务进程端口池的结束端口号, 默认为 `7568`;
+
+
+**相关日志**:
+```bash
+# 以下四个 bind 分别对应:
+# ms_public->bindv
+# ms_cluster->bindv
+# ms_hb_front_server->bindv
+# ms_hb_back_server->bindv
+2025-10-01T08:28:44.787+0000 7fafe8e048c0 10  Processor -- bind [v2:10.1.1.10:0/0,v1:10.1.1.10:0/0]
+2025-10-01T08:28:44.787+0000 7fafe8e048c0 10  Processor -- bind bound on random port v2:10.1.1.10:6802/0
+2025-10-01T08:28:44.787+0000 7fafe8e048c0 10  Processor -- bind bound on random port v1:10.1.1.10:6803/0
+2025-10-01T08:28:44.787+0000 7fafe8e048c0 10  Processor -- bind bound to [v2:10.1.1.10:6802/0,v1:10.1.1.10:6803/0]
+2025-10-01T08:28:44.787+0000 7fafe8e048c0 10  Processor -- bind [v2:10.1.1.10:0/0,v1:10.1.1.10:0/0]
+2025-10-01T08:28:44.788+0000 7fafe8e048c0 10  Processor -- bind bound on random port v2:10.1.1.10:6804/0
+2025-10-01T08:28:44.788+0000 7fafe8e048c0 10  Processor -- bind bound on random port v1:10.1.1.10:6805/0
+2025-10-01T08:28:44.788+0000 7fafe8e048c0 10  Processor -- bind bound to [v2:10.1.1.10:6804/0,v1:10.1.1.10:6805/0]
+2025-10-01T08:28:44.788+0000 7fafe8e048c0 10  Processor -- bind [v2:10.1.1.10:0/0,v1:10.1.1.10:0/0]
+2025-10-01T08:28:44.788+0000 7fafe8e048c0 10  Processor -- bind bound on random port v2:10.1.1.10:6806/0
+2025-10-01T08:28:44.788+0000 7fafe8e048c0 10  Processor -- bind bound on random port v1:10.1.1.10:6807/0
+2025-10-01T08:28:44.788+0000 7fafe8e048c0 10  Processor -- bind bound to [v2:10.1.1.10:6806/0,v1:10.1.1.10:6807/0]
+2025-10-01T08:28:44.788+0000 7fafe8e048c0 10  Processor -- bind [v2:10.1.1.10:0/0,v1:10.1.1.10:0/0]
+2025-10-01T08:28:44.789+0000 7fafe8e048c0 10  Processor -- bind bound on random port v2:10.1.1.10:6808/0
+2025-10-01T08:28:44.789+0000 7fafe8e048c0 10  Processor -- bind bound on random port v1:10.1.1.10:6809/0
+2025-10-01T08:28:44.789+0000 7fafe8e048c0 10  Processor -- bind bound to [v2:10.1.1.10:6808/0,v1:10.1.1.10:6809/0]
+```
+
+### 2.3.1 修改端口
+
+**部署前修改端口**:
+```bash
+# 修改基础配置文件内容
+vi /root/cephadm.conf
+[global]
+  ms_bind_port_min = 16800
+  ms_bind_port_max = 17568
+
+# 部署集群前指定基础配置文件
+cephadm --mon-ip 10.1.1.10 --config /root/cephadm.conf
+```
+
+
+## 2.4 MDS 端口情况
+
+**监听端口**:
++ `6800 ~ 7568 范围内的两个端口`:
+  + 无论 mds 处于 active 还是 standby 都会监听这两个端口;
+  + 端口监听执行链路: **main** ->**`AsyncMessenger::bindv`** ->**`Processor::bind`** ->**set_port**;
+
+
+**相关配置**:
++ **ms_bind_port_min**: 定义了 Ceph 相关服务进程端口池的起始端口号, 默认为 `6800`;
++ **ms_bind_port_max**: 定义了 Ceph 相关服务进程端口池的结束端口号, 默认为 `7568`;
+
+
+**相关日志**:
+```bash
+2025-10-01T06:20:45.185+0000 7fd8e16c7bc0 10 --  bindv [v2:10.1.1.10:0/0,v1:10.1.1.10:0/0] public --
+2025-10-01T06:20:45.185+0000 7fd8e16c7bc0 10  Processor -- bind [v2:10.1.1.10:0/0,v1:10.1.1.10:0/0]
+2025-10-01T06:20:45.185+0000 7fd8e16c7bc0 10  Processor -- bind bound on random port v2:10.1.1.10:6818/0
+2025-10-01T06:20:45.186+0000 7fd8e16c7bc0 10  Processor -- bind bound on random port v1:10.1.1.10:6819/0
+2025-10-01T06:20:45.186+0000 7fd8e16c7bc0 10  Processor -- bind bound to [v2:10.1.1.10:6818/0,v1:10.1.1.10:6819/0]
+```
+
+
+
+### 2.4.1 修改端口
+
+**部署前修改端口**:
+```bash
+# 修改基础配置文件内容
+vi /root/cephadm.conf
+[global]
+  ms_bind_port_min = 16800
+  ms_bind_port_max = 17568
+
+# 部署集群前指定基础配置文件
+cephadm --mon-ip 10.1.1.10 --config /root/cephadm.conf
+```
+
+
+## 2.5 ceph-exporter 端口情况
+
+**监听端口**:
++ `9926`:
+  + 当使用 cephadm 部署服务的时候, 默认会部署一个 ceph-exporter 的服务, 该服务默认监听 9926 端口, 并对外暴露 prometheus exporter 格式的监控指标数据;
+  + 该服务的入口文件为: src/exporter/ceph_exporter.cc;
+  + 端口监听执行链路: **main** ->**web_server_thread_entrypoint** ->**run_http_server** ->**http_server**;
+
+
+**相关配置**:
++ **exporter_http_port**: 定义了 ceph-exporter 服务进程的监听端口号, 默认为 `9926`;
++ **exporter_addr**: 定义了 ceph-exporter 服务进程的监听地址, 默认为 0.0.0.0;
+
+
+**相关命令**:
+```bash
+# 查看运行中的服务
+systemctl status ceph-3592f5318-cde7-22f0-1d35-335056854af3@ceph-exporter.node03.service
+
+# 查看运行中服务的关联文件
+systemctl cat ceph-3592f5318-cde7-22f0-1d35-335056854af3@ceph-exporter.node03.service
+
+# 查看具体的服务启动命令
+cat /var/lib/ceph/3592f5318-cde7-22f0-1d35-335056854af3/ceph-exporter.node03/unit.run
+```
+
+### 2.5.1 修改端口
+
+**修改已部署服务端口**:
+```bash
+# 查看当前服务信息
+ceph orch ls --service-name ceph-exporter --format yaml
+
+# 导出现有服务配置
+ceph orch ls --service-name ceph-exporter --export > ceph-exporter.yaml
+
+# 修改文件内容
+# 修改 web 服务监听端口
+cat ceph-exporter.yaml
+service_type: ceph-exporter
+service_name: ceph-exporter
+placement:
+  host_pattern: '*'
+spec:
+  prio_limit: 5
+  stats_period: 5
+  port: 19926
+
+# 应用新配置
+ceph orch apply -i ceph-exporter.yaml
+
+# 等待服务重启后, 查看配置
+ceph orch ls
+ceph orch ls --service-name ceph-exporter --format yaml
+curl -s http://10.1.1.10:8765/sd/prometheus/sd-config?service=ceph-exporter | jq
+
+# 在 ceph-exporter 服务所在的机器上查看信息
+cat /var/lib/ceph/3592f5318-cde7-22f0-1d35-335056854af3/ceph-exporter.node01/unit.run
+systemctl status ceph-3592f5318-cde7-22f0-1d35-335056854af3@ceph-exporter.node01.service
+```
+
+## 2.6 node-exporter 端口情况
+
+**监听端口**:
++ `9100`:
+  + 部署社区 node-exporter 镜像来获取机器节点粒度的监控指标数据;
+  + 所有的 server 机器上都应该部署该服务;
+
+
+### 2.6.1 修改端口
+
+**注意**: 实际测试的时候, 修改已部署服务的端口操作可以执行, 但是最终 node-exporter 监听的端口还是 9100, 应该是实际没有设置.
+
+**修改已部署服务端口**:
+```bash
+# 查看当前服务信息
+ceph orch ls --service-name node-exporter --format yaml
+
+# 导出现有服务配置
+ceph orch ls --service-name node-exporter --export > node-exporter.yaml
+
+# 修改文件内容
+# 修改 web 服务监听端口
+cat node-exporter.yaml
+service_type: node-exporter
+service_name: node-exporter
+placement:
+  host_pattern: '*'
+spec:
+  port: 19100
+
+# 应用新配置
+ceph orch apply -i node-exporter.yaml
+
+# 等待服务重启后, 查看配置
+ceph orch ls
+ceph orch ls --service-name node-exporter --format yaml
+ceph config get mgr mgr/dashboard/PROMETHEUS_API_HOST
+curl -s http://10.1.1.10:8765/sd/prometheus/sd-config?service=node-exporter | jq
+
+# 在 node-exporter 服务所在的机器上查看信息
+cat /var/lib/ceph/3592f5318-cde7-22f0-1d35-335056854af3/node-exporter.node01/unit.run
+systemctl status ceph-3592f5318-cde7-22f0-1d35-335056854af3@node-exporter.node01.service
+```
+
+
+## 2.7 prometheus 端口情况
+
+**监听端口**:
++ `9095`:
+  + 提供 prometheus 的 web 访问服务, 并为 grafana 服务提供监控数据检索等功能;
+  + 该服务内部配置了 9283, 9926, 9100 这些 exporter 的地址, 用于采集监控指标数据;
+  + 只需要在一个 server 节点上部署即可, 如果在每个 server 节点上部署则会相当于会在每台机器上都存储一份监控指标数据;
+
+
+### 2.7.1 修改端口
+
+**修改已部署服务端口**:
+```bash
+# 查看当前服务信息
+ceph orch ls --service-name prometheus --format yaml
+
+# 导出现有服务配置
+ceph orch ls --service-name prometheus --export > prometheus.yaml
+
+# 修改文件内容
+# 修改 web 服务监听端口
+cat prometheus.yaml
+service_type: prometheus
+service_name: prometheus
+placement:
+  count: 1
+spec:
+  port: 19095
+
+# 应用新配置
+ceph orch apply -i prometheus.yaml
+
+# 等待服务重启后, 查看配置
+ceph orch ls
+ceph orch ls --service-name prometheus --format yaml
+ceph config get mgr mgr/dashboard/PROMETHEUS_API_HOST
+
+# 在 prometheus 服务所在的机器上查看信息
+# 注意: 有可能和之前部署的节点不一致
+cat /var/lib/ceph/3592f5318-cde7-22f0-1d35-335056854af3/prometheus.node01/unit.run
+systemctl status ceph-3592f5318-cde7-22f0-1d35-335056854af3@prometheus.node01.service
+```
+
+
+## 2.8 alertmanager 端口情况
+
+**监听端口**:
++ `9093`:
+  + 提供 alertmanager 的 web 端访问服务, 可用于查看报警信息, 执行报警静默等操作;
+  + 提供 api 服务, 可用于查询告警信息, 创建/管理静默规则, 接收来自 prometheus 的告警推送等;
++ `9094`:
+  + 集群通信端口, 如果配置了多个 alertmanager 服务, 则在其内部集群中, 多个实例通过此端口进行通信, 实现状态同步, 领导选举, 告警去重和协调等;
+  + 如果只是部署了一个单节点的 alertmanager 节点, 该端口则不会使用, 但是仍然会监听;
+
+
+### 2.8.1 修改端口
+
+**修改已部署服务端口**:
+```bash
+# 查看当前服务信息
+ceph orch ls --service-name alertmanager --format yaml
+
+# 导出现有服务配置
+ceph orch ls --service-name alertmanager --export > alertmanager.yaml
+
+# 修改文件内容
+# 修改 web 服务监听端口
+cat alertmanager.yaml
+service_type: alertmanager
+service_name: alertmanager
+placement:
+  count: 1
+spec:
+  port: 19093
+
+# 应用新配置
+ceph orch apply -i alertmanager.yaml
+
+# 等待服务重启后, 查看配置
+ceph orch ls
+ceph orch ls --service-name alertmanager --format yaml
+ceph config get mgr mgr/dashboard/ALERTMANAGER_API_HOST
+curl -s http://10.1.1.10:8765/sd/prometheus/sd-config?service=alertmanager | jq
+
+# 在 alertmanager 服务所在的机器上查看信息
+# 注意: 有可能和之前部署的节点不一致
+cat /var/lib/ceph/3592f5318-cde7-22f0-1d35-335056854af3/alertmanager.node01/unit.run
+systemctl status ceph-3592f5318-cde7-22f0-1d35-335056854af3@alertmanager.node01.service
+```
+
+
+## 2.9 grafana 端口情况
+
+**监听端口**:
++ `3000`:
+  + 提供 grafana 的监控面板访问服务;
+  + 通常只部署一个节点即可;
+
+### 2.9.1 修改端口
+
+**修改已部署服务的端口**:
+```bash
+# 查看当前服务信息
+ceph orch ls --service-name grafana --format yaml
+
+# 导出现有服务配置
+ceph orch ls --service-name grafana --export > grafana.yaml
+
+# 修改文件内容
+cat grafana.yaml
+service_type: grafana
+service_name: grafana
+placement:
+  count: 1
+spec:
+  anonymous_access: true
+  protocol: https
+  port: 3033
+
+# 应用新配置
+ceph orch apply -i grafana.yaml
+
+# 等待服务重启后, 查看配置
+ceph orch ls
+ceph orch ls --service-name grafana --format yaml
+ceph config get mgr mgr/dashboard/GRAFANA_API_URL
+
+# 在 grafana 服务所在的机器上查看信息
+cat /var/lib/ceph/3592f5318-cde7-22f0-1d35-335056854af3/grafana.node01/etc/grafana/grafana.ini
+systemctl status ceph-3592f5318-cde7-22f0-1d35-335056854af3@grafana.node01.service
+```

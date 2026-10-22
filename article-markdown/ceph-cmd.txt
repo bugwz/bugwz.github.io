@@ -1,0 +1,1064 @@
+# Ceph 常用命令汇总
+
+# 1. 常用命令
+
+## 1.1 Pool
+
+```bash
+# 查看 pool
+ceph osd pool ls detail
+
+# 创建 pool
+ceph osd pool create testpool 32 32
+ceph osd pool set testpool pg_autoscale_mode off
+
+# 调整 pool pg/pgp , 并关闭自动调整
+ceph osd pool set testpool pg_num 32
+ceph osd pool set testpool pgp_num 32
+ceph osd pool set testpool pg_autoscale_mode off
+
+# 设置 pool 最小副本
+ceph osd pool set testpool min_size 1
+ceph osd pool set testpool size 1 --yes-i-really-mean-it
+
+# 移除 pool
+ceph tell mon.\* injectargs '--mon-allow-pool-delete=true'
+ceph osd pool delete testpool testpool --yes-i-really-really-mean-it
+ceph tell mon.\* injectargs '--mon-allow-pool-delete=false'
+```
+
+
+## 1.2 Monitor
+
+当集群机器迁移等场景下导致的机器 ip 发生变化时, 我们需要停止对应 monitor 并在修改 mon map 中的节点 ip 后重启.
+
+```bash
+# 导出 monmap 配置
+rm -rf ./monmap
+ceph mon getmap -o ./monmap
+monmaptool --print ./monmap
+
+# 修改 monmap
+# 删除 monmap 中的老的 monitor 信息
+monmaptool --print ./monmap
+monmaptool --rm host01 --rm host02 --rm host03 ./monmap
+monmaptool --print ./monmap
+
+# 修改 monmap
+# 向 monmap 中新增 monitor 信息(两种ip变更场景中需要用到的配置,这里的地址必选使用 ipv4 ,不支持 ipv6 和域名)
+monmaptool --print ./monmap
+monmaptool --addv host01 [v2:10.10.99.1:3300/0,v1:10.10.99.1:6789/0] ./monmap
+monmaptool --addv host02 [v2:10.10.99.2:3300/0,v1:10.10.99.2:6789/0] ./monmap
+monmaptool --addv host03 [v2:10.10.99.3:3300/0,v1:10.10.99.3:6789/0] ./monmap
+monmaptool --print ./monmap
+
+# 向 monitor 中注入 monmap
+# 需要停止对应的 monitor , 该操作会将数据写入 rocksdb 存储中,需要分别在不同的 monitor 机器上执行对应的命令
+ceph-mon -i host01 --inject-monmap ./monmap
+ceph-mon -i host02 --inject-monmap ./monmap
+ceph-mon -i host03 --inject-monmap ./monmap
+
+
+# 查看日志配置(内部包含日志审计的相关配置)
+ceph tell mon.* config get mon_cluster_log_file
+ceph tell mon.* config get mon_cluster_log_file_level
+ceph tell mon.* config get mon_cluster_log_to_stderr
+ceph tell mon.* config get mon_cluster_log_to_syslog
+ceph tell mon.* config get mon_cluster_log_to_syslog_level
+ceph tell mon.* config get mon_cluster_log_to_syslog_facility
+ceph tell mon.* config get mon_cluster_log_to_graylog
+ceph tell mon.* config get mon_cluster_log_to_graylog_host
+ceph tell mon.* config get mon_cluster_log_to_graylog_port
+ceph tell mon.* config get clog_to_monitors
+ceph tell mon.* config get clog_to_syslog
+ceph tell mon.* config get clog_to_syslog_level
+ceph tell mon.* config get clog_to_syslog_facility
+ceph tell mon.* config get clog_to_graylog
+ceph tell mon.* config get clog_to_graylog_host
+ceph tell mon.* config get clog_to_graylog_port
+
+# 修改配置
+ceph tell mon.* config set mon_cluster_log_file "default=/var/log/ceph/x1-ceph.\$channel.log cluster=/var/log/ceph/x1-ceph.log"
+```
+
+## 1.3 Manager
+
+```bash
+# 查看 module 列表
+ceph mgr module ls
+
+# 查看 module 列表,并筛选自动开启的 module
+ceph mgr module ls | jq .always_on_modules
+
+# 查看 module 列表,并筛选已经启用的 module
+ceph mgr module ls | jq .enabled_modules
+
+# 查看 module 列表,并筛选禁用的 module
+ceph mgr module ls | jq .disabled_modules[].name
+
+# 启动 module (启动 alert module)
+ceph mgr module enable alert
+
+# 停止 module (停止 alert module)
+ceph mgr module disable alert
+```
+
+### 1.3.1 Dashboard
+
+```bash
+# 查看配置
+ceph config dump
+
+# 修改配置
+ceph config set mgr mgr/dashboard/ALERTMANAGER_API_HOST http://10.10.99.1:9093
+ceph config set mgr mgr/dashboard/PROMETHEUS_API_HOST http://10.10.99.1:9092
+ceph config set mgr mgr/dashboard/GRAFANA_API_URL http://10.10.99.1:3000
+ceph config set mgr mgr/dashboard/server_addr 10.10.99.1
+ceph config set mgr mgr/dashboard/host01/server_addr 10.10.99.1
+ceph config set mgr mgr/dashboard/host02/server_addr 10.10.99.2
+ceph config set mgr mgr/dashboard/host03/server_addr 10.10.99.3
+
+# 重置 dashboard 密码
+rm -rf dashboard_password.ini
+echo "password" > dashboard_password.ini
+ceph dashboard ac-user-set-password admin -i dashboard_password.ini
+```
+
+## 1.4 OSD
+
+```bash
+# 设置 ceph 集群标志位(monitor节点上执行) 
+ceph osd set noout
+ceph osd set norecover
+ceph osd set norebalance
+ceph osd set nobackfill
+ceph osd set nodown
+ceph osd set pause
+
+# 取消之前设置的集群标志位
+ceph osd unset noout
+ceph osd unset norecover
+ceph osd unset norebalance
+ceph osd unset nobackfill
+ceph osd unset nodown
+ceph osd unset pause
+
+# 检查 osd 中是否启用 rdma
+ceph daemon osd.0 perf dump AsyncMessenger::RDMAWorker-1
+
+# 检查 osd 中的 ms_type 类型
+for i in $(ls /var/lib/ceph/osd/ | cut -d - -f 2) ; do
+    echo "osd.$i : "
+    ceph --admin-daemon /var/run/ceph/ceph-osd.$i.asok config show | grep ms_type;
+done
+```
+
+
+### 1.4.1 CRUSH
+
+```bash
+# 查看 crush class 类型
+ceph osd crush class ls
+
+# 查看 crush rule 规则
+ceph osd crush rule ls
+
+# 查看 crush 列表
+ceph osd crush tree
+
+# 查看 crush map
+rm -rf crushmap.file crushmap-human.file
+ceph osd getcrushmap -o crushmap.file
+crushtool -d crushmap.file -o crushmap-human.file
+cat crushmap-human.file
+
+# 修改 crush map
+vi crushmap-human.file
+crushtool -c crushmap-human.file -o crushmap-modified.file
+ceph osd setcrushmap -i crushmap-modified.file
+
+# 新增 root 类型的名为 hpsfs 的 crush
+ceph osd crush add-bucket hpsfs root
+
+# 新增 root 类型的名为 lcsfs 的 crush
+ceph osd crush add-bucket lcsfs root
+```
+
+
+### 1.4.2 RADOS
+
+```bash
+# 遍历 pool 中的对象列表 (有序输出)
+rados -p cephfs_metadata ls | sort
+
+# 获取 object 数据
+rm -rf 1.00000000.inode.outfile
+rados -p cephfs_metadata get 1.00000000.inode 1.00000000.inode.outfile
+hexdump -C 1.00000000.inode.outfile
+
+# 获取 xattr 数据
+rm -rf 609.00000000.xattr.layout
+rados -p cephfs_metadata listxattr 609.00000000
+rados -p cephfs_metadata getxattr 609.00000000 layout > 609.00000000.xattr.layout
+rados -p cephfs_metadata getxattr 609.00000000 parent > 609.00000000.xattr.parent
+hexdump -C 609.00000000.xattr.layout
+hexdump -C 609.00000000.xattr.parent
+
+# 获取 omap 数据
+rados -p cephfs_metadata listomapkeys 1.00000000
+rados -p cephfs_metadata listomapvals 1.00000000
+
+
+# 查看对象对应的 pg 信息
+rados -p cephfs_metadata
+ceph osd map cephfs_metadata 100.00000000
+```
+
+
+## 1.5 MDS
+
+```bash
+# 查看缓存配置
+ceph tell mds.* config get mds_cache_memory_limit
+
+# 调整缓存配置优化读写性能
+ceph tell mds.* config set mds_cache_trim_interval 10
+ceph tell mds.* config set mds_cache_trim_threshold 256K
+ceph tell mds.* config set mds_cache_memory_limit 16G
+```
+
+
+## 1.6 日志
+
+```bash
+# 要启用文件日志记录
+ceph config set global log_to_file true
+ceph config set global mon_cluster_log_to_file true
+
+# 如果您选择将日志记录到文件,我们建议您禁用 journald 日志记录,否则所有内容都会被记录两次
+# 运行以下命令可禁用 stderr 日志记录
+ceph config set global log_to_stderr false
+ceph config set global mon_cluster_log_to_stderr false
+ceph config set global log_to_journald false
+ceph config set global mon_cluster_log_to_journald false
+```
+
+
+# 2. CephFS
+
+## 2.1 创建文件系统
+
+```bash
+# 添加 mds 组件并创建文件系统(使用 cephadm 部署的集群)
+ceph fs volume create cephfs
+
+# 创建文件系统(手动操作)
+# 创建一个名为 cephfs 的文件系统
+ceph osd pool create cephfs_data 64
+ceph osd pool create cephfs_metadata 64
+ceph osd pool set cephfs_data pg_autoscale_mode off
+ceph osd pool set cephfs_metadata pg_autoscale_mode off
+ceph fs new cephfs cephfs_metadata cephfs_data
+ceph fs status cephfs
+```
+
+
+## 2.2 挂载文件系统
+
+```bash
+# kernel 方式挂载 cephfs
+# 详细支持的参数列表: https://github.com/ceph/ceph/blob/v19.2.1/src/mount/mount.ceph.c#L473
+mkdir -p /mnt/cephfs-kernel
+# mesage v1 挂载
+mount -t ceph 10.10.10.1:6789,10.10.10.2:6789,10.10.10.3:6789:/ /mnt/cephfs-kernel -o name=admin,secret=AQBVokZoak+LJRAAqgeJr6j77v729bfvBl/Z3g==
+# message v2 挂载
+mount -t ceph 10.10.10.1:3300,10.10.10.2:3300,10.10.10.3:3300:/ /mnt/cephfs-kernel -o name=admin,secret=AQBVokZoak+LJRAAqgeJr6j77v729bfvBl/Z3g==,ms_mode=crc,mount_timeout=5
+
+# kernel 方式开机自动挂载
+vi /etc/fstab
+10.10.10.1:6789,10.10.10.2:6789,10.10.10.3:6789:/ /mnt/cephfs-kernel ceph name=admin,secret=AQBVokZoak+LJRAAqgeJr6j77v729bfvBl/Z3g== 0 2
+
+
+# fuse 方式挂载 cephfs
+mkdir -p /mnt/cephfs-fuse
+# mesage v1 挂载
+ceph-fuse -c /etc/ceph/ceph.conf -n client.admin -m 10.10.10.1:6789,10.10.10.2:6789,10.10.10.3:6789 /mnt/cephfs-fuse --client_mountpoint /
+# mesage v2 挂载
+ceph-fuse -c /etc/ceph/ceph.conf -n client.admin -m 10.10.10.1:3300,10.10.10.2:3300,10.10.10.3:3300 /mnt/cephfs-fuse --client_mountpoint /
+
+# fuse 方式开机自动挂载
+vi /etc/fstab
+none /mnt/cephfs-fuse fuse.ceph ceph.name=client.User,ceph.conf=/etc/ceph/ceph.conf,ceph.client_mountpoint=/,_netdev,defaults 0 0
+
+
+# kernel 方式取消挂载
+umount /mnt/cephfs-kernel
+
+# fuse 取消挂载
+fusermount -u /mnt/cephfs-fuse
+# 如果删除不掉可以使用 -z 参数,lazy 模式
+# fusermount -u -z /mnt/cephfs-fuse
+```
+
+## 2.3 文件布局
+
+官方文档: https://docs.ceph.com/en/latest/cephfs/file-layouts/
+
+```bash
+# 读取文件布局
+# pool: 字符串,可指定 ID 或名字.它是文件的数据对象所在的 RADOS 存储池.
+# stripe_unit: 字节数,整数.一个文件的数据块按照此尺寸(字节)像 RAID 0 一样分布.
+#              一文件所有条带单元的尺寸一样,最后一个条带单元通常不完整----即它包含
+#              文件末尾的数据,还有数据末端到固定条带单元尺寸之间的未使用"空间".
+# stripe_count: 整数.组成 RAID 0 "条带"数据的连续条带单元数量.
+# object_size: 整数个字节.文件数据按此尺寸分块为 RADOS 对象.
+getfattr -n ceph.file.layout file1
+getfattr -n ceph.file.layout.pool file1
+getfattr -n ceph.file.layout.stripe_unit file1
+getfattr -n ceph.file.layout.stripe_count file1
+getfattr -n ceph.file.layout.object_size file1
+
+# 设置文件布局
+# 用 setfattr 命令修改文件的布局字段时,此文件必须是空的,否则会报错.
+setfattr -n ceph.file.layout.pool -v 1 file2
+setfattr -n ceph.file.layout.pool -v cephfs_data file2
+setfattr -n ceph.file.layout.stripe_unit -v 1048576 file2
+setfattr -n ceph.file.layout.stripe_count -v 8 file2
+setfattr -n ceph.file.layout.object_size -v 10485760 file2
+
+# 获取目录布局
+getfattr -n ceph.dir.layout dir
+
+# 设置目录布局
+# 用于将不同的目录的数据存储到不同的数据池中
+setfattr -n ceph.dir.layout.pool -v cephfs_data_hps /mnt/cephfs-kernel/hps
+setfattr -n ceph.dir.layout.pool -v cephfs_data_lcs /mnt/cephfs-kernel/lcs
+
+# 清除目录布局
+setfattr -x ceph.dir.layout dir
+```
+
+## 2.4 用户认证
+
+```bash
+# 查看用户列表
+ceph auth ls
+
+# 查看特定用户
+ceph auth get client.admin
+
+# 新增用户
+# 用户名为 bugwz , 拥有 / 的读权限, 拥有 /user/bugwz 的读写权限
+# ceph auth get-or-create client.bugwz mon 'allow r fsname=cephfs' mds 'allow r fsname=cephfs, allow rw fsname=cephfs path=/user/bugwz' osd 'allow rw tag cephfs data=cephfs'
+ceph fs authorize cephfs client.bugwz / r /user/bugwz rw
+
+# 修改用户权限
+# 需指定完整的权限列表
+ceph auth caps client.bugwz mon 'allow r fsname=cephfs' mds 'allow r fsname=cephfs, allow rw fsname=cephfs path=/user/bugwz, allow rw fsname=cephfs path=/user/other' osd 'allow rw tag cephfs data=cephfs'
+```
+
+## 2.5 配额
+
+```bash
+# 查看目录配额
+getfattr -n ceph.quota.max_bytes /mnt/cephfs-kernel/dir
+getfattr -n ceph.quota.max_files /mnt/cephfs-kernel/dir
+
+# 限制目录配额
+setfattr -n ceph.quota.max_bytes -v 1073741824 /mnt/cephfs-kernel/dir
+setfattr -n ceph.quota.max_files -v 10 /mnt/cephfs-kernel/dir
+
+# 取消目录配额
+setfattr -n ceph.quota.max_bytes -v 0 /mnt/cephfs-kernel/dir
+setfattr -n ceph.quota.max_files -v 0 /mnt/cephfs-kernel/dir
+```
+
+
+## 2.6 读写测试
+
+详细的读写测试教程参见: https://bugwz.com/2023/06/01/ceph-test/
+
+```bash
+# 限速写
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/cephfs-kernel/testfile1 oflag=direct status=progress
+dd if=/dev/zero bs=1M count=1000 | pv -L 3M | dd of=/mnt/cephfs-fuse/testfile2 oflag=direct status=progress
+
+# 限速读
+dd if=/mnt/cephfs-kernel/testfile1 bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+dd if=/mnt/cephfs-fuse/testfile2 bs=1M count=1000 iflag=direct | pv -L 1M | dd of=/dev/null status=progress
+```
+
+## 2.7 MDS 多活
+
+```bash
+# 设置多活 mds 数量
+ceph fs set cephfs max_mds 2
+
+# 绑定目录数到指定 mds
+# -1 表示为绑定
+setfattr -n ceph.dir.pin -v 0 /mnt/cephfs-kernel/dir1
+setfattr -n ceph.dir.pin -v 1 /mnt/cephfs-kernel/dir2
+setfattr -n ceph.dir.pin -v -1 /mnt/cephfs-kernel/dir3
+
+# 获取绑定目录的信息
+getfattr -n ceph.dir.pin /mnt/cephfs-kernel/dir1
+getfattr -n ceph.dir.pin /mnt/cephfs-kernel/dir2
+getfattr -n ceph.dir.pin /mnt/cephfs-kernel/dir3
+```
+
+## 2.8 NFS
+
+```bash
+# 挂载导出的 nfs
+# mount -t nfs4 -o nfsvers=4.1,proto=tcp 10.10.0.1:/cephfs/ /mnt/cephfs-nfs/
+mount -t nfs4 -o nfsvers=4.1,proto=tcp,rw 10.10.0.1:/cephfs/ /mnt/cephfs-nfs/
+
+# 取消 nfs 挂载
+umount /mnt/cephfs-nfs
+```
+
+
+## 2.9 客户端
+
+```bash
+# 查看挂载的客户端列表
+ceph daemon mds.host01 session ls
+```
+
+
+# 3. CephRBD
+
+## 3.1 数据池
+
+```bash
+# 遍历 pool
+ceph osd lspools
+
+# 创建 rbd pool
+ceph osd pool create rbdpool 64 64
+ceph osd pool application enable rbdpool rbd
+ceph osd pool set rbdpool pg_autoscale_mode off
+rbd pool init rbdpool
+
+# 查看 pool 的最大容量
+ceph osd pool get-quota rbdpool
+
+# 设置 pool 的最大容量和最大对象数量
+ceph osd pool set-quota rbdpool max_bytes 100GB
+ceph osd pool set-quota rbdpool max_objects 10000
+```
+
+
+## 3.2 映像
+
+```bash
+# 查看 rbd pool 中 image 列表
+rbd -p rbdpool ls
+
+# 创建 rbd image
+# rbd create -p rbdpool --image rbdimg01 --size 10G
+rbd create rbdpool/rbdimg01 --size 10G
+
+# 查看 image 信息
+rbd info rbdpool/rbdimg01
+
+# 挂载 image
+# rbd map
+rbd device map rbdpool/rbdimg01
+mkfs.xfs /dev/rbd0
+mkdir -p /mnt/cephrbd
+mount /dev/rbd0 /mnt/cephrbd
+
+# 取消挂载 image
+# rbd unmap
+umount /mnt/cephrbd
+rbd device unmap rbdpool/rbdimg01
+
+# 查看挂载的 image
+# rbd device list
+rbd device ls
+
+# 在线调整 rbd 的格式化的文件系统的大小
+# 仅限于 xfs 格式化类型的 image
+xfs_growfs -d /mnt/cephrbd-01
+
+
+# 删除 image
+# rbd rm --pool rbdpool --image rbdimg01
+rbd rm rbdpool/rbdimg01
+
+# 移动 image 到回收站
+rbd trash move rbdpool/rbdimg01 --expires-at 20300101
+rbd trash -p rbdpool ls
+
+# 从回收站中移出 image
+rbd trash -p rbdpool ls
+rbd trash restore -p rbdpool 3e199935e4ead
+
+# 统计 image 使用量
+rbd diff rbdpool/rbdimg01 | awk '{ SUM += $2 } END { print SUM/1024/1024/1024 " GB" }'
+
+# 查看 image 使用容量
+rbd du rbdpool/rbdimg01
+```
+
+
+## 3.3 快照
+
+```bash
+# 创建 snapshot
+# rbd snap create --pool rbdpool --image rbdimg01 --snap 20240701
+rbd snap create rbdpool/rbdimg01@20240701
+
+# 查看 image 所有快照
+rbd snap ls rbdpool/rbdimg01
+
+# 回滚 snapshot
+# 回滚 snapshot 之后需要重新挂载,否则数据可能会有问题
+rbd snap rollback rbdpool/rbdimg01@20240701
+umount /mnt/cephrbd
+mount /dev/rbd0 /mnt/cephrbd
+
+# 保护 snapshot
+# 无法删除受保护的 snapshot
+rbd snap protect rbdpool/rbdimg01@20240701
+
+# 取消保护 snapshot
+rbd snap unprotect rbdpool/rbdimg01@20240701
+
+# 删除 snapshot
+rbd snap remove rbdpool/rbdimg01@20240701
+rbd snap ls rbdpool/rbdimg01
+
+# 克隆 snapshot
+rbd snap protect rbdpool/rbdimg01@20240701
+rbd clone rbdpool/rbdimg01@20240701 rbdpool/rbdimg01.clone
+rbd snap unprotect rbdpool/rbdimg01@20240701
+rbd -p rbdpool ls
+
+# 查看克隆 snapshot 数量
+rbd children rbdpool/rbdimg01@20240701
+
+# 独立克隆的 snapshot
+rbd flatten rbdpool/rbdimg01.clone
+rbd info rbdpool/rbdimg01.clone
+
+# 导出 snapshot
+rbd export rbdpool/rbdimg01@20240701 /root/rbdpool-rbdimg01@20240701
+
+# 导入 snapshot
+rbd import /root/rbdpool-rbdimg01@20240701 rbdpool/rbdimg03
+```
+
+## 3.4 读写压测
+
+```bash
+# 随机读
+rbd bench --pool rbdpool --image rbdimg01 --io-size 4K --io-threads 16 --io-total 16G --io-pattern rand --io-type read
+
+# 随机写
+rbd bench --pool rbdpool --image rbdimg01 --io-size 4K --io-threads 16 --io-total 16G --io-pattern rand --io-type write
+
+# 顺序读
+rbd bench --pool rbdpool --image rbdimg01 --io-size 4K --io-threads 16 --io-total 16G --io-pattern seq --io-type read
+
+# 顺序写
+rbd bench --pool rbdpool --image rbdimg01 --io-size 4K --io-threads 16 --io-total 16G --io-pattern seq --io-type write
+
+# 随机比例读写: 读:80%,写:20%
+rbd bench --pool rbdpool --image rbdimg01 --io-size 4K --io-threads 16 --io-total 16G --io-pattern rand --io-type readwrite --rw-mix-read 80
+
+# 随机比例读写: 读:20%,写:80%
+rbd bench --pool rbdpool --image rbdimg01 --io-size 4K --io-threads 16 --io-total 16G --io-pattern rand --io-type readwrite --rw-mix-read 20
+
+# 顺序比例读写: 读:80%,写:20%
+rbd bench --pool rbdpool --image rbdimg01 --io-size 4K --io-threads 16 --io-total 16G --io-pattern seq --io-type readwrite --rw-mix-read 80
+
+# 顺序比例读写: 读:20%,写:80%
+rbd bench --pool rbdpool --image rbdimg01 --io-size 4K --io-threads 16 --io-total 16G --io-pattern seq --io-type readwrite --rw-mix-read 20
+```
+
+## 3.5 监控报警
+
+```bash
+# 查看 prometheus 模块中统计 rbd pool 的间隔时间(默认为 300)
+ceph config get mgr mgr/prometheus/rbd_stats_pools_refresh_interval
+
+# 设置 prometheus 模块中统计 rbd pool 的间隔时间
+ceph config set mgr mgr/prometheus/rbd_stats_pools_refresh_interval
+
+# 查看 rbd 监控 pool 列表
+ceph config get mgr mgr/prometheus/rbd_stats_pools
+
+# 设置 rbd 监控 pool 列表
+ceph config set mgr mgr/prometheus/rbd_stats_pools "rbdpool01,rbdpool02,rbdpool03"
+
+# 取消 rbd 监控 pool 列表
+ceph config set mgr mgr/prometheus/rbd_stats_pools ""
+```
+
+## 3.6 客户端
+
+获取 rbd pool image 的客户端列表. 具体的执行操作流程如下:
+1. `ceph --conf %s --user admin -f json mon stat` : 获取 mon 节点名称列表;
+2. `ceph --conf %s --user admin -f json tell mon.%s sessions` : 获取 mon 节点上的 session(client) 列表信息;
+3. `ceph --conf %s --user admin -f json osd pool ls detail` : 获取 rbd 类型的数据池;
+4. `rbd --conf %s --id admin list --format json --pool %s` : 遍历 rbd 类型的数据池其中的映像列表;
+5. `rbd --conf %s --id admin info --format json --pool %s --image %s` : 获取 rbd 类型的数据池映像的块名前缀信息;
+6. `rados --conf %s --id admin --format json --pool %s listwatchers rbd_header.%s` : 获取 rbd 池中监听对应块名对象的客户端;
+
+
+```golang
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/renderer"
+	"github.com/olekukonko/tablewriter/tw"
+)
+
+type CephMonStateQuorum struct {
+	Rank int64  `json:"rank"`
+	Name string `json:"name"`
+}
+
+type CephMonState struct {
+	Epoch             int64                `json:"epoch"`
+	MinMonReleaseName string               `json:"min_mon_release_name"`
+	NumMons           int64                `json:"num_mons"`
+	Leader            string               `json:"leader"`
+	Quorum            []CephMonStateQuorum `json:"quorum"`
+}
+
+type CephPool struct {
+	ID                  int64                  `json:"pool_id"`
+	Name                string                 `json:"pool_name"`
+	FlagsNames          string                 `json:"flags_names"`
+	Type                int64                  `json:"type"`
+	Size                int64                  `json:"size"`
+	MinSize             int64                  `json:"min_size"`
+	PGAutoscaleMode     string                 `json:"pg_autoscale_mode"`
+	PGNum               int64                  `json:"pg_num"`
+	TargetMaxBytes      int64                  `json:"target_max_bytes"`
+	TargetMaxObjects    int64                  `json:"target_max_objects"`
+	ApplicationMetadata map[string]interface{} `json:"application_metadata"`
+}
+
+type CephRBDPoolImage struct {
+	Name            string `json:"name"`
+	ID              string `json:"id"`
+	Size            int64  `json:"size"`
+	Objects         int64  `json:"objects"`
+	SnapshotCount   int64  `json:"snapshot_count"`
+	BlockNamePrefix string `json:"block_name_prefix"`
+	Format          int64  `json:"format"`
+}
+
+type CephMONSessionAddrItem struct {
+	Type  string `json:"type"`
+	Addr  string `json:"addr"`
+	Nonce int64  `json:"nonce"`
+}
+
+type CephMONSessionAddrs struct {
+	AddrVec []CephMONSessionAddrItem `json:"addrvec"`
+}
+
+type CephMONSession struct {
+	Name           string                 `json:"name"`
+	EntityName     string                 `json:"entity_name"`
+	Addrs          CephMONSessionAddrs    `json:"addrs"`
+	SocketAddr     CephMONSessionAddrItem `json:"socket_addr"`
+	ConType        string                 `json:"con_type"`
+	Open           bool                   `json:"open"`
+	Authenticated  bool                   `json:"authenticated"`
+	GlobalId       int64                  `json:"global_id"`
+	GlobalIdStatus string                 `json:"global_id_status"`
+	OsdEpoch       int64                  `json:"osd_epoch"`
+	RemoteHost     string                 `json:"remote_host"`
+}
+
+type CephRBDClientMetadata struct {
+	Image CephRBDPoolImage `json:"image"`
+}
+
+type CephRBDClient struct {
+	Pool     string `json:"pool"`
+	Image    string `json:"image"`
+	Entity   string `json:"entity"`
+	IP       string `json:"ip"`
+	Hostname string `json:"hostname"`
+	Type     string `json:"type"` // kernel/fuse
+	Gid      int64  `json:"gid"`
+	Metadata string `json:"medata"`
+}
+
+type ImageTask struct {
+	pool *CephPool
+	img  string
+}
+
+type progressCounter struct {
+	total     int64
+	completed int64
+	poolName  string
+}
+
+func runCmd(cmd string) (string, error) {
+	cmdobj := exec.Command("bash", "-c", cmd)
+	ret, err := cmdobj.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("run cmd error, cmd: %s, err: %s", cmd, ret)
+	}
+	return string(ret), nil
+}
+
+func getMONState(conf string) (cret *CephMonState, cerr error) {
+	cmd := fmt.Sprintf("ceph --conf %s --user admin -f json mon stat", conf)
+	ret, err := runCmd(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("get ceph mon state error, cmd: %s", cmd)
+	}
+	var state CephMonState
+	if err := json.Unmarshal([]byte(ret), &state); err != nil {
+		return nil, fmt.Errorf("parse ceph mon state error, cmd: %s, ret: %s", cmd, ret)
+	}
+
+	return &state, nil
+}
+
+func getMONSessions(conf string) (cret map[int64]*CephMONSession, cerr error) {
+	monstat, err := getMONState(conf)
+	if err != nil {
+		return nil, fmt.Errorf("get ceph mon state error")
+	}
+
+	sessions := make(map[int64]*CephMONSession)
+	for _, quorum := range monstat.Quorum {
+		cmd := fmt.Sprintf("ceph --conf %s --user admin -f json tell mon.%s sessions", conf, quorum.Name)
+		ret, err := runCmd(cmd)
+		if err != nil {
+			return nil, fmt.Errorf("get ceph mon sessions error, cmd: %s", cmd)
+		}
+		var monsessions []*CephMONSession
+		if err := json.Unmarshal([]byte(ret), &monsessions); err != nil {
+			return nil, fmt.Errorf("parse ceph mon sessions error, cmd: %s, ret: %s", cmd, ret)
+		}
+
+		for _, session := range monsessions {
+			if _, exists := sessions[session.GlobalId]; !exists {
+				sessions[session.GlobalId] = session
+			}
+		}
+	}
+
+	return sessions, nil
+}
+
+func getPools(conf string) (cret []*CephPool, cerr error) {
+	cmd := fmt.Sprintf("ceph --conf %s --user admin -f json osd pool ls detail", conf)
+	ret, err := runCmd(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("get ceph osd pool error, cmd: %s", cmd)
+	}
+	var pools []*CephPool
+	if err := json.Unmarshal([]byte(ret), &pools); err != nil {
+		return nil, fmt.Errorf("parse ceph osd pool error, cmd: %s, ret: %s", cmd, ret)
+	}
+
+	return pools, nil
+}
+
+// 处理单个RBD image
+func processImage(conf string, task *ImageTask, monsessions map[int64]*CephMONSession) ([]*CephRBDClient, []error) {
+	pool := task.pool
+	img := task.img
+
+	// 获取rbd image信息
+	imginfocmd := fmt.Sprintf("rbd --conf %s --id admin info --format json --pool %s --image %s",
+		conf, pool.Name, img)
+	imginforet, err := runCmd(imginfocmd)
+	if err != nil {
+		return nil, []error{fmt.Errorf("get image info error, pool: %s, img: %s: %v", pool.Name, img, err)}
+	}
+
+	var imginfo CephRBDPoolImage
+	if err := json.Unmarshal([]byte(imginforet), &imginfo); err != nil {
+		return nil, []error{fmt.Errorf("parse image info error, pool: %s, img: %s: %v", pool.Name, img, err)}
+	}
+
+	blocknamepre := strings.Split(imginfo.BlockNamePrefix, ".")
+	if len(blocknamepre) != 2 {
+		return nil, []error{fmt.Errorf("invalid block_name_prefix: %s, pool: %s, img: %s", imginfo.BlockNamePrefix, pool.Name, img)}
+	}
+
+	// 获取 watchers
+	var clients []*CephRBDClient
+	var errs []error
+	cmd := fmt.Sprintf("rados --conf %s --id admin --format json --pool %s listwatchers rbd_header.%s", conf, pool.Name, blocknamepre[1])
+	ret, err := runCmd(cmd)
+	if err != nil {
+		return nil, []error{fmt.Errorf("get watchers error, pool: %s, img: %s", pool.Name, img)}
+	}
+	for _, imgwatchline := range strings.Split(ret, "\n") {
+		lineinfo := strings.Split(imgwatchline, " ")
+		if len(lineinfo) != 3 {
+			continue
+		}
+
+		// parse rbd image client ip and watcher
+		cwatcherraw1 := strings.Split(lineinfo[0], "=")
+		if len(cwatcherraw1) != 2 {
+			continue
+		}
+		cwatcherraw2 := strings.Split(cwatcherraw1[1], ":")
+		if len(cwatcherraw2) != 2 {
+			continue
+		}
+		ip := cwatcherraw2[0]
+		// clientwatcher := lineinfo[0] + " " + lineinfo[1]
+
+		// parse rbd image client id
+		gidraw := strings.Split(lineinfo[1], ".")
+		if len(gidraw) != 2 {
+			continue
+		}
+		gid, _ := strconv.ParseInt(gidraw[1], 10, 64)
+
+		// fetch mon seesion
+		session, exists := monsessions[gid]
+		if !exists {
+			return nil, []error{fmt.Errorf("get rbd client gid error, pool: %s, img: %s: %v", pool.Name, img, err)}
+		}
+
+		// record client
+		client := &CephRBDClient{
+			IP:       ip,
+			Hostname: session.RemoteHost,
+			Type:     "", // 类型暂时留空
+			Gid:      gid,
+			Entity:   session.EntityName,
+			Pool:     pool.Name,
+			Image:    img,
+		}
+
+		clients = append(clients, client)
+	}
+
+	return clients, errs
+}
+
+// 显示进度
+func showProgress(counter *progressCounter) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		completed := atomic.LoadInt64(&counter.completed)
+		total := atomic.LoadInt64(&counter.total)
+
+		if total == 0 {
+			continue
+		}
+
+		percent := float64(completed) / float64(total) * 100
+		fmt.Printf("\rProcessing pool %s: %d/%d (%.2f%%)",
+			counter.poolName, completed, total, percent)
+
+		if completed >= total {
+			fmt.Printf("\rProcessing pool %s: %d/%d (100.00%%)\n",
+				counter.poolName, total, total)
+			break
+		}
+	}
+}
+
+// 打印客户端信息表格
+func printClientTable(clients []*CephRBDClient) {
+	symbols := tw.NewSymbolCustom("Nature").WithRow("-").WithColumn("|")
+	table := tablewriter.NewTable(os.Stdout, tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{Symbols: symbols})))
+	table.Header([]string{"Pool", "Image", "Entity", "Client IP", "GID"})
+
+	for _, client := range clients {
+		table.Append([]string{
+			client.Pool,
+			client.Image,
+			client.Entity,
+			client.IP,
+			strconv.FormatInt(client.Gid, 10),
+		})
+	}
+
+	table.Render()
+}
+
+func main() {
+	if len(os.Args) < 4 {
+		fmt.Println("Usage: go run ./ ceph_config_file ceph_keyring_file concurrency")
+		fmt.Println("Example: go run ./ ceph.conf ceph.client.admin.keyring 20")
+		os.Exit(1)
+	}
+
+	// 解析参数
+	cephConfig := os.Args[1]
+	cephKeyring := os.Args[2]
+	concurrency, err := strconv.Atoi(os.Args[3])
+	if err != nil || concurrency <= 0 {
+		fmt.Println("Error: concurrency must be a positive integer")
+		os.Exit(1)
+	}
+
+	// 检查文件存在性
+	for _, file := range []string{cephConfig, cephKeyring} {
+		if _, err := os.Stat(file); err != nil {
+			if os.IsNotExist(err) {
+				fmt.Printf("Error: file not found: %s\n", file)
+			} else {
+				fmt.Printf("Error: accessing file %s: %v\n", file, err)
+			}
+			os.Exit(1)
+		}
+	}
+
+	// 获取 mon sessions
+	monsessions, err := getMONSessions(cephConfig)
+	if err != nil {
+		fmt.Printf("Error: get ceph mon sessions: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 获取 ceph pools
+	pools, err := getPools(cephConfig)
+	if err != nil {
+		fmt.Printf("Error: get ceph osd pools: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 全局结果收集
+	var allClients []*CephRBDClient
+	var allErrors []error
+	var wgResults sync.WaitGroup
+	wgResults.Add(1)
+
+	// 错误收集协程
+	errors := make(chan error, 1000)
+	go func() {
+		for err := range errors {
+			allErrors = append(allErrors, err)
+		}
+		wgResults.Done()
+	}()
+
+	// 按顺序处理每个 pool
+	for _, pool := range pools {
+		if _, exists := pool.ApplicationMetadata["rbd"]; !exists {
+			fmt.Printf("Skipping non-RBD pool: %s\n", pool.Name)
+			continue
+		}
+		fmt.Printf("\nProcessing RBD pool: %s\n", pool.Name)
+
+		// 获取当前 pool 的 images
+		cmd := fmt.Sprintf("rbd --conf %s --id admin list --format json --pool %s", cephConfig, pool.Name)
+		ret, err := runCmd(cmd)
+		if err != nil {
+			fmt.Printf("Error: get rbd images for pool %s: %v\n", pool.Name, err)
+			continue
+		}
+		var images []string
+		if err := json.Unmarshal([]byte(ret), &images); err != nil {
+			fmt.Printf("Error: parse images for pool %s: %v\n", pool.Name, err)
+			continue
+		}
+		totalImages := len(images)
+		if totalImages == 0 {
+			fmt.Printf("No images found in pool %s\n", pool.Name)
+			continue
+		}
+
+		// 设置进度计数器
+		counter := &progressCounter{
+			total:    int64(totalImages),
+			poolName: pool.Name,
+		}
+
+		// 启动进度显示
+		go showProgress(counter)
+
+		// 创建任务队列
+		taskChan := make(chan *ImageTask, totalImages)
+		results := make(chan []*CephRBDClient, totalImages)
+
+		// 添加任务
+		for _, img := range images {
+			taskChan <- &ImageTask{
+				pool: pool,
+				img:  img,
+			}
+		}
+		close(taskChan)
+
+		// 启动worker
+		var wg sync.WaitGroup
+		wg.Add(concurrency)
+
+		for i := 0; i < concurrency; i++ {
+			go func() {
+				defer wg.Done()
+				for task := range taskChan {
+					clients, errs := processImage(cephConfig, task, monsessions)
+
+					// 发送结果
+					if len(clients) > 0 {
+						results <- clients
+					}
+
+					// 发送错误
+					for _, err := range errs {
+						errors <- err
+					}
+
+					// 更新进度
+					atomic.AddInt64(&counter.completed, 1)
+				}
+			}()
+		}
+
+		// 结果收集协程
+		go func() {
+			for clients := range results {
+				allClients = append(allClients, clients...)
+			}
+		}()
+
+		// 等待所有worker完成
+		wg.Wait()
+		close(results)
+	}
+
+	// 等待错误收集完成
+	close(errors)
+	wgResults.Wait()
+
+	// 打印错误信息
+	if len(allErrors) > 0 {
+		fmt.Printf("\n\nEncountered %d errors:\n", len(allErrors))
+		for i, err := range allErrors {
+			fmt.Printf("  [%d] %s\n", i+1, err)
+		}
+	}
+
+	// 打印客户端信息表格
+	fmt.Printf("\nFound %d RBD client connections:\n", len(allClients))
+	printClientTable(allClients)
+}
+```

@@ -1,0 +1,546 @@
+# Ceph Backfill 回填机制详解
+
+Ceph backfill 在 PG 日志不足以描述对象差异时, 通过分段扫描和版本比较同步目标 shard. 本文分析 target 选择, 资源预留与调度, 对象扫描与传输, 进度持久化和完成条件, 并整理容量限制, 配置项与排障方法.
+
+本文分析 Ceph 20 Tentacle 中传统 OSD 的 backfill 实现. reservation, OSD recovery queue 和对象传输等通用机制, 可结合 [Ceph Recovery 恢复机制详解](/2026/05/01/ceph-recovery/) 阅读.
+
+# 1. recovery 与 backfill 的实现演进
+
+recovery 出现得更早. backfill 后来加入, 用于处理 PG 日志不足以描述对象差异的情况, 并沿用了已有的 OSD 调度和对象传输设施.
+
+| 时间 | 首个包含版本 | 提交 | 变化 | 对今天代码结构的影响 |
+|---|---|---|---|---|
+| 2008-01-28 前已存在 | v0.1 | 核心代码早于当前提交历史中的整理节点 | PG log, missing set, Pull/Push 和 do_recovery() 已构成基于日志的 recovery | recovery 是更早存在的基础功能 |
+| 2008-10-14 | v0.5 | bab9ea76e4a5 | 引入集中式 recovery 队列, 形成 recovery 事件统一调度的基础 | OSD 级队列成为后续恢复工作的公共入口 |
+| 2008-10-27 | v0.5 | cfbc510d2334 | 允许多个 recovery 操作同时在处理中 | recovery 从一次只处理一个操作, 演进为受槽位限制的并行处理 |
+| 2011-12-01 | v0.41 | 8f14a358574a | 引入 PG::BackfillInterval | backfill 开始拥有独立的扫描区间和进度状态 |
+| 2011-12-01 | v0.41 | 9e51c639502e, 17b5d5c34e4c | 加入 MOSDPGScan 消息并实现对象范围扫描 | primary 和 target 可以通过分段扫描比较对象集合 |
+| 2011-12-02 | v0.41 | 910398fea01a | 对日志不连续的 peer, 改用 backfill 进行恢复, 而不是依赖 backlog | backfill 的定位从 "补充机制" 变成处理日志无法衔接场景的主要路径 |
+| 2011-12-21 | v0.41 | fa6bd38a3faa | 简化 recover_backfill() | backfill 的扫描, 比较和对象传输逐步收敛到今天的结构 |
+
+基于 PG log 的 recovery 最早可在 `v0.1` 发布 tag 中确认, 集中式队列和并行操作机制则出现在 `v0.5`. 范围扫描型 backfill 的相关提交发生在 2011 年 12 月, 时间接近 `v0.39`, 但 `v0.39` 和 `v0.40` 都没有包含这套代码. 首个包含完整路径的发布 tag 是 `v0.41` (2012-01-27).
+
+`PG::queue_recovery()`, `PGRecovery` 和 OSD scheduler 沿用了早期 recovery 的基础设施. backfill 在此基础上增加了 `PrimaryLogPG::recover_backfill()`, Scan/Remove/Progress/Finish 消息和 `last_backfill`, 用于扫描对象差异并记录进度.
+
+## 1.1 为什么共享 recovery 基础设施
+
+recovery 与 backfill 共享资源控制和对象传输, 但各自负责发现对象差异:
+
+| 共享部分 | recovery 的职责 | backfill 的职责 | 共享的原因 |
+|---|---|---|---|
+| PG 调度入口 | 按 PGRecovery 槽位启动一轮工作 | 使用同一个 PG 调度入口启动扫描和对象同步 | 两者都会消耗 OSD 的磁盘, 网络和 ObjectStore 资源, 需要统一限流和排序 |
+| reservation | 预留 primary 和 peer 的恢复资源 | 预留 primary 和 target 的 backfill 资源 | 当前的 local_reserver/remote_reserver 是两者共用的后台 I/O 预留器, 虽然变量名和配置名保留了 backfill 的历史叫法; 统一登记可以避免两套计数互不知情 |
+| 对象传输 backend | 根据已知 missing oid 读取并写入对象 | 根据扫描结果确定 oid 后读取并写入对象 | 真正的数据读取, 分块, 临时对象, 属性/omap 处理以及 EC 重建是同一类工作 |
+| 差异判断 | 使用 PG log, missing 和 MissingLoc | 扫描对象范围, 再按 oid/version 合并 | 这部分不能共用, 所以 backfill 保留了自己的 Scan, 游标和 merge 状态 |
+
+`start_recovery_ops()` 先尝试 `recover_replicas()` 和 `recover_primary()`, 满足条件后才调用 `recover_backfill()` 扫描和比较对象. 找到需要同步的对象后, `prep_backfill_object_push()` 记录在途对象, 调用 `start_recovery_op()`, 再通过 `pgbackend->recover_object()` 进入 replicated 或 EC backend. 普通 recovery 的 `recover_missing()` 也调用这个接口. 两条路径在确定待恢复对象后汇合.
+
+相关提交和文档记录了几次调整:
+
+1. 2008 年的 `bab9ea76e4a5` 引入集中式 recovery 队列, 提交说明中的目的是统一控制 PG recovery 的调度, 限流和优先级.
+2. 2011 年的 `910398fea01a` 引入范围扫描 backfill, 提交说明是 "不要先生成巨大的待恢复对象列表再逐个推送, 而是遍历对象集合并边遍历边复制". 补丁把 `recover_backfill()` 接到已有的 `start_recovery_ops()`, 并让 backfill push 调用已有的 recovery op 计数和对象推送路径.
+3. 官方的 [recovery reservation 文档](https://docs.ceph.com/en/tentacle/dev/osd_internals/recovery_reservation/) 明确写道, recovery reservation "extends and subsumes backfill reservation", 一个 PG 可能需要日志 recovery, backfill, 两者都有或都不需要; 日志 recovery 完成后可以继续使用已经取得的本地 reservation 做 backfill, 避免重复申请.
+4. 2020 年 `3d9ddbecbc6` 将 Push, PushReply 等恢复消息放入 `PGRecoveryMsg`; 2023 年 `69a17bdb0f0` 又把 Scan, Backfill 和 BackfillRemove 归入同一类. 后一个提交明确说明: 如果这些消息仍作为普通 `PGOpItem` 立即处理, 会干扰客户端操作. 归入同一调度分类后, backfill 也受后台调度和优先级控制.
+
+复用 backend 后, backfill 无需另外实现 Push, 分块, ACK, 失败重试和 EC 重建; 扫描范围, 对象比较及游标推进仍由 backfill 自己处理.
+
+# 2. recovery 与 backfill 的边界
+
+PG log 只保留有限历史. 目标 shard 落后时间较短, 且 primary 仍保留从目标最后版本开始的连续日志时, Peering 可以构造 `pg_missing_t`, 使用普通 recovery 按已知 oid 修复. 当目标需要的历史已经早于 `log_tail`, 或者新加入 acting set 的 shard 无法与现有 PG 历史衔接时, 仅凭 PG log 就无法准确还原两边对象集合的差异.
+
+这时 backfill 从持久化的 `last_backfill` 位置继续扫描. primary 和 target 按 `hobject_t` 顺序分段列出对象及其版本, 再对两边的结果做有序合并:
+
+- target 有, primary 没有: 删除 target 多余对象;
+- 两边都有且版本相同: 保留;
+- 两边都有但版本不同: 从 primary 替换 target;
+- primary 有, target 没有: 向 target 推送对象.
+
+backfill 扫描的是尚未确认的对象范围, 但不会无条件传输整个 PG. 只有在合并结果显示对象缺失, 版本过期或 target 存在多余对象时, 才会执行 Push, EC 重建或 Remove.
+
+在本轮 Peering 确定的 acting interval 中, primary 提供用于比较的对象集合和版本视图, target 按这个视图同步. 对于 replicated pool, 这通常意味着以 primary 本地的完整对象为比较和推送基准; 对于 EC pool, primary 是负责协调的 OSD/shard, 并不保存完整对象, 比较时还要结合对象元数据中的 shard 版本信息. 无论哪种 pool, 实际数据都不一定从 primary 的本地磁盘读取: 如果 primary 自身缺少对象, Ceph 会先通过普通 recovery 从同一个 PG 的其他 shard 或历史 source 恢复 primary; EC pool 还可能读取多个同 PG shard 并重建所需数据. 正常 backfill 不会从其他 PG 查找对象, 因为对象由 PG 映射独立管理.
+
+| 对比项 | recovery | backfill |
+|---|---|---|
+| 差异依据 | PG log, pg_missing_t, MissingLoc | primary/target 的对象范围扫描和版本比较 |
+| 工作粒度 | 已知 missing oid | 有序 hobject_t 范围 |
+| 数据传输 | Pull/Push/Delete | Scan/Remove, 数据传输复用 recovery backend |
+| 进度 | missing, last_complete | target 的 last_backfill 已完成位置 |
+| 典型场景 | 短暂离线, 日志可衔接 | 新 shard 加入, 长时间离线, 日志已裁剪 |
+
+## 2.1 backfill 的整体流程
+
+```mermaid
+flowchart TD
+    A[Peering 收集 pg_info_t 和 PG log] --> B{现有 log 能否描述差异}
+    B -->|能| C[建立 missing set]
+    C --> D[普通 recovery]
+    B -->|不能| E[choose_acting 形成 backfill_targets]
+    D --> F{是否仍有 backfill target}
+    E --> F
+    F -->|否| G[Recovered / Clean]
+    F -->|是| H[RequestBackfill]
+    H --> I[local reservation]
+    I --> J[逐个申请 remote reservation]
+    J --> K[Backfilling]
+    K --> L[PGRecovery 调度本轮工作]
+    L --> M[primary/target 分段扫描]
+    M --> N[按 oid/version 有序合并]
+    N --> O[keep / push / replace / remove]
+    O --> P[推进 last_backfill]
+    P --> Q{是否到达完成条件}
+    Q -->|否| L
+    Q -->|是| R[Backfilled -> Recovered]
+```
+
+backfill 与 recovery 共用 `PG::queue_recovery()`, `PGRecovery` 调度项和 `recovery_ops_active` 统计, 但 backfill 还使用独立的 Scan, Remove, Progress 和 Finish 协议. 进入 backfill 后, 实际的对象内容传输仍由 `PGBackend::recover_object()` 以及 replicated/EC backend 完成.
+
+# 3. Peering 阶段的 target 选择
+
+## 3.1 acting 集合与 backfill target
+
+Peering 收集当前及历史上可能参与该 PG 的 OSD 所报告的 `pg_info_t`, PG log 和 missing 信息后, 由 `choose_acting()` 计算本轮需要使用的几个集合:
+
+- `acting_recovery_backfill`: 本轮参与 PG 的 acting, recovery 和 backfill 集合中的 shard;
+- `backfill_targets`: 无法依靠当前 PG log 追平, 需要通过对象扫描同步的 shard;
+- `async_recovery_targets`: 可以异步补齐, 暂时不阻塞基本 acting 集合的 shard.
+
+在 replicated pool 中, acting 结果主要由 `calc_replicated_acting()` 计算; EC pool 则由 `calc_ec_acting()` 计算. 如果 acting set 需要改变, primary 会先请求 pg_temp; acting 集合稳定并完成激活后, 才会进入 recovery/backfill.
+
+backfill target 可能已经保存了一部分对象, 其中有些版本过旧, 有些在 primary 上已不存在. 扫描时既要找出 target 缺失的对象, 也要处理这些旧对象和多余对象.
+
+## 3.2 target 的完成位置
+
+`last_backfill` 是按 `hobject_t` 排序的已完成位置, 与 PG log 版本或字节偏移无关. `hobject_t` 是 Ceph 的对象定位键, 包含 pool, bitwise hash, namespace, key/name, 对象名和 snapshot 等信息. 比较时通常先看 pool 和 bitwise hash, 再比较其余字段. bitwise hash 是对象 hash 位反转后的排序键, 所以对象名相邻并不意味着扫描位置相邻. ObjectStore 的对象枚举和 `objects_list_partial()` 使用同一排序空间, 游标之后的范围仍需扫描和比较.
+
+```text
+已完成位置之前: target 已经被 backfill 处理, 或已确认无需处理
+已完成位置之后: 不能假设 target 与 primary 一致
+last_backfill == hobject_t::get_max(): target 的 backfill 完成
+```
+
+primary 会读取每个 target 的 `pg_info_t.last_backfill`; 只要有一个 target 尚未推进到 `MAX`, `needs_backfill()` 就返回 true. `MAX` 是 `hobject_t::get_max()` 返回的排序最大哨兵值, 表示已到达对象范围末尾. 一个 PG 可以同时对多个 target 执行 backfill, 每个 target 都有自己的扫描 interval 和已完成位置.
+
+## 3.3 recovery 先于 backfill
+
+Peering 完成后, 一个 PG 可能同时存在普通 recovery 任务和 `backfill_targets`, 但对同一个 PG 来说, 它们不是两条并行的同步流. `start_recovery_ops()` 会先处理能够由 PG log 明确描述的 missing; 进入 backfill 对象扫描还要求 primary 的 missing 数量为 0. `all_missing_unfound()` 可以让普通 recovery 尝试恢复 replica, 并不表示可以用缺失对象的 primary 视图继续 backfill.
+
+普通 recovery 先补齐 primary 的对象视图, 后续扫描才有可靠的比较基准和数据来源:
+
+- primary 缺失的对象必须先从其他 source 恢复, 否则 backfill 无法判断应当推送哪个版本;
+- replica 的普通 missing 可以先恢复, 增加可用副本并缩短 degraded 时间;
+- backfill 期间如果又发现 primary missing, 仍会回到 recovery 路径, 不能用不完整的 primary 继续推进扫描.
+
+不同 PG 之间仍然可以并行执行 recovery 或 backfill; 这里的先后关系只针对同一个 PG 内部的 primary recovery 和 target backfill.
+
+## 3.4 Peering 传递给 backfill 的状态
+
+`PastIntervals` 用于 Peering 阶段: 构造 prior set, 查询历史上可能参与该 PG 的 OSD, 收集各 shard 的日志和状态. Peering 据此形成 `backfill_targets`, 并准备每个 target 的 `pg_info_t`.
+
+`recover_backfill()` 使用这些 target 的 `pg_info_t.last_backfill` 和 primary/target 各自的 interval 开始工作, 不会在每轮扫描中重新遍历 `PastIntervals`.
+
+backfill 开始扫描前, 需要先确定:
+
+1. 哪些 shard 仍属于本轮 acting/recovery/backfill 集合;
+2. 哪些 target 的日志无法衔接, 需要范围扫描;
+3. 每个 target 从哪个 `last_backfill` 位置继续扫描;
+4. primary 是否已经具备用于比较和推送的对象版本.
+
+# 4. reservation 与调度
+
+## 4.1 本地与远端 reservation
+
+primary 开始 backfill 前需要获取两类 reservation:
+
+1. primary 所在 OSD 的 `local_reserver`, 用于执行本 PG 的本地 backfill 工作;
+2. 每个 backfill target OSD 的 `remote_reserver`, 用于让 target 接收该 PG 的 backfill.
+
+状态大致如下:
+
+```text
+NotBackfilling
+  -> RequestBackfill
+  -> WaitLocalBackfillReserved
+  -> WaitRemoteBackfillReserved
+     -> MBackfillReserve::REQUEST
+     <- GRANT / REJECT_TOOFULL / REVOKE
+  -> Backfilling
+```
+
+primary 先确保持有 local reservation; 若前一阶段的普通 recovery 已保留该 reservation, 则可继续使用. 随后按照有序的 `std::set<pg_shard_t>` 遍历远端 shard, 逐个发送 reservation 请求, 并等待前一个 target 返回 `GRANT` 后再请求下一个. reservation 按顺序申请; 进入 `Backfilling` 后, 扫描和对象恢复仍由 recovery scheduler 按槽位调度.
+
+## 4.2 target 容量检查
+
+target 收到 `MBackfillReserve::REQUEST` 后, 会根据 primary 的 PG 大小和本地预留量调用 `try_reserve_recovery_space(primary_num_bytes, local_num_bytes)`, 再通过 `tentative_backfill_full()` 判断接受本轮 backfill 后是否会达到 `BACKFILLFULL`. 空间不足时可以拒绝 reservation.
+
+backfill 已经开始后, target 在处理 Scan 请求时还会调用 `check_backfill_full()`. target 过满时会发送 `REVOKE`, primary 随后:
+
+- 设置 `backfill_toofull`;
+- 清理等待中的 Scan 和当前 reservation;
+- 等待 `osd_backfill_retry_interval` 后重试;
+- 从仍然安全的 `last_backfill` 重新建立扫描状态.
+
+`recovery_toofull` 和 `backfill_toofull` 不是同一个状态: 前者是 recovery 资源检查, 后者明确针对 backfill target 接收对象后的容量风险.
+
+## 4.3 OSD 共享的 recovery/backfill 调度队列
+
+backfill reservation 成功后, `PeeringState::Backfilling` 会调用 `PG::on_backfill_reserved()`, 随后由 `PG::queue_recovery()` 把 PG 放入 OSD 的共享调度队列. 这个队列沿用 recovery 的名称, 同时接收普通 recovery 和 backfill 工作.
+
+`OSDService::_maybe_queue_recovery()` 先检查:
+
+- recovery 是否被 `norecover`, delay 或 pause 阻止;
+- `recovery_ops_active + recovery_ops_reserved` 是否达到 `osd_recovery_max_active` 或 HDD/SSD 对应上限;
+- 本轮最多能按 `osd_recovery_max_single_start` 预留多少 recovery-op 槽位.
+
+调度器取出 `PGRecovery` 后调用 `OSD::do_recovery()`, 再进入 `PrimaryLogPG::start_recovery_ops()`. 该函数根据 PG 当前状态和 missing 情况选择工作路径: 普通 recovery 走 `recover_primary()`/`recover_replicas()`, backfill 则走 `recover_backfill()`. `reserved_pushes` 是历史命名, 实际表示本轮可启动的 recovery-op 槽位数, 不等于网络 Push 消息数.
+
+在 mClock 调度器下, 系统会用 PG 平均对象大小估算单个槽位的 cost, 再乘以本轮预留的槽位数; 这个值只是调度工作量的估算, 不是实际传输字节数. 进入具体 backfill 工作后, Scan, Remove, Push 和 Finish 消息再分别以 `PGRecoveryMsg` 的形式进入 scheduler.
+
+# 5. 一轮 backfill 的状态与扫描
+
+## 5.1 primary 与 target 的扫描区间
+
+primary 维护一个 `PrimaryBackfillInterval backfill_info`, 每个 target 维护一个 `ReplicaBackfillInterval peer_backfill_info[target]`.
+
+primary interval 记录:
+
+- `begin`: 当前待比较范围的起点;
+- `end`: 本次对象列表的下一起点;
+- `objects`: 按 oid 和版本保存的有序集合; EC optimized write 时, 同一 oid 可能有多个 shard 版本;
+- `version`: 该 interval 已经反映到哪个 PG update version.
+
+target interval 记录:
+
+```text
+peer_backfill_info[target].begin
+peer_backfill_info[target].end
+peer_backfill_info[target].objects: oid -> object_info_t.version
+```
+
+target 返回的 Scan 回复只包含 oid, 对象版本等比较信息, 不包含对象内容.
+
+primary 还维护几组并发状态:
+
+- `last_backfill_started`: 本轮扫描/比较当前处理到的 oid;
+- `backfills_in_flight`: 已经发起对象恢复但尚未完成的 oid;
+- `pending_backfill_updates`: 已经越过, 但暂时不能用于推进已完成位置的 stats 增量;
+- `waiting_on_backfill`: 已经发出 Scan, 但尚未收到回复的 target;
+- `new_backfill`: 是否需要用持久化位置重新初始化 interval.
+
+## 5.2 新一轮 backfill 的初始化
+
+`recover_backfill()` 第一次运行时, 会从 Peering 的状态初始化 interval:
+
+```text
+for each target:
+  peer_backfill_info[target].reset(target.last_backfill)
+
+backfill_info.reset(earliest_backfill)
+backfills_in_flight.clear()
+pending_backfill_updates.clear()
+```
+
+其中 `earliest_backfill()` 是本轮 target 已完成位置中最早的位置. 之后 primary 把 `backfill_info.begin` 对齐到 `last_backfill_started`, 调用 `update_range()`, 确保本地 interval 反映当前 PG 的状态.
+
+## 5.3 primary 侧的本地扫描
+
+当 interval 记录的版本早于 `info.log_tail` 时, PG log 已经不足以补齐这段范围, primary 会调用 `scan_range_primary()` 重新读取 ObjectStore:
+
+1. `objects_list_partial(begin, min, max)` 列出一批有序对象;
+2. 读取每个对象的 `OI_ATTR`, 得到 `object_info_t.version`;
+3. EC optimized write 额外记录目标 shard 的 `shard_versions`;
+4. 设置本批 `end`, 形成下一批扫描起点.
+
+`osd_backfill_scan_min` 和 `osd_backfill_scan_max` 都按 "对象数量" 计算, 不是按字节数计算; 下文配置表列出的默认值分别为 64 和 512. 其中, `scan_max` 是单批扫描的硬上限, `scan_min` 只是希望本批至少收集到的对象数.
+
+代码不会根据 PG 大小或对象大小动态计算这两个值, 而是直接把配置传给 `objects_list_partial(begin, min, max, ...)`. 如果 `min > max`, 代码会先把 `min` 限制为 `max`; 随后从 `begin` 开始调用 ObjectStore 的 collection list. 循环条件是 "已收集对象数少于 `min`", 但每次底层调用请求的数量是 `max - 已收集数量`, 因此一次调用如果直接返回了 `max` 个对象, `scan_min` 不会再产生额外影响. 只有底层一次返回的对象少于 `min`, 或者其中有 PG meta/临时对象等被过滤时, `scan_min` 才会促使代码继续补取. 到达对象范围末尾或发生错误时, 实际返回数量可以少于 `min`; 正常情况下不会超过 `max`. 函数还会返回下一批的 `hobject_t` 起点, 作为后续扫描的 `end`.
+
+primary 的本地扫描和 target 的远端扫描都会使用这两个参数, 但使用的是执行扫描的 OSD 自己的配置. 增大 `scan_max` 通常可以让一批 Scan 携带更多对象, 从而减少 Scan 请求/回复的往返次数; 代价是单次 list, 消息编解码, 内存占用和 PG 锁持有时间增加. `scan_min` 控制是否继续补取, 并不保证每批至少返回这个数量的对象.
+
+## 5.4 扫描结果与并发写入
+
+backfill 扫描期间仍可能有客户端写入. primary 不会直接使用过时的扫描结果, 而是根据 interval 的 `version` 选择处理方式:
+
+- `version < info.log_tail`: 日志已经裁剪, 重新扫描 ObjectStore;
+- `info.log_tail <= version < projected_last_update`: 遍历 PG log 和 `projected_log`, 把 update/delete 增量应用到 interval;
+- `version == projected_last_update`: interval 已经更新到当前 projected 状态, 无需继续更新.
+
+update entry 会替换该 oid 的版本, delete entry 会从 interval 删除 oid; EC partial write 只修改实际写入的 shard 版本. 更新后的本地视图反映到当前 projected update, 随后再参与合并.
+
+## 5.5 target 侧的扫描协议
+
+当 target interval 需要继续向前扫描时, primary 会发送 `MOSDPGScan::OP_SCAN_GET_DIGEST`:
+
+```text
+primary
+  -> MOSDPGScan::OP_SCAN_GET_DIGEST(begin)
+target
+  -> check_backfill_full()
+  -> scan_range_replica(min, max)
+     -> objects_list_partial()
+     -> objects_get_attr(OI_ATTR)
+     -> oid -> object version
+  -> MOSDPGScan::OP_SCAN_DIGEST(begin, end, objects)
+primary
+  -> 填充 peer_backfill_info[target]
+  -> 清除 waiting_on_backfill[target]
+```
+
+primary 可以同时向多个 target 发起 Scan 请求; 在 primary 侧, 这些请求合并计作一个 recovery-op. 所有 target 都返回回复后, `finish_recovery_op(hobject_t::get_max())` 才会允许下一轮继续. Scan 返回的 digest 是目录摘要, 不是 deep-scrub 使用的数据 digest.
+
+# 6. 有序合并与对象动作
+
+`recover_backfill()` 每轮会取 primary 当前的 `backfill_info.begin` 和 `earliest_peer_backfill()` 返回的位置, 按 `hobject_t` 做多路有序合并. 合并结果先形成 Remove 列表或对象 Push 目标, 随后再通过本轮的 recovery handle 统一提交.
+
+## 6.1 删除 target 多余对象
+
+```text
+target oid < primary oid
+```
+
+这说明对象只存在于 target 的当前扫描范围, 而 primary 的当前对象集合中没有它. primary 会把 `(oid, version, target)` 放入 `to_remove`, 按 target 聚合后发送 `MOSDPGBackfillRemove`.
+
+target 的 `do_backfill_remove()` 会在 ObjectStore transaction 中:
+
+- 删除对象;
+- 更新本地/用户字节统计;
+- 从 SnapMapper 移除映射.
+
+Remove 不会收到单独的回复, 也不会为每个删除操作建立普通对象 recovery-op; 但删除对象对应的已完成位置和 stats 仍要由 primary 的有序进度逻辑处理.
+
+## 6.2 保留版本一致对象
+
+```text
+primary oid == target oid
+primary version == target version
+```
+
+target 已经拥有正确版本, 双方 interval 同时移出该 oid, 不需要传输数据. primary 仍会把该对象纳入本轮进度和统计推进.
+
+## 6.3 替换版本不一致对象
+
+```text
+primary oid == target oid
+primary version != target version
+```
+
+primary 会将 target 加入 `need_ver_targs`, 然后使用本地对象的目标版本发起 backfill push; target 收到后沿用普通 recovery push 路径写入新版本.
+
+## 6.4 推送 target 缺失对象
+
+当 primary 当前处理的 oid 小于 target interval 的当前 oid 时, 说明 target 的扫描结果已经越过该对象. primary 还要检查 target 的 `last_backfill`:
+
+- primary oid 位于 target 已完成位置之后: 加入 `missing_targs`, 确认 target 需要该对象;
+- primary oid 不在已完成位置之后: 加入 `skip_targs`, 说明 target 当前扫描位置还不足以证明它缺失, 不能贸然 push.
+
+对于 `need_ver_targs` 和 `missing_targs` 合并后的目标集合, primary 会调用 `prep_backfill_object_push()`. 如果对象被其他 recovery 操作占用, 本轮处理会停在该 oid, 等待下一轮继续.
+
+# 7. 对象数据传输
+
+## 7.1 backfill 与 recovery backend 的衔接
+
+backfill 确定待同步的对象, 版本和 target. 实际的数据读取, 分块, temporary object, attrs, omap, snapshot clone overlap 和 EC reconstruct 都复用 recovery backend:
+
+```text
+prep_backfill_object_push
+  -> backfills_in_flight.insert(oid)
+  -> prepare_backfill_for_missing(oid, version, targets)
+  -> start_recovery_op(oid)
+  -> pgbackend->recover_object(oid, version, obc)
+     -> replicated: 构造 PushOp -> MOSDPGPush
+     -> EC: 读取 source shards -> decode -> MOSDPGPush
+```
+
+## 7.2 副本池中的对象传输
+
+replicated backend 会读取普通对象的 data, attrs, omap 和 `object_info_t`. 对于 snapshot clone, 它可以根据 SnapSet 计算 `copy_subset` 和 `clone_subset`, 只传输仍需的数据. 对象较大时, Push 会按 `osd_recovery_max_chunk` 分块; target 的每个 transaction 完成后都会回复 `MOSDPGPushReply`, primary 在全部 data/omap 传输完成后, 才会将该对象标记为恢复完成.
+
+## 7.3 纠删码池中的对象重建
+
+EC PG 同样有 primary OSD/shard, 负责客户端请求, Peering 和恢复流程的协调; 但它不是保存完整对象的副本. 这里的 primary shard 不一定是数据 shard, 也可能是 coding parity shard. 代码中的 `OSDMap::get_primary_shard()` 会根据 acting set 找到 primary; 启用 EC optimized writes 时, `OSDMonitor` 会把不能成为 primary 的 shard 写入 `pg_pool_t::nonprimary_shards`, `OSDMap::pgtemp_primaryfirst()` 再把允许作为 primary 的 shard 排到前面. 当前实现通常保留第一个数据 shard 和 coding parity shards 作为可选 primary, 其他可能没有完整对象元数据的 shard 则不能成为 primary; 未启用该优化时没有这项限制.
+
+EC backfill 根据 primary 的对象元数据和 shard 版本信息判断 target 的差异. 写入 target 的数据由 EC backend 从可用 source shards 中读取并重建.
+
+EC primary 不一定在本地拥有目标 shard. EC recovery backend 会执行以下步骤:
+
+1. 从可用 source shards 中选择足够的 shard, 读取逻辑 chunk;
+2. 根据 EC plugin 解码生成缺失 shard;
+3. 为每个 target 提取对应的 sparse shard buffer;
+4. 分别发送 `MOSDPGPush`.
+
+这里不要求读取所有 shard, 具体需要哪些 source shards 由 EC plugin 根据 k, 校验块数量以及当前可用 shard 决定. EC backfill 比较的是各 shard 的对象版本; 对象能否恢复, 仍由 plugin 的 recoverable predicate 和可用 source shard 组合决定.
+
+primary 本身不属于 backfill target. 如果 primary shard 自己缺失或需要修复, 通常先走普通 recovery: EC backend 从其他可用 shard 解码出 primary shard, 再把结果写回承载 primary 的 OSD. 写回 primary 的这一步属于普通 recovery.
+
+# 8. 进度, 持久化与完成
+
+## 8.1 已完成位置不能越过未完成对象
+
+`last_backfill_started` 可以领先于实际完成位置: primary 可能已经扫描并安排了多个对象, 但其中较小的对象仍在分块 Push. 为了避免故障后跳过未完成的对象, primary 维护:
+
+```text
+backfills_in_flight       已开始但未完成的 oid
+pending_backfill_updates  已扫描前缀对应的 stats
+```
+
+每轮结束时, primary 会计算:
+
+```text
+backfill_pos = min(backfill_info.begin, earliest_peer_backfill())
+next_backfill_to_complete =
+    backfills_in_flight 为空 ? backfill_pos : 最小的 in-flight oid
+```
+
+只有 `pending_backfill_updates` 中严格早于这个边界的连续前缀, 才能用于更新 stats 并推进新的已完成位置. 如果一个更小的 oid 尚未完成处理, 后面的对象即使已经完成, 也不能让 `last_backfill` 越过它.
+
+## 8.2 进度, 完成与确认消息
+
+当 primary 形成新的已完成位置时, 会更新内存中的 peer info, 并向每个 target 发送以下消息:
+
+- `MOSDPGBackfill::OP_BACKFILL_PROGRESS`: target 持久化新的 `last_backfill` 和 stats;
+- `MOSDPGBackfill::OP_BACKFILL_FINISH`: 已完成位置推进到 `hobject_t::get_max()`; target 回复 `OP_BACKFILL_FINISH_ACK`.
+
+target 的 `do_backfill()` 会在 Progress 分支构造并提交 ObjectStore transaction. 处理 Finish 时, target 会先发送 ACK, 投递 `RecoveryDone` peering event, 再沿用 Progress 逻辑提交这个位置. ACK 只表示 target 已处理 Finish 消息, 不能单独证明对应 transaction 已经 commit; primary 仍通过合成 recovery-op 等待 ACK, 并在收到 ACK 后调用 `finish_recovery_op(hobject_t::get_max())`.
+
+## 8.3 backfill 的完成条件
+
+一次 backfill 只有同时满足以下条件, primary 才会发出 `Backfilled` event:
+
+```text
+primary backfill_info 到达 MAX
+所有 target interval 到达 MAX
+backfills_in_flight 为空
+pending_backfill_updates 已排空
+所有 target 的 last_backfill 已更新到 MAX
+所有 Finish ACK 对应的合成 recovery-op 已完成
+```
+
+`Backfilled` 由 Peering 状态机处理: 状态机会释放 local/remote backfill reservation, 使 PG 离开 `Backfilling` 并进入 `Recovered`; 如果没有其他 degraded/backfill 条件, 随后进入 `Clean`.
+
+# 9. 容量, 并发和失败处理
+
+## 9.1 容量阈值
+
+target 在 reservation 和 Scan 阶段都会检查容量. 检测到 `BACKFILLFULL` 后, target 会拒绝或撤销 reservation, 阻止后续 backfill 继续调度. primary 清理等待中的 Scan 和 reservation, 并在 `osd_backfill_retry_interval` 到期后重试; 这不等于同步取消已经提交的写入. 提高 `backfillfull` ratio 会减少拒绝, 但也会缩短 OSD 到 full 的安全余量.
+
+## 9.2 无法找到对象来源
+
+`backfill_unfound` 表示 backfill 过程中需要的对象没有可用来源. 常见原因包括:
+
+- primary 在 backfill 期间又出现 missing;
+- source OSD down;
+- EC 可用 shard 不足, 无法解码;
+- lost/revert 决策尚未完成.
+
+此时状态机会暂停 backfill, 并保留安全的已完成位置; 普通 recovery 或 Peering 重新建立 source 后, backfill 才可能继续. unfound 不等于对象已经永久丢失.
+
+## 9.3 OSDMap 变化与过期回复
+
+acting set, primary, interval 或 source 发生变化后, 旧的 Scan, Push 回复和 Progress 消息可能失效. PG reset 会清理等待中的 Scan, 尚未完成的 backfill 操作, backend push/pull 状态和 reservation; 新的状态从持久化的 `last_backfill` 重新初始化, 已完成的连续前缀不会因为重试而被跳过.
+
+## 9.4 reservation 撤销与集群 flag
+
+高优先级 recovery/backfill 可能抢占低优先级 remote reservation. target 发送 revoke 后, primary 会释放当前 reservation, 稍后重新申请. 几个 flag 分别控制不同的入口: `nobackfill` 只阻止 `start_recovery_ops()` 中的 backfill 分支, 普通 recovery 仍可继续; `norebalance` 只阻止非 degraded PG 的 rebalancing backfill; `norecover` 则暂停 recovery 与 backfill 共用的 OSD 调度入口, 因此会同时阻止新的普通 recovery 和 backfill 工作进入 `PGRecovery` 调度项.
+
+`norecover` 由 `OSD::activate_map()` 转换为 `OSDService::pause_recovery()`; 在 `OSDService::_recover_now()` 中, 只要处于 paused 状态, 就不会把 `awaiting_throttle` 中的 PG 转成新的 `PGRecovery` 调度项. `pause_recovery()` 本身不会撤销已经交给 scheduler 的任务, 也不会取消已经启动的 recovery-op, Scan, Push 或 ObjectStore transaction; 这些工作仍可能完成, PG 后续重新入队时才会再次受到暂停状态影响. 清除 `norecover` 后, `unpause_recovery()` 会重新调用 `_maybe_queue_recovery()`, 继续处理等待队列; 如果 PG 或 OSDMap 同时发生变化, 相关任务也可能因状态失效而被另外清理.
+
+# 10. 客户端 I/O, 流量与资源
+
+## 10.1 扫描开销
+
+primary 和 target 都要执行 partial list, 读取 `OI_ATTR`, 构造 oid/version map, 并对 Scan 消息进行编解码. scan window 主要由 `osd_backfill_scan_min` 和 `osd_backfill_scan_max` 控制. 对象数量很多但单个对象很小时, metadata/DB I/O, CPU, 内存和消息开销可能成为主要瓶颈; 适当增大 `scan_max` 可能减少往返次数, 但会增加单次 list 的工作量和 PG lock 压力.
+
+## 10.2 传输与删除开销
+
+replicated pool 的数据流量大致等于 target 缺失或过期对象的实际 `copy_subset`, 再加上 attrs, omap 和协议元数据; 只有 target 接近空 PG 时, 数据部分才会接近整个 PG. EC pool 还要增加 source shard read 和 decode 带来的 CPU/流量开销. target 的多余对象通过 `MOSDPGBackfillRemove` 删除, 消息本身很小, 但会产生 ObjectStore metadata transaction, allocator 释放, SnapMapper 更新和后续 compaction 开销.
+
+## 10.3 与客户端 I/O 的竞争
+
+backfill 同时占用 source read, target write, DB metadata, cluster network 和 scheduler 资源. 常见表现是 source 读延迟, target commit latency, EC decode CPU, 或者同机多个 OSD 之间的 NIC/内存控制器争用升高. reservation 和 active-op 上限只能控制并发度, 不能保证每个 backfill PG 获得相同的传输带宽.
+
+# 11. 配置项与调度控制
+
+| 配置/flag | 默认值或行为 (需核对运行配置) | 作用 |
+|---|---|---|
+| osd_max_backfills | 1 | 每个 OSD 的 local/remote recovery/backfill reservation 上限, 各自计算 |
+| osd_backfill_scan_min | 64 | 单次 range scan 的补取阈值, 不保证至少返回该数量 |
+| osd_backfill_scan_max | 512 | 单次 range scan 的最多对象数 |
+| osd_backfill_retry_interval | 30 秒 | full, revoke 或 reservation 失败后的重试间隔 |
+| osd_recovery_max_active_hdd | 3 | HDD OSD active recovery-op 上限 |
+| osd_recovery_max_active_ssd | 10 | SSD OSD active recovery-op 上限 |
+| osd_recovery_max_chunk | 8 MiB | 单个对象 recovery chunk 的 payload 预算 |
+| osd_max_push_cost | 8 MiB | Push/Delete 组包的累计 cost 阈值 |
+| osd_max_push_objects | 10 | 单条 Push/Delete 消息的对象数上限 |
+| norecover | flag | 暂停共享 recovery/backfill 调度入口, 不再发放新的 PGRecovery 调度项 |
+| nobackfill | flag | 暂停 backfill |
+| norebalance | flag | 暂停非 degraded rebalancing backfill |
+| force-backfill | priority 254 | 提高指定 PG 的 backfill 优先级 |
+
+`force-backfill` 不会跳过 full 检查, reservation 或 active-op 上限. 在 mClock 下还要关注 background recovery profile; 直接增大 scan window 或并发度, 可能让比较更快, 却把瓶颈转移到设备写入, cluster network 或 target commit.
+
+# 12. 观测与排障
+
+## 12.1 PG/OSD 状态查询
+
+```bash
+ceph -s
+ceph health detail
+ceph pg <pgid> query
+ceph pg map <pgid>
+ceph daemon osd.<id> dump_recovery_reservations
+ceph daemon osd.<id> dump_ops_in_flight
+ceph daemon osd.<id> counter dump
+```
+
+通过 `pg query` 查看 PG 状态, peer 信息和恢复状态历史. 扫描区间, 在途对象等内部状态还需结合 OSD 调试日志或源码检查, 重点关注以下信息:
+
+- `backfill_targets` 和每个 target 的 `last_backfill`;
+- `backfill_info`, `peer_backfill_info`;
+- `last_backfill_started`, `backfills_in_flight`, `pending_backfill_updates`;
+- `waiting_on_backfill`;
+- state history 是否停留在 reservation 或 Backfilling; Scan, Push, Progress 和 Finish 的等待情况还需结合日志判断.
+
+## 12.2 常见停滞位置
+
+| 现象 | 优先检查 |
+|---|---|
+| backfill_wait | local/remote reservation, mClock, priority |
+| backfill_toofull | target 使用率, backfillfull ratio, 迁移目标 |
+| 长时间等待 Scan | target scheduler, DB/list latency, 消息连接 |
+| Push 很慢 | source read, cluster network, target commit |
+| last_backfill 不推进 | 更小 oid 尚未完成, pending updates, PG reset |
+| 反复从旧位置开始 | OSDMap/interval 变化, target down, Progress 未持久化 |
+| 对象数差异不下降 | Scan 窗口, 客户端持续写入, Remove backlog |
+
+## 12.3 计数器的含义边界
+
+backfill 复用 recovery scheduler 和部分 active-op 计数. Scan, Finish 等等待会使用 `hobject_t::get_max()` 建立合成 recovery-op; 因此, `recovery_ops_active` 不等于当前正在传输的对象数, `osd.recovery_bytes` 也不等于扫描范围大小. 判断进度还需要查看已完成位置, interval 和尚未完成的对象集合.
+
+# 13. 源码位置与排障顺序
+
+| 阶段 | 文件 | 关键函数/类型 |
+|---|---|---|
+| target 选择 | src/osd/PeeringState.cc | choose_acting(), needs_backfill() |
+| reservation | src/osd/PeeringState.cc | WaitLocalBackfillReserved, WaitRemoteBackfillReserved, Backfilling |
+| recovery 调度入口 | src/osd/PrimaryLogPG.cc, src/osd/OSD.cc | start_recovery_ops(), recover_backfill(), do_recovery() |
+| interval 更新 | src/osd/PrimaryLogPG.cc | update_range(), scan_range_primary() |
+| target 扫描 | src/osd/PrimaryLogPG.cc | do_scan(), scan_range_replica() |
+| 合并与 Push | src/osd/PrimaryLogPG.cc | recover_backfill(), prep_backfill_object_push() |
+| replicated backend | src/osd/ReplicatedBackend.cc | recover_object(), build_push_op(), handle_push_reply() |
+| EC backend | src/osd/ECCommon.cc | RecoveryBackend::continue_recovery_op() |
+| Remove | src/osd/PrimaryLogPG.cc | do_backfill_remove() |
+| Progress/Finish | src/osd/PrimaryLogPG.cc, src/osd/PeeringState.cc | do_backfill(), update_backfill_progress() |
+| 消息 | src/messages/ | MOSDPGScan, MOSDPGBackfill, MOSDPGBackfillRemove, MOSDPGPush |
+
+排障时按以下顺序缩小范围:
+
+```text
+为什么这个 shard 会被选为 backfill_target?
+  -> target 的 last_backfill 在哪里?
+  -> local/remote reservation 是否已获得?
+  -> target 是否 backfillfull?
+  -> primary/target interval 是否已经完成 Scan?
+  -> 当前最小 oid 是 keep, replace, push 还是 remove?
+  -> 是否有更小的 backfills_in_flight 阻止已完成位置推进?
+  -> Progress/Finish transaction 和 ACK 是否完成?
+  -> 是否发生 OSDMap 变化, revoke 或 PG reset?
+```

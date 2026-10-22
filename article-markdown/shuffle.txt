@@ -1,0 +1,149 @@
+# 三种洗牌算法 shuffle
+
+# 1. 简介
+
+洗牌算法可以被理解为三种洗牌算法, 分别是抽牌 (Fisher-Yates Shuffle 算法), 换牌 (Knuth-Durstenfeld Shhuffle 算法) 和插牌算法.
+
+# 2. 具体算法
+
+## 2.1 Fisher-Yates 洗牌算法 (抽牌算法)
+
+这个洗牌方法最早由 `Ronald A. Fisher` 和 `Frank Yates` 提出, 即 `Fisher-Yates Shuffle`, 其基本思想就是从原始数组中随机取一个之前没取过的数字到新的数组中, 具体如下:
+
++ 初始化原始数组和新数组, 原始数组长度为 n(已知);
++ 从还没处理的数组 (假如还剩 k 个) 中, 随机产生一个 [0, k) 之间的数组下标数字 p;
++ 从剩下的 k 个数中把下标为 p 的数取出, 放在新数组的末尾 (末尾有数字则放在末尾前一位, 依次往前);
++ 重复步骤 2 和 3 直到数字全部取完, 新数组的数字序列就是一个随机的序列;
+
+ 下面证明其随机性, 即每个元素被放置在新数组中的第 i 个位置是 1/n(假设数组大小是 n):
+
+**证明:** 一个元素 m 被放入第 i 个位置的概率 P = 前 i-1 个位置选择元素时没有选中 m 的概率 * 第 i 个位置选中 m 的概率, 即:
+
+
+
+
+
++ 时间复杂度: $O(n^2)$
+
++ 空间复杂度: $O(n)$
+
+
+
+
+
+算法实现:
+
+```c
+void suffleFisherYates(char *source, char *dest) {
+    for(int i=0;i<POKER_NUM;i++)
+    {
+        int index=rand()%(POKER_NUM-i)+i;         //获取从i~POKER_NUM的一个索引
+        std::swap(poker[i],poker[index]);        //交换
+    }
+}
+
+void suffleFisherYates(char *date, int length){
+    char t;    //t为交换字符空间   
+    int i, j;
+    while(--length){
+        srand(time(0));
+        i = rand()%(length+1);
+        t = date[i];
+        date[i] = date[length];
+        date[length] = t;
+    }
+}
+
+
+void MySwap(int &x, int &y)
+{
+    int temp = x;
+    x = y;
+    y = temp;
+}
+ 
+void Shuffle(int n)
+{
+    for(int i=n-1; i>=1; i--)
+    {
+        MySwap(num[i], num[rand()%(i+1)]);
+    }
+}
+```
+
+
+
+
+
+## 2.2 Knuth-Durstenfeld 洗牌算法 (换牌算法)
+
+Knuth 和 Durstenfeld  在 Fisher 等人研究的基础上对算法进行了改进, 在原始数组上对数字进行交互, 省去了额外 O(n) 的空间. 该算法的基本思想和 Fisher 类似, 每次从未处理的数据中随机取出一个数字, 然后把该数字放在数组的尾部, 即数组尾部存放的是已经处理过的数字.
+
+### 2.2.1 算法思路
+
++ 建立一个数组大小为 n 的数组, 存放 n 个数值;
++ 生成一个从 0 到 m-1(假设数组未处理的大小为 m) 的数组下标随机数 p;
++ 获取数组中下标为 p 的数字, 并将其与数组下标为 m-1 的元素互换, 数组未处理的大小 m 减去 1;
++ 依次执行 2,3 步骤, 最终原始数组变成了一个新的随机序列数组;
+
+### 2.2.2 算法优缺点
+
++ 优点:
+  + 不需要额外占用多余的数组空间;
+
++ 缺点:
+  + 必须知道数组的的长度, 无法处理长度不固定的数组;
+  + 改变了原数组的排列顺序;
+  + 由于扫描的方式为从后往前, 因此无法处理长度动态增长的数组;
+
+### 2.2.3 算法复杂度
+
+- 时间复杂度: $O(n)$
+
+- 空间复杂度: $O(1)$
+
+算法实现:
+
+```c
+#include <stdlib.h>
+#include <time.h>
+
+int *shuffleKnuthDurstenfeld(int *arr, int len) {
+  int i, p, tmp = 0;
+
+  srand((unsigned)time(NULL));
+  for(i = len-1; i>=1; i--) {
+    p = rand()%(i+1);
+    tmp = arr[i];
+    arr[i] = arr[p];
+    arr[p] = tmp;
+  }
+  return arr;
+}
+```
+
+
+
+## 2.3 Inside-Out Algorithm 算法
+
+
+
+Knuth-Durstenfeld Shuffle 是一个内部打乱的算法, 算法完成后原始数据被直接打乱, 尽管这个方法可以节省空间, 但在有些应用中可能需要保留原始数据, 所以需要另外开辟一个数组来存储生成的新序列.
+        Inside-Out Algorithm 算法的基本思思是从前向后扫描数据, 把位置 i 的数据随机插入到前 i 个 (包括第 i 个) 位置中 (假设为 k), 这个操作是在新数组中进行, 然后把原始数据中位置 k 的数字替换新数组位置 i 的数字. 其实效果相当于新数组中位置 k 和位置 i 的数字进行交互.
+
+
+
+
+
+如果知道 arr 的 lengh 的话, 可以改为 for 循环, 由于是从前往后遍历, 所以可以应对 arr [] 数目未知的情况, 或者 arr [] 是一个动态增加的情况.
+证明如下:
+原数组的第 i 个元素 (随机到的数) 在新数组的前 i 个位置的概率都是: (1/i) * [i/(i+1)] * [(i+1)/(i+2)] *...* [(n-1)/n] = 1/n, (即第 i 次刚好随机放到了该位置, 在后面的 n-i 次选择中该数字不被选中).
+原数组的第 i 个元素 (随机到的数) 在新数组的 i+1 (包括 i + 1) 以后的位置 (假设是第 k 个位置) 的概率是: (1/k) * [k/(k+1)] * [(k+1)/(k+2)] *...* [(n-1)/n] = 1/n(即第 k 次刚好随机放到了该位置, 在后面的 n-k 次选择中该数字不被选中)
+
+
+
+
+
+- 时间复杂度: $O(n)$
+
+- 空间复杂度: $O(n)$

@@ -1,0 +1,254 @@
+# vsftpd 搭建 FTP 服务器
+
+# 1. 要求
+
+现在我们需要在 `Ubuntu14.04` 上利用 `vsftpd` 创建 `ftp` 服务器环境, 然后在禁止匿名访问的前提下, 创建以下四个虚拟用户并配权:
+
+1. 一个用户为:`tea1`, 密码为:`tea1pass`, 进入 `tea1` 目录 (对该目录及其子目录拥有所有权限, 不可进入上级目录).
+2. 一个用户为:`tea2`, 密码为:`tea2pass`, 进入 `tea2` 目录 (对该目录及其子目录拥有所有权限, 不可进入上级目录).
+3. 一个用户为:`stu`, 密码为:`stupass`, 进入 `ftp` 总目录 (只拥有上传文件权限, 不可进入上级目录).
+4. 一个用户名为:`admin`, 密码为:`admin`, 进入 `ftp` 总目录 (拥有 ftp 的全部权限).
+
+注:`ftp` 的主目录为 `/home/ftp/ftp`, 如果需要创建其他用户, 或者修改用户权限, 使用 SSH 修改.
+
+# 2. vsftpd 安装:
+
+在配置 `vsftpd` 之前, 我们先安装 `vsftpd`,`vsftpd` 的安装比较简单. 我们直接使用 `apt-get` 进行安装, 如下:  
+```bash
+sudo apt-get -y install vsftpd
+```
+安装步骤很简单, 这一个命令就 ok 了, 不过配置才是大头. 你可以使用下面的命令尝试去看 `vsftpd` 安装的一些文件:
+```bash
+dpkg -L vsftpd |tac
+```
+(这里只说明 `/etc/init/vsftpd.conf` 是 `vsftpd` 的初始化文件, 而 `/etc/vsftpd.conf` 是 `vsftpd` 的配置文件)
+
+vsftpd 的启动, 停止, 重启方式:
+
+1. 在 ubuntu 下要启动, 停止, 重启 vsftpd, 我们必须使用以下命令:
+
+   ```bash
+   sudo service vsftpd stop
+   sudo service vsftpd start
+   sudo service vsftpd restart
+   ```
+
+2. 在 centos 下, 我们可以使用以下命令:  
+
+   ```bash
+   service vsftpd stop
+   /etc/init.d/vsftpd stop
+   ```
+
+# 3. 配置
+
+由于我们已经安装完了, 所以, 接下来我们就要进行一些配置, 其实在我们安装完 vsftpd 之后, 这个程序就会自动创建一个账户为 ftp 的账户, 大家可以用下面的命令查看创建好的 ftp 用户:
+```bash
+cat /etc/passwd
+```
+不过我不想使用它, 我们就先把它删除了吧, 反正以后也用不到, 然后我们再创建一个用户 ftp, 代码如下:  
+```bash
+userdel -r ftp 
+sudo useradd -m -s /bin/bash ftp
+```
+创建后, 可以查看一下刚创建的用户 (注意: 这个用户是无法登录系统的, 只是用来作后面虚拟用户的载体):  
+```bash
+cat /etc/passwd |grep ftp
+```
+创建完成新用户后, 我们来创建该用户的对应的目录并修改用户之前的对应目录:  
+```bash
+sudo chown -R ftp:ftp /home/ftp/
+```
+由于我们需要使用虚拟用户登录系统, 所以我们接下来设置虚拟用户的账户名和密码的文件 `login.txt`, 如下代码所示:  
+```bash
+sudo mkdir /etc/vsftpd/
+sudo vim /etc/vsftpd/login.txt
+```
+然后在文件中, 输入我们想要创建的四个用户的用户名及其密码并保存, 需要注意的是一个账户一行, 一个密码一行, 一共四个用户和密码, 也就是需要占用八行.  
+之后, 我们需要用到 `db_load` 进行加密处理, 所以我们还需要下载并安装 `db-util`, 代码如下:  
+```bash
+sudo apt-get -y install db-util
+```
+安装成功后, 使用 `db_load` 对 `loginx.txt` 进行加密处理:  
+```bash
+sudo db_load -T -t hash -f /etc/vsftpd/login.txt /etc/vsftpd/login.db
+```
+将 `loginx.txt` 加密处理后, 我们接下来配置 `vsftpd` 的 PAM 验证.
+创建验证文件, 代码如下:  
+```bash
+sudo vim /etc/pam.d/vsftpd.virtual
+```
+在打开的文件中输入下面的代码 (注意: 下面代码中的 `pam_userdb.so` 的路径根据具体的路径进行填写, 如果不知道, 请 find 一下. 下面的 `/etc/vsftpd/login` 等同于 `/etc/vsftpd/login.db` 文件, 后面不需要写后缀.): 
+
+```bash
+auth required /lib/x86_64-linux-gnu/security/pam_userdb.so db=/etc/vsftpd/login
+account required /lib/x86_64-linux-gnu/security/pam_userdb.so db=/etc/vsftpd/login
+```
+
+接下来我们开始进行用户权限的分配! 使用下面代码打开配置文件:
+```bash  
+sudo vim /etc/vsftpd.conf
+```
+确保该文件中下面的代码正确并且已经启用 (如果没有请手动添加):
+```bash
+listen=YES
+listen_ipv6=NO
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+local_umask=022
+dirmessage_enable=YES
+use_localtime=YES
+xferlog_enable=YES
+connect_from_port_20=YES
+xferlog_file=/var/log/vsftpd.log
+xferlog_std_format=YES
+chroot_local_user=YES
+chroot_list_enable=NO
+allow_writeable_chroot=YES
+secure_chroot_dir=/var/run/vsftpd/empty
+pam_service_name=vsftpd
+rsa_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+rsa_private_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+ssl_enable=NO
+guest_enable=YES
+pam_service_name=vsftpd.virtual
+user_config_dir=/etc/vsftpd/vu
+pasv_enable=YES
+pasv_min_port=30000
+pasv_max_port=31000
+```
+上面这些代码的具体含义请自行查询, 这里不做解释.  
+首先由于这些虚拟用户还没有对应的文件夹, 所以我们需要在 `/home/ftp/ftp` 中创建对应的文件夹, 并且将文件夹所有者设置为 `ftp`, 由于 `stu` 用户和 `admin` 用户都指向总目录, 所以不需要额外创建目录, 因此代码如下所示:  
+```bash
+sudo mkdir /home/ftp/ftp
+sudo chown -R ftp:ftp /home/ftp/ftp/
+sudo mkdir /home/ftp/ftp/tea1
+sudo chown -R ftp:ftp /home/ftp/ftp/tea1/
+sudo mkdir /home/ftp/ftp/tea2
+sudo chown -R ftp:ftp /home/ftp/ftp/tea2/
+```
+# 4. 虚拟用户的权限的配置
+
+创建完虚拟用户对应的目录后, 我们需要建立虚拟用户对应的配置文件, 对虚拟用户的权限进行配置, 代码如下:
+```bash
+sudo mkdir /etc/vsftpd/vu
+sudo vim /etc/vsftpd/vu/tea1
+```
+在打开的窗口中输入 `tea1` 用户的权限设置并保存:
+```bash
+guest_username=ftp
+local_root=/home/ftp/ftp/tea1/
+virtual_use_local_privs=YES
+anon_umask=133
+cmds_allowed=ABOR,ACCT,APPE,CWD,CDUP,DELE,HELP,LIST,MODE,MDTM,MKD,NOOP,NLST,PASS,PASV,PORT,PWD,QUIT,REIN,RETR,RMD,RNFR,RNTO,SITE,SIZE,STOR,STAT,STOU,STRU,SYST,TYPE,USER
+```
+然后建立 `tea2` 的配置文件并输入配置信息:
+```bash
+sudo vim /etc/vsftpd/vu/tea2
+```
+配置信息:
+```bash
+guest_username=ftp
+local_root=/home/ftp/ftp/tea2/
+virtual_use_local_privs=YES
+anon_umask=133
+cmds_allowed=ABOR,ACCT,APPE,CWD,CDUP,DELE,HELP,LIST,MODE,MDTM,MKD,NOOP,NLST,PASS,PASV,PORT,PWD,QUIT,REIN,RETR,RMD,RNFR,RNTO,SITE,SIZE,STOR,STAT,STOU,STRU,SYST,TYPE,USER
+```
+建立 `stu` 的配置文件并输入配置信息:
+```bash
+sudo vim /etc/vsftpd/vu/stu
+```
+配置信息:
+```bash
+guest_username=ftp
+local_root=/home/ftp/ftp/
+virtual_use_local_privs=YES
+anon_umask=133
+cmds_allowed=FEAT,REST,CWD,LIST,MDTM,MKD,NLST,PASS,PASV,PORT,PWD,QUIT,RMD,SIZE,STOR,TYPE,USER,ACCT,APPE,CDUP,HELP,MODE,NOOP,REIN,STAT,STOU,STRU,SYST
+```
+建立 `admin` 的配置文件并输入配置信息:
+```bash
+sudo vim /etc/vsftpd/vu/admin
+```
+配置信息:
+```bash
+guest_username=ftp
+local_root=/home/ftp/ftp/
+virtual_use_local_privs=YES
+anon_umask=133
+cmds_allowed=ABOR,ACCT,APPE,CWD,CDUP,DELE,HELP,LIST,MODE,MDTM,MKD,NOOP,NLST,PASS,PASV,PORT,PWD,QUIT,REIN,RETR,RMD,RNFR,RNTO,SITE,SIZE,STOR,STAT,STOU,STRU,SYST,TYPE,USER
+```
+>关于 `cmds_allowed` 的一些知识
+
+以逗号分隔的方式指定可用的 FTP 命令 (post login. USER, PASS and QUIT 是始终可用的命令). 在 vsftpd 中可以使用默认的一些方法配置来调节用户的对文件操作的权限, 但是, 对于有些权限的配置的效果却不尽人意, 为此 `cmds_allowed` 就可以发挥它巨大的作用. 这是一个强有力的 locking down 一个 FTP 服务器的手段. 下面是它的实例和一些配置解释:
+
+1. 只能上传. 不能下载, 删除, 重命名.  `cmds_allowed=FEAT,REST,CWD,LIST,MDTM,MKD,NLST,PASS,PASV,PORT,PWD,QUIT,RMD,SIZE,STOR,TYPE,USER,ACCT,APPE,CDUP,HELP,MODE,NOOP,REIN,STAT,STOU,STRU,SYST`
+2. 只能下载, 删除, 重命名. 不能上传.  
+  `cmds_allowed=FEAT,REST,CWD,LIST,MDTM,MKD,NLST,PASS,PASV,PORT,PWD,QUIT,RMD,RNFR,RNTO,RETR,DELE,SIZE,TYPE,USER,ACCT,APPE,CDUP,HELP,MODE,NOOP,REIN,STAT,STOU,STRU,SYST`
+3. 配置解释:
+  `cmds_allowed=ABOR,ACCT,APPE,CWD,CDUP,DELE,HELP,LIST,MODE,MDTM,MKD,NOOP,NLST,PASS,PASV,PORT,PWD,QUIT,REIN,RETR,RMD,RNFR,RNTO,SITE,SIZE,STOR,STAT,STOU,STRU,SYST,TYPE,USER`
+  其中:
+```bash
+CWD - change working directory 更改目录
+DELE - delete a remote file 删除文件
+LIST - list remote files 列目录
+MKD - make a remote directory 新建文件夹
+NLST - name list of remote directory
+PWD - print working directory 显示当前工作目录
+RETR - retrieve a remote file 下载文件
+RMD - remove a remote directory 删除目录
+RNFR - rename from 重命名
+RNTO - rename to 重命名
+STOR - store a file on the remote host 上传文件
+ABOR - abort a file transfer 取消文件传输
+CWD - change working directory 更改目录
+DELE - delete a remote file 删除文件
+LIST - list remote files 列目录
+MDTM - return the modification time of a file 返回文件的更新时间
+MKD - make a remote directory 新建文件夹
+NLST - name list of remote directory
+PASS - send password
+PASV - enter passive mode
+PORT - open a data port 打开一个传输端口
+PWD - print working directory 显示当前工作目录
+QUIT - terminate the connection 退出
+RETR - retrieve a remote file 下载文件
+RMD - remove a remote directory
+RNFR - rename from
+RNTO - rename to
+SITE - site-specific commands
+SIZE - return the size of a file 返回文件大小
+STOR - store a file on the remote host 上传文件
+TYPE - set transfer type
+USER - send username
+ACCT* - send account information
+APPE - append to a remote file
+CDUP - CWD to the parent of the current directory
+HELP - return help on using the server
+MODE - set transfer mode
+NOOP - do nothing
+REIN* - reinitialize the connection
+STAT - return server status
+STOU - store a file uniquely
+STRU - set file transfer structure
+SYST - return system type
+```
+
+# 5. 两个问题说明:
+
+>###问题一: vsftpd 搭建的 FTP 服务器存在的中文编码问题
+
+事先说明清楚的是, 我的服务器环境是 Ubuntu14.04, 而 FTP 的访问者们大多都是使用 Windows 的系统, 并且他们没有多少人使用一些比较专业的 FTP 客户端软件进行访问, 他们大多数都是使用的 Windows 自带的资源管理器进行访问.
+
+Linux 中使用 UTF-8 作为 locale 已经成为理所当然的事, 然而 windows 资源管理器却只支持 GBK 这一系列的编码, 恰巧 vsftpd 并不会处理文件名的编码, 这就会出现很不友好的问题, 因此针对 vsftpd 的这个缺陷, 网上之前也有过针对它的补丁, 使得 vsftpd 可以进行编码转换, 然而这个补丁的版本较老, 针对新版本的 vsftpd 可能还会出现一系列的错误, 这里就不对补丁进行介绍了.
+
+之后通过一番查询, 发现可以使用基于文件系统的 fuse-convmvfs 创建一个目录的镜像, 一不用打补丁, 二是所有的 ftp 服务器都可以使用, 它的原理是: fuse-convmvfs 可以创建一个目录的镜像, 在这个镜像里面的文件名都是经过 iconv 进行编码转换的结果, 在底层则完全是同一个目录. 例如下面代码所示:
+```bash
+convmvfs /home/ftp/ftpgbk -o srcdir=/home/ftp/ftp,icharset=utf8,ocharset=gbk,allow_other,uid=0,gid=11
+```
+上面代码的含义是将 `/home/ftp/ftpgbk` 作为 `/home/ftp/ftp` 的一个镜像, 只是在 `/home/ftp/ftpgbk` 里面这些文件的名字 "看起来是 GBK 编码的". 执行完上面语句之后, 为使客户端使用时, 查看的文件不会出现乱码, 我们还需要将系统 ftp 的目录改为我们映射的 `/home/ftp/ftpgbk`, 然后还需要把 ftp 中的各个虚拟用户中的指定的路径中的 `/home/ftp/ftp` 改为 `/home/ftp/ftpgbk`, 这样就 ok 了.
+
+>###问题二: 基于问题一成功后的仍旧的编码问题.
+
+说起来很有意思, 大家如果全部读完了上文, 应该会知道如果我们没有在 tea1, tea2 以及 admin 的目录权限配置文件中书写 `cmds_allowed`, 它们还是会对该目录及目录下的所有文件拥有全部权限, 但是, 如果, 你没在它们的配置文件中加上 `cmds_allowed` 配置项的话, 即使你完成了问题一的解决方式, 仍然会出现编码问题, 因为我之前写的博客中没有在它们三个的配置文件中加上 `cmds_allowed` 配置项, 之后调试的时候烦恼了我很长时间, 特此记录.

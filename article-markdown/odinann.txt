@@ -1,0 +1,872 @@
+# 译 - OdinANN: Direct Insert for Consistently Stable Performance in Billion-Scale Graph-Based Vector Search
+
+<div class="paper-shared">
+
+OdinANN 通过直接插入稳定十亿级向量搜索的性能. 本文完整翻译其 FAST 2026 论文, 介绍免 GC 的更新合并, 近似并发控制, 缓冲删除及实验分析, 并保留原文图表, 算法和参考文献.
+
+原论文: [OdinANN: Direct Insert for Consistently Stable Performance in Billion-Scale Graph-Based Vector Search](https://www.usenix.org/conference/fast26/presentation/guo), 中文题名为 "OdinANN: 通过直接插入稳定十亿级图向量搜索性能".
+
+作者: Hao Guo, Youyou Lu. 作者单位: Tsinghua University. 通信作者: Youyou Lu.
+
+出处: 24th USENIX Conference on File and Storage Technologies (FAST 2026), Santa Clara, CA, USA, February 24-26, 2026, pp. 133-147.
+
+"我们" 指论文作者, 性能, 设备价格及实现结论均以论文发表时的条件为准. out-neighbor 译为出邻居, 即有向边所指向的邻居; 文中的免 GC 指记录更新无须逻辑垃圾回收, 不表示 SSD 内部没有垃圾回收.
+
+</div>
+
+# 1. 摘要
+
+Approximate Nearest Neighbor Search (ANNS) is widely used in various scenarios. For billion-scale ANNS, on-disk graph-based indexes, which organize the vectors as a graph and store them on disk, are favored for their performance and cost-efficiency. However, existing indexes can not maintain a stable search performance while inserting new vectors.
+
+近似最近邻搜索 (Approximate Nearest Neighbor Search, ANNS) 已广泛用于各种场景. 在十亿级向量搜索中, 将向量组织成图并存放在磁盘上的索引, 因性能和成本优势而受到青睐. 然而, 现有索引在插入新向量时, 无法保持稳定的搜索性能.
+
+In this paper, we propose to use direct insert, which directly inserts vectors into the on-disk index, rather than buffering them in memory and merging them to disk in batches like existing systems. This approach can even out the interference of insert with frontend search, thus stabilizing the performance. We evaluate direct insert by integrating it into a billion-scale graph-based ANNS index named OdinANN. With a fixed insert rate, OdinANN outperforms state-of-the-art ANNS indexes in search latency and throughput, and it consistently shows stable performance in billion-scale vector datasets.
+
+本文提出直接插入: 将向量直接插入磁盘索引, 而不是像现有系统那样先缓存在内存中, 再批量合并到磁盘. 这样可以分散插入对前台搜索的干扰, 使性能保持稳定. 我们将直接插入集成到十亿级图索引 OdinANN 中进行评估. 在固定插入速率下, OdinANN 的搜索延迟和吞吐量优于先进的 ANNS 索引, 并在十亿级向量数据集上持续保持稳定性能.
+
+# 2. 引言
+
+Approximate nearest neighbor search (ANNS) is the key to multi-modal data retrieval in web search [10, 17] and retrieval-augmented generation (RAG) [15]. Multi-modal data, such as texts and images, are encoded to high-dimensional vectors using neural networks [9, 19]. An ANNS index is built upon these vectors and traversed during a search to get the k nearest neighbors of the query vector. Among all types of ANNS indexes, on-disk graph-based indexes [24, 27], in which vectors are organized as a graph and stored on disk, are favored for their performance and cost-efficiency to support large-scale vector search (`e.g.`, billions of vectors [7, 22, 29]).
+
+近似最近邻搜索 (ANNS) 是网页搜索 [10, 17] 和检索增强生成 (RAG) [15] 中多模态数据检索的关键. 文本和图像等多模态数据经神经网络 [9, 19] 编码为高维向量, 再据此构建 ANNS 索引. 搜索时遍历索引, 找到与查询向量最近的 k 个邻居. 在各类 ANNS 索引中, 基于磁盘的图索引 [24, 27] 将向量组织为图并存储在磁盘上, 以较好的性能和成本效益支持大规模向量搜索, 例如十亿级向量检索 [7, 22, 29].
+
+There is a strong need for ANNS indexes to support vector updates because current systems generate new data continuously [16, 26, 29, 30]. Vector updates can be handled in two ways, index rebuild and index update. Index rebuild, which takes several days in billion-scale datasets [30], fails to keep search results up-to-date. Therefore, index update is favored by recent on-disk graph-based indexes [23]. They support vector inserts and deletes using buffered insert and delete, where they absorb updates into an in-memory index, and then bulk merge the in-memory index into the on-disk index periodically. This way reduces the overhead of index updates by combining disk writes during merge, thus enabling real-time vector search and online index update.
+
+现有系统持续产生新数据 [16, 26, 29, 30], 因此 ANNS 索引迫切需要支持向量更新. 更新有两种处理方式: 重建索引或增量更新索引. 十亿级数据集的索引重建需要数天 [30], 无法保证搜索结果及时反映新数据. 因此, 近期的磁盘图索引更倾向于增量更新 [23]. 它们采用缓冲插入和缓冲删除, 先在内存索引中吸收更新, 再定期将内存索引批量合并到磁盘索引. 合并时可以整合磁盘写入, 减少索引更新开销, 从而支持实时向量搜索和在线索引更新.
+
+However, by experimental analysis, we find that buffered insert is inefficient when merging inserts to disk. First, merge interferes with frontend search tasks (`e.g.`, increases their median latency to 1.54×), owing to disk bandwidth interference. Second, merge has a high memory consumption (`e.g.`, 125GB for merging 3% of vectors into a billion-scale index [23]), which consists of the in-memory index for inserts and buffered disk writes during the merge. Third, merge gains little performance boost even with a large insert batch, whose throughput is capped at 3000 QPS in our experiment. This is because merge first finds the neighbors for the inserted vectors using on-disk ANNS. This process can not be batched efficiently and thus is executed one by one.
+
+然而, 实验分析表明, 缓冲插入在合并到磁盘时效率不高. 首先, 合并会争用磁盘带宽, 干扰前台搜索, 例如将搜索延迟中位数提高到原来的 1.54 倍. 其次, 合并需要大量内存, 包括待插入向量的内存索引, 以及合并期间缓存的磁盘更新. 例如, 向十亿级索引合并相当于其规模 3% 的向量, 需要 125 GB 内存 [23]. 第三, 即使增加插入批次的大小, 合并性能也改善有限, 实验中的吞吐量上限约为 3000 QPS. 原因是合并首先要通过磁盘 ANNS 为待插入向量寻找邻居, 这一过程无法有效批处理, 仍需逐个执行.
+
+In this paper, we propose to use direct insert for on-disk graph-based ANNS indexes, where vectors are directly inserted into the on-disk index one by one, rather than buffered in memory and merged to disk later as in buffered insert. This approach can even out the insert cost and avoid the in-memory index used by buffered insert, thus stabilizing the frontend search performance and saving memory. Also, it is possible to make direct insert as fast as buffered insert, because buffered insert does not benefit much from batching. However, it is non-trivial to achieve efficient direct insert in graph-based indexes. There are several challenges as follows.
+
+本文提出在磁盘图索引中采用直接插入: 将向量逐个直接插入磁盘索引, 而不是先缓存在内存中, 之后再合并. 这一方式可以分散插入开销, 省去缓冲插入使用的内存索引, 从而稳定前台搜索性能并节省内存. 由于缓冲插入从批处理中获得的收益有限, 直接插入也有可能达到相近的速度. 不过, 要在图索引中高效实现直接插入并不容易, 主要面临以下挑战.
+
+(1) High disk write overhead of direct insert. Direct insert updates tens or hundreds of neighbor records of the target vector. Updating them in place incurs massive disk writes. To combine these record updates for fewer disk writes, a straightforward way is to use a log-structured data layout, but it suffers from garbage collection (GC) overhead.
+
+(1) 直接插入的磁盘写开销较高. 插入一个向量, 需要更新它的数十乃至数百条邻居记录. 原地更新会引发大量磁盘写入. 采用日志结构布局可以合并这些更新, 减少磁盘写入次数, 却又会引入垃圾回收 (GC) 开销.
+
+(2) Complex concurrency control with search. Direct insert searches the target vector to find its neighbors, which are scattered along the search path. For concurrency control, simply locking all of them before updating causes near-root lock contention. An alternative approach is to leverage the approximate features of insert and search for better concurrency, but how to do this efficiently on disk is still under-exploited.
+
+(2) 与搜索并发时的控制较复杂. 直接插入先搜索目标向量, 找到散布在搜索路径上的邻居. 若更新前简单地锁住所有邻居, 就会在靠近图搜索起点的位置产生严重的锁争用. 另一种思路是利用插入和搜索本身的近似性, 提高并发度, 但如何在磁盘上高效实现, 仍缺少充分研究.
+
+To address the challenges, we propose OdinANN, a billion-scale graph-based ANNS index with direct inserts. OdinANN achieves efficient direct insert with two techniques as follows.
+
+为解决这些问题, 我们提出支持直接插入的十亿级图索引 OdinANN, 通过以下两项技术提高直接插入效率.
+
+First, to reduce disk write overhead, we propose GC-free update combining. The key observation is that the graph index is stored as fixed-size records on disk. This enables out-of-place record updates to be performed without garbage collection. Therefore, we do space overprovision on disk to reserve multiple free record slots in a page, where multiple record updates can be combined. The old records can be directly recycled without GC. By default, OdinANN doubles disk space to combine updates, resulting in 2× disk writes compared to a log-structured layout.
+
+第一, 采用免 GC 的更新合并, 减少磁盘写入. 关键观察是: 图索引在磁盘上以固定大小的记录存储, 因此记录可以异地更新, 而不必进行垃圾回收. 我们额外预留磁盘空间, 在一个页面内保留多个空闲记录槽, 将多条记录更新合并到该页. 旧记录的位置可以直接回收复用, 无须 GC. 默认情况下, OdinANN 使用两倍磁盘空间合并更新; 相比日志结构布局, 磁盘写入量为其两倍.
+
+Second, to increase the concurrency of insert and search, we introduce approximate concurrency control, leveraging the approximate features of operations for better parallelism. The key idea is to ensure per-record isolations rather than per-operation ones. For vector search, only a consistent snapshot for each record is required to ensure its correctness. For vector insert, it links the target vector with an approximate neighbor snapshot. Besides, we propose two optimizations for insert, tailored for disk I/O and computing in the critical sections separately, to further improve the concurrency.
+
+第二, 引入近似并发控制, 利用操作的近似性提高插入与搜索的并发度. 核心是保证记录级隔离, 而不是操作级隔离. 搜索只需读到每条记录的一致快照, 即可保证正确性; 插入则将目标向量连接到一个近似的邻居快照. 此外, 我们分别针对插入临界区中的磁盘 I/O 和计算开销提出两项优化, 进一步提高并发度.
+
+We compare OdinANN with state-of-the-art ANNS indexes supporting updates, including graph-based DiskANN [23] and cluster-based SPFresh [30]. In workloads with concurrent inserts and searches, OdinANN shows stable performance, with a median search latency fluctuation of only 1.07×, compared to DiskANN's 2.44×. Compared to SPFresh, OdinANN achieves 62.1% median search latency and ~15% higher accuracy simultaneously, because of the intrinsic advantage of graph-based indexes over cluster-based ones. In billion-scale datasets, OdinANN simultaneously reaches 5000 QPS search throughput and 1100 QPS insert throughput, with a consistently stable median search latency of ~3ms.
+
+我们将 OdinANN 与支持更新的先进 ANNS 索引比较, 包括基于图的 DiskANN [23] 和基于聚类的 SPFresh [30]. 在插入与搜索并发的负载下, OdinANN 搜索延迟中位数的波动仅为 1.07 倍, 而 DiskANN 为 2.44 倍. 得益于图索引相对聚类索引的固有优势, OdinANN 的搜索延迟中位数仅为 SPFresh 的 62.1%, 同时准确率高约 15%. 在十亿级数据集上, OdinANN 同时达到 5000 QPS 搜索吞吐量和 1100 QPS 插入吞吐量, 搜索延迟中位数始终稳定在约 3 ms.
+
+<div class="paper-shared">
+
+Footnote 1: Defined as (maximum value / minimum value) in this paper.
+
+原文脚注 1: 本文将波动定义为最大值与最小值之比.
+
+</div>
+
+In summary, this paper makes the following contributions:
+
+本文的贡献如下:
+
+We analyze the inefficiency of buffered inserts for on-disk graph-based ANNS indexes (§2).
+
+分析磁盘图索引中缓冲插入的效率问题 (原文第 2 节).
+
+We propose OdinANN, a billion-scale graph-based ANNS index with direct inserts. It achieves efficient direct inserts by two key techniques, GC-free update combining, and approximate concurrency control (§3).
+
+提出支持直接插入的十亿级图索引 OdinANN, 通过免 GC 的更新合并和近似并发控制两项关键技术, 实现高效直接插入 (原文第 3 节).
+
+We evaluate OdinANN to show its efficacy in stabilizing the search performance and reducing memory usage during concurrent inserts and searches (§4).
+
+通过实验验证 OdinANN 在插入与搜索并发时稳定搜索性能, 降低内存占用的效果 (原文第 4 节).
+
+# 3. 背景与动机
+
+In this section, we first introduce the layout and operations of on-disk graph-based ANNS indexes. Then, we show the inefficiency of buffered insert and how direct insert overcomes it. Finally, we describe the challenges of direct insert.
+
+本节先介绍磁盘图索引的布局与操作, 再分析缓冲插入的效率问题及直接插入如何解决这些问题, 最后讨论直接插入面临的挑战.
+
+## 3.1 基于磁盘的 ANNS 图索引
+
+Graph layout. In a graph-based index, vectors are organized as a directed graph, which is stored as adjacent lists on disk, as shown in Figure 1. Each disk page contains several records. Each record consists of a vector (node) and its out-neighbor IDs (edges). To ensure a fixed size for records, the nodes' maximum out-degrees are globally limited to R, where R is a configurable parameter.
+
+**图布局.** 图索引将向量组织成有向图, 以邻接表形式存储在磁盘上, 如图 1 所示. 每个磁盘页包含若干条记录, 每条记录由一个向量, 即节点, 以及其出邻居 ID, 即边组成. 为保证记录大小固定, 所有节点的最大出度统一限制为可配置参数 R.
+
+<div class="paper-shared">
+
+![OdinANN 图 1](/assets/images/posts/odinann/figure-01.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 1: On-disk layout of a graph-based ANNS index. The directed graph is stored as fixed-size records on disk. Each record contains a vector and its out-neighbor IDs (edges). The maximum out-neighbor number of each node is limited to R.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 1: 磁盘 ANNS 图索引布局. 有向图以定长记录存储, 每条记录包含一个向量和出邻居 ID, 即边. 每节点最大出邻居数为 R.</span>
+
+Operations. To our knowledge, DiskANN [23] is the only on-disk graph-based ANNS index supporting updates. Here, we introduce its search and buffered insert operations.
+
+**操作.** 据我们所知, DiskANN [23] 是唯一支持更新的磁盘 ANNS 图索引. 下文介绍它的搜索和缓冲插入操作.
+
+Vector search. As shown in Algorithm 1, the search process follows a best-first approach. It starts at a fixed starting vector s and maintains a candidate pool P containing the nearest vectors to the target vector (sorted by their distances). In each step, it explores one or more nearest unexplored vectors, depending on the beam width. The search terminates when all the vectors in P are explored.
+
+**向量搜索.** 算法 1 采用最佳优先搜索. 从固定的起始向量 s 出发, 维护候选池 P, 保存距目标向量最近的向量, 并按距离排序. 每一步按照束宽, 扩展一个或多个尚未访问的最近向量. 当 P 中所有向量均已扩展时, 搜索结束.
+
+<div class="paper-shared">
+
+Algorithm 1: Vector Search. / 算法 1: 向量搜索.
+
+```text
+ 1: G ← graph, q ← query vector
+ 2: procedure Search(G, q)
+ 3:   s ← starting vector, l ← candidate pool length
+ 4:   candidate pool P ← {<s.ID, PQ_distance(s, q)>}
+ 5:   explored pool E ← ∅, i ← 0
+ 6:   while i < l do
+ 7:     i ← index of the first vector in P but not in E
+ 8:     r ← record with ID = P[i].ID   // 从磁盘读取 / read from disk
+ 9:     E.insert(r)
+10:     for nid in r.neighbors do
+11:       P.insert(<nid, PQ_distance(nid, q)>)
+12:     end for
+13:     P ← l nearest vectors to q     // PQ 距离 / PQ distance
+14:   end while
+15:   L ← k nearest vectors to q in E  // 精确距离 / exact distance
+16:   return E, L
+17: end procedure
+```
+
+变量说明: G 为图, q 为查询向量, s 为起始向量, l 为候选池长度, P 为候选池, E 为已扩展集合. 第 7 行选择 P 中尚不在 E 内的第一个向量, 第 13 行保留按 PQ 距离最近的 l 个候选向量.
+
+</div>
+
+Buffered insert. Algorithm 2 shows the process of inserting a vector q into a graph-based index. It first searches q and records the explored vectors in the search path, which are q's candidate neighbors. Then, it attempts to add bi-directional edges to q and its candidate neighbors. If an edge set exceeds the out-degree limit, it is pruned according to some pre-defined rules (`e.g.`, triangle inequality [24]).
+
+**缓冲插入.** 算法 2 展示了向图索引插入向量 q 的过程. 首先搜索 q, 将搜索路径上访问过的向量作为 q 的候选邻居. 随后尝试在 q 与候选邻居之间添加双向边. 如果某个边集合超过出度上限, 就根据预定义规则进行剪枝, 例如三角不等式 [24].
+
+<div class="paper-shared">
+
+Algorithm 2: Vector Insert. / 算法 2: 向量插入.
+
+```text
+ 1: G ← graph, q ← vector, R ← max out-degree of G
+ 2: Prune(N, R): remove items in N until N.size() ≤ R
+ 3: procedure Insert(G, q)
+ 4:   E ← vectors explored in Search(G, q)  // 候选邻居 / neighbors
+ 5:   E ← Prune(E, R)
+ 6:   set q.neighbors to E                  // 添加出边 / add edges
+ 7:   for nbr in E do                       // 添加反向边 / add reverse edges
+ 8:     N ← {nbr.neighbors, q}
+ 9:     N ← Prune(N, R)
+10:     set nbr.neighbors to N
+11:   end for
+12: end procedure
+```
+
+变量说明: q 为待插入向量, R 为最大出度. Prune 将集合剪枝到不超过 R 个元素; 随后更新 q 与各邻居的边集合.
+
+</div>
+
+DiskANN adopts buffered insert, in order to reduce disk I/O for neighbor updates by batching them. Specifically, inserts are first absorbed by an extra in-memory index. When searching, both the in-memory and on-disk indexes are traversed. When the in-memory index size reaches a threshold, a merge is triggered, which includes two steps. First, it inserts all the vectors in the in-memory index to the on-disk index using Algorithm 2; all the on-disk graph updates are buffered in memory (we call this step in-memory merge). Second, the on-disk updates are committed in batches.
+
+DiskANN 采用缓冲插入, 通过批量处理邻居更新来减少磁盘 I/O. 插入首先进入额外的内存索引, 搜索时同时遍历内存和磁盘索引. 当内存索引达到阈值, 触发两步合并: 首先按算法 2 将内存索引中的所有向量插入磁盘索引, 但将全部磁盘图更新暂存在内存中, 我们称之为内存合并; 随后将磁盘更新批量提交.
+
+## 3.2 缓冲插入的效率问题
+
+Buffered insert is inefficient when merging to disk. We evaluate DiskANN to show this issue. We concurrently do buffered inserts and multi-thread searches in an index with 100 million vectors in the BIGANN [12] dataset. Merge is triggered when the in-memory index contains 6 million vectors (`i.e.`, 6% of the on-disk index size). More detailed configurations are shown in §4.1. Figures 2(a) and 2(b) show the timeline, in which we find three issues.
+
+缓冲插入在合并到磁盘时效率不高. 我们使用 DiskANN 验证这一问题: 基于 BIGANN [12] 中的 1 亿个向量构建索引, 并发执行缓冲插入和多线程搜索. 当内存索引包含 600 万个向量, 即磁盘索引规模的 6% 时, 触发合并. 详细配置见原文第 4.1 节. 从图 2a 和图 2b 的时间线可以观察到三个问题.
+
+Issue #1: fluctuated search performance. As shown in Figure 2(a), the search median latency increases to 1.54× on average during the first merge. This is because, merge needs to search the on-disk index to find the neighbors of the target vector, which causes severe read bandwidth interference with the frontend search tasks.
+
+**问题 1:** 搜索性能波动. 如图 2a 所示, 第一次合并期间, 搜索延迟中位数平均增至原来的 1.54 倍. 原因是合并需要搜索磁盘索引, 为目标向量寻找邻居, 与前台搜索产生严重的读带宽争用.
+
+Issue #2: high memory consumption. As shown in Figure 2(b), when merging 6% (`i.e.`, 6 million) vectors to disk, the peak memory usage exceeds 32GB, more than 50% of the size of the on-disk index with 100 million vectors (~55GB). The in-memory elements include the index and buffered disk updates, whose size linearly increases with the number of buffered inserts. Therefore, larger datasets force more frequent merges due to memory capacity limits. For example, merging 3% of vectors (`i.e.`, 30 million) into a billion-scale index requires 125GB of memory [23].
+
+**问题 2:** 内存占用高. 如图 2b 所示, 合并 6%, 即 600 万个向量时, 峰值内存超过 32 GB, 已超过 1 亿向量磁盘索引大小约 55 GB 的一半. 内存中既有索引, 又有缓存的磁盘更新, 大小随缓冲插入数量线性增长. 因此, 数据集越大, 越容易因内存限制而频繁合并. 例如, 向十亿级索引合并 3%, 即 3000 万个向量, 需要 125 GB 内存 [23].
+
+Issue #3: long merge time. In Figures 2(a) and 2(b), merge accounts for more than 30% of the whole timeline, during which the system suffers from the two issues above. In our configuration, we restrict the insert throughput to 1200 QPS and do not insert vectors during merge. Merge will account for a higher time percentage in workloads with higher insert throughput or serving inserts during the merge.
+
+**问题 3:** 合并耗时长. 图 2a 和图 2b 中, 合并占整个运行时间的 30% 以上, 在此期间系统持续受到前两项问题的影响. 实验将插入吞吐量限制为 1200 QPS, 且合并期间不插入向量. 若插入吞吐量更高, 或合并期间继续接收插入, 合并所占时间还会增加.
+
+One may consider increasing the batch size to reduce the time percentage of merge. However, merge gains little performance boost even with a large batch. As shown in Figure 2(c), the throughput of merge increases with the batch size, but is bottlenecked by in-memory merge, whose throughput remains constant regardless of the batch size. This is because, although disk writes are merged, the in-memory merge is still executed one by one. For each vector, it searches the on-disk index for neighbors and incurs hundreds of disk reads.
+
+增大批次似乎可以降低合并的时间占比, 但实际收益有限. 如图 2c 所示, 合并吞吐量虽随批次增大而提高, 最终却受限于内存合并, 后者的吞吐量基本不随批次变化. 原因是磁盘写入虽然可以合并, 内存合并仍要逐个处理向量: 每个向量都要搜索磁盘索引来寻找邻居, 产生数百次磁盘读取.
+
+<div class="paper-shared">
+
+![OdinANN 图 2](/assets/images/posts/odinann/figure-02.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 2: Inefficient buffered insert. (a, b) Concurrent insert and search vectors in an index with 100 million vectors, merge 6 million buffered inserts each time, two merges in total. (c) The throughput of merge increases with the batch size but is bottlenecked by its first step (`i.e.`, in-memory merge).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 2: 缓冲插入的效率问题. (a), (b) 在 1 亿向量索引上并发插入与搜索, 每次合并 600 万个缓冲向量, 共合并两次. (c) 合并吞吐量随批次增大而提高, 但受第一步内存合并限制.</span>
+
+## 3.3 直接插入带来的机会
+
+We propose to do direct insert instead of buffered insert. Using direct insert, vectors are directly inserted into the on-disk index one by one, instead of buffered in memory and merged to disk later as in buffered insert.
+
+我们提出以直接插入替代缓冲插入. 向量逐个直接插入磁盘索引, 不再先缓存在内存中, 之后批量合并到磁盘.
+
+Direct insert can naturally solve the three issues above. First, it evens out the bandwidth interference across the whole timeline, which contributes to stable frontend search performance. Second, it avoids both the in-memory index and buffered disk writes during merge, thus saving memory. Third, it is possible for direct insert to be as efficient as buffered insert, as inserts can not be efficiently batched.
+
+直接插入能够自然地解决上述三个问题. 第一, 它将带宽干扰分散到整个运行过程, 有助于稳定前台搜索性能. 第二, 它省去了内存索引和合并期间缓存的磁盘写入, 节省内存. 第三, 由于插入本身难以有效批处理, 直接插入有可能达到与缓冲插入相当的效率.
+
+However, it is non-trivial to do direct insert efficiently. There are several challenges as follows.
+
+但要高效实现直接插入, 仍需解决以下挑战.
+
+Challenge 1. Each insert updates tens or hundreds of neighbor records. Applying the updates in place causes massive random SSD writes, while using a log-structured layout suffers from frequent garbage collection.
+
+**挑战 1.** 每次插入都会更新数十乃至数百条邻居记录. 原地更新会产生大量随机 SSD 写入, 日志结构布局则需要频繁垃圾回收.
+
+In a graph-based index, each vector connects to tens or hundreds of vectors for navigation [11, 27]. According to Algorithm 2, bi-directional edges are added to the target vector and its neighbors during insert. This process updates the neighbor records scattered randomly on tens or hundreds of pages [27], which leads to massive random SSD writes.
+
+在图索引中, 每个向量连接数十到数百个向量, 供搜索导航使用 [11, 27]. 根据算法 2, 插入需要在目标向量与邻居之间添加双向边, 更新随机散布在数十到数百个页面上的邻居记录 [27], 引发大量随机 SSD 写入.
+
+For fewer writes, a straightforward solution is to use a log-structured data layout. However, inserting 10% new records makes the index 12.8× larger (assuming an out-degree of 128); only 7.9% of the records are valid. Thus, garbage collection, which gathers the valid records into a new index, is frequently required. This slows down frontend search requests.
+
+采用日志结构布局可以减少写入, 但假设出度为 128, 新插入相当于原规模 10% 的记录, 就会使索引膨胀到 12.8 倍, 有效记录只占 7.9%. 因而需要频繁执行垃圾回收, 将有效记录收集到新索引中, 拖慢前台搜索.
+
+Challenge 2. Ensuring the isolation of direct insert and search harms their concurrency, due to near-root lock contention. However, the potential of using the approximate index feature for better concurrency is under-exploited.
+
+**挑战 2.** 保证直接插入与搜索之间的隔离, 会因靠近搜索起点的记录发生锁争用而降低并发度. 利用索引的近似性提高并发度的潜力, 还没有得到充分挖掘.
+
+According to Algorithm 2, insert may update all the records explored in the search path. To ensure the isolation of insert and search, a naive approach is to lock all of the involved records before updating. However, the record set contains near-root records. Locking them causes serious lock contention, blocking concurrent inserts and searches.
+
+根据算法 2, 插入可能更新搜索路径上访问过的所有记录. 一种简单的隔离方法是更新前先锁住全部相关记录, 但这些记录包含靠近搜索起点的节点, 锁住它们会引发严重争用, 阻塞并发插入和搜索.
+
+An alternative approach is to leverage the approximate feature of operations for fine-grained concurrency control: Atomicity and isolation of operations are not mandatory for an approximate index, so they can be relaxed for better concurrency. However, how to design an efficient concurrency control protocol for on-disk graph-based indexes, which efficiently utilizes this feature for shorter critical sections and better concurrency, is still under-exploited.
+
+另一种方法是利用操作的近似性, 实现更细粒度的并发控制. 近似索引并不强制要求整个操作具有原子性和隔离性, 因而可以放宽这些要求来提高并发度. 但如何为磁盘图索引设计高效协议, 充分利用这一特点缩短临界区, 仍有待研究.
+
+# 4. 设计与实现
+
+We design OdinANN, a billion-scale graph-based ANNS index supporting direct inserts and buffered deletes. OdinANN achieves efficient direct insert with the following goals.
+
+我们设计了支持直接插入和缓冲删除的十亿级图索引 OdinANN, 其高效直接插入围绕以下目标展开.
+
+Reduced disk writes. Direct insert in a graph index updates tens or hundreds of neighbor records. We do space overprovision to combine these updates into fewer disk writes, while not suffering from GC overhead (§3.2).
+
+**减少磁盘写入.** 一次直接插入需要更新数十乃至数百条邻居记录. 我们通过额外预留空间合并这些更新, 减少磁盘写入, 同时避免 GC 开销 (原文第 3.2 节).
+
+High concurrency. We leverage the approximate feature of operations to relax the isolation level of both insert and search for better concurrency (§3.3).
+
+**提高并发度.** 利用操作的近似性, 放宽插入和搜索的隔离级别, 提高并发度 (原文第 3.3 节).
+
+## 4.1 总体设计
+
+Figure 3 shows the overview of OdinANN.
+
+图 3 展示了 OdinANN 的总体设计.
+
+<div class="paper-shared">
+
+![OdinANN 图 3](/assets/images/posts/odinann/figure-03.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 3: OdinANN overview.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 3: OdinANN 总体设计.</span>
+
+Graph layout. The directed graph in OdinANN is organized as adjacent lists on disk (Figure 1), similar to previous works [24, 27]. Differently, OdinANN does space overprovision on disk for multiple free records on a page. Out-of-place record updates are combined in these pages (§3.2). In memory, PQ-compressed vectors are stored for graph navigation.
+
+**图布局.** 与已有工作 [24, 27] 类似, OdinANN 的有向图以邻接表形式存储在磁盘上 (图 1). 不同之处在于, 它额外预留磁盘空间, 使单个页面内存在多个空闲记录槽, 将异地更新的记录合并到这些页面中 (原文第 3.2 节). 内存中保存经过乘积量化 (PQ) 压缩的向量, 用于图导航.
+
+Operations. OdinANN supports three types of operations, vector search, insert, and delete.
+
+**操作.** OdinANN 支持向量搜索, 插入和删除三类操作.
+
+Vector search. OdinANN follows Algorithm 1 for vector search. Differently, OdinANN adopts a dynamic candidate pool, whose size increases with the number of deleted vectors in the pool, to ensure search quality in workloads containing deletes (§3.4.1). For better concurrency, OdinANN only ensures per-record consistency instead of the atomicity of the whole search (§3.3).
+
+**向量搜索.** 搜索遵循算法 1, 但使用动态候选池: 候选池中的已删除向量越多, 池容量就越大, 以保证含删除负载下的搜索质量 (原文第 3.4.1 节). 为提高并发度, 系统只保证记录级一致性, 不保证整个搜索操作的原子性 (原文第 3.3 节).
+
+Direct insert. OdinANN follows Algorithm 2 for direct vector insert. It updates the records out of place in the overprovisioned disk space, to combine them for less write amplification (§3.2). For concurrency control, OdinANN uses an approximate snapshot of the target vector's neighbors during insert to reduce its critical section (§3.3).
+
+**直接插入.** 插入遵循算法 2, 在额外预留的磁盘空间中异地更新记录, 合并写入以减少写放大 (原文第 3.2 节). 并发控制采用目标向量邻居的近似快照, 缩短临界区 (原文第 3.3 节).
+
+Buffered delete. OdinANN records the ID of deleted vectors in memory (§3.4.1) and merges delete to disk periodically (§3.4.2), similar to previous works [23, 30]. It has low runtime memory consumption (only for IDs) and little interference with frontend search tasks during the merge.
+
+**缓冲删除.** 与已有工作 [23, 30] 类似, 系统在内存中记录被删除向量的 ID (原文第 3.4.1 节), 定期将删除合并到磁盘 (原文第 3.4.2 节). 运行期间只保存 ID, 内存占用很低, 合并对前台搜索的干扰也很小.
+
+## 4.2 免 GC 的更新合并
+
+In-place record updates suffer from massive disk writes, while the log-structured layout induces frequent garbage collection. To solve this issue, we do space overprovision to merge multiple record updates into a single page.
+
+原地更新会产生大量磁盘写入, 日志结构布局则需要频繁垃圾回收. 为解决这一矛盾, 我们额外预留空间, 将多条记录更新合并到一个页面中.
+
+### 4.2.1 通过异地更新合并记录
+
+We find that fixed-size records of the graph (Figure 1) enable out-of-place record updates to be GC-free: If a record is updated out-of-place, its original place can be directly reused by another update, without explicit garbage collection.
+
+图中的记录大小固定 (图 1), 因而异地更新可以不依赖 GC: 一条记录写到新位置后, 原位置即可供其他更新复用, 无须显式垃圾回收.
+
+Based on this idea, we do space overprovision to combine multiple record updates within a single page write. Specifically, OdinANN reserves extra record slots on disk, creating multiple free slots per page. During an insert, instead of modifying records in their original locations, OdinANN writes the updated records to these free slots. Our allocation strategy (§3.2.2) prioritizes allocating slots on the same page, thus achieving the combination of multiple out-of-place updates into one page. The original record locations are then marked as available for subsequent inserts.
+
+基于这一观察, 我们额外预留空间, 将多条记录更新合并为一次页写入. 具体而言, OdinANN 在磁盘上预留额外记录槽, 使各页拥有多个空槽. 插入时, 不在原位置修改记录, 而将更新后的记录写入这些空槽. 分配策略优先选择同一页中的槽位 (原文第 3.2.2 节), 从而将多条异地更新合并到一页. 旧位置随后标记为空闲, 供后续插入复用.
+
+Figure 4 illustrates this process. In Figure 4(a), 9 allocated records normally require two pages; however, OdinANN provisions three, leaving three free slots on page 0. This allows for up to three record updates to be combined. When inserting V9 (Figure 4(b)), OdinANN updates V9 and its neighbors, V5 and V6. These three record updates are combined into a single write to page 0. Then, the in-memory ID-to-location table is updated, and the original slots for V5 and V6 are marked for reuse in future inserts.
+
+图 4 展示了这一过程. 图 4a 中, 9 条已分配记录通常只需两页, OdinANN 却分配三页, 在第 0 页留下三个空槽, 最多可合并三条记录更新. 插入 V9 时 (图 4b), 需要更新 V9 及其邻居 V5, V6. 三条更新合并为对第 0 页的一次写入, 随后更新内存中的 ID 到位置映射表, 并将 V5, V6 的原槽位标记为可复用.
+
+<div class="paper-shared">
+
+![OdinANN 图 4](/assets/images/posts/odinann/figure-04.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 4: (a) OdinANN does space overprovision for more free records in a page. (b) Insert a vector and update its neighbors. Multiple record updates are combined into a single page.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 4: (a) 额外预留空间, 使页面中有更多空闲记录槽. (b) 插入向量并更新邻居, 将多条记录更新合并到一页.</span>
+
+### 4.2.2 记录分配规则
+
+To maximize update combining, a straightforward way is to greedily allocate new records within pages with the most free slots. However, this approach requires read-modify-write for updating partially-filled pages, where the inherent write-read ordering leads to high latency.
+
+为了尽量合并更新, 可以贪心地从空槽最多的页面分配记录. 但更新部分填满的页面需要读改写, 其固有的读写依赖会导致较高延迟.
+
+We observe that vector insertion involves reading the pages containing the target vector's candidate neighbors. Caching these pages in memory allows us to update them without read-modify-write operations. Based on this observation, we design three record allocation rules, listed in order of priority: Rule #1: empty rule. We first allocate records in empty pages where all the records are invalid, as using them does not require extra reads. Specifically, an empty page queue is stored in memory, which is updated when recycling records. Pages in the queue are used first during allocations. Rule #2: on-path partial-empty rule. We allocate partial-empty pages only on the search path of insert, to avoid extra reads in updating them. Recall that each insert first searches the target vector for its candidate neighbors. The accessed pages are cached and directly used by neighbor updating. In this rule, only pages with less than m non-empty records are allocated, where m is a configurable parameter. Rule #3: overprovision rule. If the two rules above can not allocate enough space for all the updated records, we allocate new pages on disk. Although this rule causes space overprovision, the overall space consumption is limited by Rules #1 and #2. We analyze it as follows.
+
+我们观察到, 插入向量时本就需要读取候选邻居所在的页面. 将这些页面缓存在内存中, 更新时即可省去额外的读改写读取. 据此, 我们按优先级设计了三条规则. 规则 1: 优先使用空页, 即所有记录均已无效的页面, 因为这不需要额外读取. 内存维护空页队列, 回收记录时更新, 分配时先使用队列中的页面. 规则 2: 部分空闲的页面只从本次插入的搜索路径上选择. 插入首先搜索目标向量的候选邻居, 已访问页面会进入缓存, 可直接用于邻居更新. 只有非空记录少于可配置参数 m 的页面才能按此规则分配. 规则 3: 如果前两条规则仍无法为全部更新分配足够空间, 就在磁盘上分配新页. 这会增加预留空间, 但前两条规则限制了总体空间开销, 下文给出分析.
+
+### 4.2.3 空间占用与写放大
+
+Each page contains m non-empty records on average, resulting in (n/m)× space consumption compared to in-place record update, where n is #records per page. Compared to the log-structured layout, where n record updates are combined in a single page write, OdinANN combines (n - m) record updates in a single page write. This concludes a write amplification of n/(n - m)×. By default, OdinANN sets m to ⌊n/2⌋, so the space consumption and write amplification are 2×.
+
+平均每页包含 m 条非空记录, 相比原地更新, 空间占用为 n/m 倍, 其中 n 是每页可容纳的记录数. 日志结构布局一次页写入可合并 n 条记录更新, OdinANN 则合并 n - m 条, 因而相对写放大为 n/(n - m) 倍. 默认令 m = ⌊n/2⌋, 空间占用和写放大均约为两倍.
+
+This analysis is based on the assumption that Rule #2 uses most pages with < m non-empty records. In §4.5, we will show that this assumption holds in real-world datasets.
+
+上述分析假设规则 2 能利用大多数非空记录少于 m 的页面. 原文第 4.5 节将通过真实数据集验证这一假设.
+
+We find that such overprovisioning is cost-effective. In our billion-scale evaluation (§4.3), OdinANN uses 2× disk space (~1TB extra) but ~128GB less peak memory, compared to DiskANN (buffered insert). The price trend [20] shows that a 1TB SSD (~$100) is cheaper than 128GB DRAM (>$200).
+
+这种额外预留空间的方式具有成本优势. 十亿级实验中 (原文第 4.3 节), 相比使用缓冲插入的 DiskANN, OdinANN 使用两倍磁盘空间, 额外增加约 1 TB, 却减少约 128 GB 峰值内存. 根据价格趋势 [20], 1 TB SSD 约 100 美元, 比超过 200 美元的 128 GB DRAM 更便宜.
+
+## 4.3 近似并发控制
+
+Search and insert are both approximate processes. Search returns an approximate top-k of the target vector, and insert selects an approximate neighbor set for the target vector using a top-k search. These operations are not required to be atomic and isolated, to achieve better concurrency.
+
+搜索和插入都是近似过程. 搜索返回目标向量的近似 top-k, 插入也通过 top-k 搜索选择近似邻居集合. 为提高并发度, 不必要求这些操作整体具备原子性和隔离性.
+
+We leverage such approximate features to design an efficient concurrency control protocol for search and insert. Specifically, searches see a consistent snapshot for each record instead of the whole graph, while inserts see approximate snapshots for their candidate neighbor sets.
+
+我们利用这一特点设计并发控制协议: 搜索看到的是每条记录的一致快照, 而不是整个图的一致快照; 插入看到的是候选邻居集合的近似快照.
+
+Search-insert conflicts. The search thread only holds locks when it reads a record (line 8 in Algorithm 1) to avoid getting a torn record. As out-of-place record update is adopted, locking only the ID-to-location mapping item ensures a consistent record snapshot, with no need to lock the page. In other periods, no locks are held for better concurrency.
+
+**搜索与插入冲突.** 搜索线程只在读取记录时持锁, 即算法 1 第 8 行, 防止读到不完整的记录. 由于记录采用异地更新, 只需锁住 ID 到位置映射项, 就能获得一致的记录快照, 无须锁住整页. 其他时间不持锁, 以提高并发度.
+
+Figure 5(a) shows an example. The search process includes 5 steps. In each step, only the per-record ID-to-location lock is held for the target record. In Step 3, a new record ➀ is inserted, with updates to the records on the search path. As we do not ensure a consistent snapshot for the whole graph (`i.e.`, atomic search operation), we allow ➀ to be invisible by the search process before Step 4 and visible after it.
+
+图 5a 展示了包含五步的搜索过程. 每一步只为目标记录持有记录级的 ID 到位置映射锁. 第 3 步插入新记录 ➀, 并更新搜索路径上的记录. 由于不保证整个图的一致快照, 即不保证搜索整体的原子性, 允许搜索在第 4 步之前看不到 ➀, 之后又能看到它.
+
+Insert-insert conflicts. Insert follows the process of Algorithm 2. Figure 5(b) shows an example of concurrent inserts, where vector ➀ is inserted by executing Steps 1, 3, 4, and 5, and vector ➁ is concurrently inserted in Step 2.
+
+**插入之间的冲突.** 插入遵循算法 2. 图 5b 中, 向量 ➀ 通过第 1, 3, 4, 5 步插入, 向量 ➁ 则在第 2 步并发插入.
+
+To insert a vector ➀, OdinANN first searches ➀ to get the explored vectors in the search path, which are then pruned to generate ➀'s candidate neighbors (➃ and ➅, Step 1). The acquired neighbor set is not accurate but an approximate snapshot, since new records may be concurrently inserted (`e.g.`, ➁ in Step 2). Second, it acquires the per-record write locks of the involved records, as well as the per-page write locks for pages to be updated (Step 3). Third, it validates the neighbor records by reloading them, to avoid update loss (`e.g.`, loss of ➅'s update, Step 3). Fourth, it updates the involved records (➀, ➃, and ➅) on disk, using the approach in Section 3.2 (Step 4). Finally, it releases all the locks (Step 5).
+
+插入 ➀ 时, OdinANN 首先搜索 ➀, 对搜索路径上访问过的向量剪枝, 得到候选邻居 ➃ 和 ➅ (第 1 步). 该集合是近似快照, 并非精确结果, 因为此时可能并发插入新记录, 如第 2 步的 ➁. 随后获取相关记录的写锁, 以及待更新页面的页级写锁 (第 3 步); 再重新加载邻居记录进行验证, 防止更新丢失, 例如丢失 ➅ 的更新. 接着按原文第 3.2 节的方法将相关记录 ➀, ➃, ➅ 写入磁盘 (第 4 步), 最后释放全部锁 (第 5 步).
+
+This process seems to be similar to optimistic concurrency control (OCC). However, OCC aims to achieve atomicity in operations. It searches the index again for validation and repeats the read-lock-validate process until the result set does not change. Instead, we directly view the obtained vector set as an approximate snapshot of candidate neighbors, thus avoiding the long latency of extra search.
+
+这一流程看似与乐观并发控制 (OCC) 相似, 但 OCC 旨在保证操作原子性, 会重新搜索索引进行验证, 反复执行读取, 加锁和验证, 直到结果集合不再变化. 我们直接将已取得的向量集合视为候选邻居的近似快照, 避免额外搜索的高延迟.
+
+We observe that this method is still not efficient enough, because of costly disk I/O and neighbor pruning in the critical section. We further propose two optimizations for them.
+
+这一方法仍不够高效, 因为临界区中的磁盘 I/O 和邻居剪枝开销较大. 我们分别提出以下两项优化.
+
+Optimization #1: move disk I/O out of critical sections. We find that the approximate neighbor snapshot enables using a write-back page cache to avoid disk I/O in the critical section. An insert contains one batched disk read (for record reload) and one batched disk write (for record updates) in the critical section. For the read, we admit the explored vectors to the cache (Step 1), thus reloading most of them from the cache (Step 3). For the write, we only write the record back to the cache (Step 4). To limit the cache space, cached pages are immediately freed after a search. A background I/O thread is used to commit the cached writes to disk (Step 5).
+
+**优化 1:** 将磁盘 I/O 移出临界区. 邻居近似快照允许使用回写页缓存, 避免临界区中的磁盘 I/O. 原本, 一次插入在临界区内包含一次批量读, 用于重新加载记录, 以及一次批量写, 用于更新记录. 对读取, 我们在第 1 步将访问过的向量放入缓存, 第 3 步大多数记录就能从缓存重新加载. 对写入, 第 4 步只更新缓存中的记录. 为控制缓存大小, 搜索结束后立即释放所缓存的页面; 后台 I/O 线程负责将缓存写入提交到磁盘 (第 5 步).
+
+Optimization #2: delta neighbor pruning. Approximate concurrency control avoids most disk I/O in the critical section, by using Optimization #1. However, pruning (line 9 in Algorithm 2) becomes the bottleneck in the critical section. In DiskANN, pruning compares all the neighbor pairs to validate triangle inequality, which results in a complexity of O(R²), where R is the maximum out-degree. Billion-scale datasets require a large R (`e.g.`, 128) for search performance, resulting in high pruning overhead.
+
+**优化 2:** 增量邻居剪枝. 优化 1 消除了临界区中的大部分磁盘 I/O 后, 剪枝, 即算法 2 第 9 行, 成为新的瓶颈. DiskANN 会比较所有邻居对, 检验三角不等式, 复杂度为 O(R²), R 为最大出度. 十亿级数据集需要较大的 R, 如 128, 才能保证搜索性能, 因而剪枝开销很高.
+
+We reduce the complexity of most neighbor pruning in insert from O(R²) to O(R). This is inspired by an observation that the original neighbors mostly follow the triangular inequality. Therefore, instead of checking all the neighbor pairs, we only check the newly inserted neighbor with all the other neighbors. The farthest neighbor that does not follow triangular inequality is pruned.
+
+我们将插入中大多数邻居剪枝的复杂度从 O(R²) 降至 O(R). 原有邻居大多已满足三角不等式, 因此无须检查全部邻居对, 只需将新加入的邻居与其他邻居逐一比较, 剪掉不满足三角不等式的最远邻居.
+
+If no neighbor can be pruned, we fall back to the original O(R²) pruning algorithm. We prune the first neighbor that does not follow triangular inequality, for early stopping while not breaking the characteristics of the original graph.
+
+若没有邻居可以据此剪除, 就退回原有 O(R²) 算法. 遇到第一个不满足三角不等式的邻居即剪除并提前结束, 同时保持原图的性质.
+
+<div class="paper-shared">
+
+![OdinANN 图 5](/assets/images/posts/odinann/figure-05.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 5: Approximate concurrency control. (a) Search sees a consistent snapshot for each record instead of the whole graph (`e.g.`, record ➀ can be invisible before Step 4 but visible after it). (b) Inserts link the target vector with an approximate snapshot of neighbors. The snapshot may not be the best neighbor set (`e.g.`, ➁ is a better neighbor of ➀ than ➅).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 5: 近似并发控制. (a) 搜索获得每条记录的一致快照, 而非整个图的一致快照, 例如 ➀ 在第 4 步前可以不可见, 之后又可见. (b) 插入将目标向量连接到邻居的近似快照, 该集合不一定最优, 例如对 ➀ 而言, ➁ 比 ➅ 更适合作为邻居.</span>
+
+## 4.4 缓冲删除与合并
+
+In §3.2 and §3.3, we show how OdinANN supports efficient direct inserts. In this section, we discuss how OdinANN supports buffered deletes and merging at a low cost. We choose buffered deletes instead of direct ones because they show little interference with frontend search during the merge (§4.7).
+
+前文介绍了高效直接插入 (原文第 3.2 和 3.3 节). 本节讨论低开销的缓冲删除及其合并. 我们采用缓冲删除而非直接删除, 因为删除合并对前台搜索的干扰很小 (原文第 4.7 节).
+
+### 4.4.1 缓冲删除
+
+Overview. OdinANN records the IDs of deleted vectors in memory. When deleting a vector, OdinANN adds its ID to an in-memory deletion set, resulting in a low runtime memory footprint (4B or 8B per vector). Deleted vectors are excluded from the search results after the on-disk ANNS.
+
+**总体流程.** OdinANN 在内存中记录被删除向量的 ID. 删除时, 将 ID 加入内存删除集合, 每个向量仅占 4 或 8 字节. 磁盘 ANNS 完成后, 再从搜索结果中排除已删除向量.
+
+For concurrency control with search and insert, a global read-write lock is used. Delete operations acquire the write lock to update the delete set. After a search finishes on the disk, it acquires the read lock and excludes the deleted records from the search result. We do not use more fine-grained locks as delete has much less overhead than search and insert. Challenge: search quality insurance. In workloads containing deletes, the on-disk search quality may be degraded by deleted vectors. Specifically, the results returned by the on-disk ANNS may contain deleted vectors, which are excluded from the results after the on-disk ANNS finishes. This process may lead to fewer than expected top-k results, even if we return more than k results in the on-disk search. In OdinANN, we should solve this issue without the assistance of the in-memory index, because it is avoided by direct insert. Solution: dynamic candidate pool. As deleted nodes are excluded from the search result, there may be insufficient results even with a large candidate pool length l. To tackle the problem, we adapt the candidate pool size dynamically.
+
+为与搜索和插入协调, 系统使用全局读写锁. 删除获取写锁以更新删除集合; 磁盘搜索结束后获取读锁, 从结果中排除已删除记录. 删除开销远小于搜索和插入, 因而无须更细粒度的锁. 挑战在于保证搜索质量: 磁盘 ANNS 返回的结果可能包含已删除向量, 事后过滤可能使最终结果不足 k 个, 即使磁盘搜索原本返回了超过 k 个结果也无法完全避免. OdinANN 使用直接插入, 没有额外内存索引提供补充结果, 必须独立解决这一问题. 我们采用动态候选池: 即使初始候选池长度 l 较大, 过滤后仍可能不足, 因此需要动态调整容量.
+
+We find that the deleted vectors should only serve as indexing, but not contribute to the results. Motivated by this, we "ignore" the existence of deleted vectors in the candidate pool, namely, we let the candidate pool contain at most l vectors that are not deleted. To achieve it, we adjust the candidate pool size l after admitting the neighbors of the current exploring vector (line 12 in Algorithm 1).
+
+已删除向量应当只用于索引导航, 不计入最终结果. 因此, 我们在统计候选池大小时忽略已删除向量, 让候选池最多包含 l 个未删除向量. 具体实现是在加入当前扩展向量的邻居后, 即算法 1 第 12 行之后, 调整候选池容量.
+
+### 4.4.2 删除的两遍合并
+
+When to merge. We use two metrics to decide when to merge. The first is the ratio of deleted vectors in the index. When it reaches a threshold (`e.g.`, 10%), merging is triggered. This metric is straightforward but sometimes inaccurate. This is because vectors located in different places are not equally important. For example, near-root vectors influence every search request, while near-boundary vectors may only influence a small part. However, they are treated equally in the metric of deleted vector ratio.
+
+**何时合并.** 我们使用两个指标. 第一个是索引中已删除向量的比例, 达到阈值, 如 10% 时触发合并. 这一指标直观, 但有时不够准确, 因为不同位置的向量重要性不同: 靠近搜索起点的向量会影响每个搜索请求, 边缘向量可能只影响少量请求. 删除比例却对它们一视同仁.
+
+We use the search I/O amplification as another metric. It is based on our observation that the disk I/O in the search process reflects the index quality. Given the same candidate pool size l, worse index quality results in a larger candidate pool, thus resulting in more disk I/O. Therefore, we record the average disk I/O during the search. Merging is triggered when the disk I/O is significantly more (`e.g.`, 1.1×) than when no vectors are deleted.
+
+另一个指标是搜索 I/O 放大. 搜索中的磁盘 I/O 能反映索引质量: 在设定相同候选池长度 l 时, 索引质量越差, 实际候选池越大, 磁盘 I/O 越多. 因此, 我们记录搜索的平均磁盘 I/O, 当它明显高于没有删除向量时的水平, 如达到 1.1 倍, 就触发合并.
+
+How to merge. Merging delete in OdinANN includes two passes, in each pass OdinANN scans the whole index sequentially. This process is not as I/O intensive as merging inserts, so it shows little interference with frontend search (§4.7).
+
+**如何合并.** 删除合并分两遍进行, 每遍顺序扫描整个索引. 相比插入合并, 这一过程的 I/O 强度更低, 对前台搜索干扰较小 (原文第 4.7 节).
+
+In the first pass, OdinANN scans the whole index to load the neighbor IDs of the deleted vectors into memory. Loading all of them can cause a high memory consumption (`e.g.`, 512B for a vector with 128 neighbors). OdinANN uses a simple approach, namely loading part of the neighbors for each vector, to meet the memory budget at the cost of index quality.
+
+第一遍扫描将被删除向量的邻居 ID 加载到内存. 全部加载可能占用大量内存, 例如一个有 128 个邻居的向量需要 512 字节. OdinANN 只加载每个向量的一部分邻居, 以牺牲一定索引质量为代价, 满足内存预算.
+
+In the second pass, OdinANN scans the whole index to do three things in a streaming manner. (1) Read a batch of records and replace the deleted vector IDs with their neighbor IDs in memory. (2) Prune neighbors for records whose out-degree is larger than the limit. (3) Write them back to disk. Updates during merge. Deletes can be trivially handled in memory, so we mainly discuss inserts here. We propose two ways for inserts during merge. First, they can be absorbed by an in-memory index and digested using direct insert after the merge. Second, they can be executed with direct insert by not allocating records in the merging pages. As merge is typically short in OdinANN (§4.7), the overheads of the in-memory index and extra disk space are acceptable.
+
+第二遍扫描以流式方式完成三项工作: (1) 读取一批记录, 在内存中将已删除向量的 ID 替换为其邻居 ID; (2) 对出度超过上限的记录进行邻居剪枝; (3) 写回磁盘. 合并期间的更新: 删除容易在内存中处理, 因而主要讨论插入. 插入有两种处理方式: 可以先放入内存索引, 合并结束后再通过直接插入消化; 也可以继续直接插入, 但避开正在合并的页面. OdinANN 的合并通常很短 (原文第 4.7 节), 因而内存索引和额外磁盘空间的开销可以接受.
+
+## 4.5 讨论
+
+Consistency. OdinANN uses snapshots and journaling for consistency. Merging creates an index snapshot. Between two merging, journaling is used to record the delta updates for the in-memory and on-disk data structures. For less overhead, journaling may be flushed to disk later than on-disk inserts. To maintain a consistent prefix for updates [28], we roll back the index by (buffered) deleting all the records with newer IDs than the journal. We store the metadata for recovery (`e.g.`, ID and transaction ID) together with each record on disk. GC-free. OdinANN supports GC-free inserts. Compared to the log-structured layout, OdinANN directly reuses the invalid records, eliminating the need for logical garbage collection - a process to gather valid records into a new index. Our designs target FTL-based SSDs and do not interfere with their physical garbage collection. For deletes, to recycle the space of deleted vectors, OdinANN needs the lightweight merge (§3.4.2), which is similar to a logical GC. Insert latency. Compared to buffered insert in DiskANN, OdinANN has a higher insert latency as it directly writes the updated records to disk. This leads to a ~11.1ms insert latency (§4.4). We believe this latency is acceptable, as real-world systems [7, 22] target indexing latencies around 10ms.
+
+**一致性.** OdinANN 使用快照和日志保证一致性. 合并生成索引快照, 两次合并之间通过日志记录内存及磁盘数据结构的增量更新. 为降低开销, 日志刷盘可能晚于磁盘插入. 为维持更新的一致前缀 [28], 恢复时会通过缓冲删除, 回滚所有 ID 新于日志进度的记录. 恢复元数据, 如 ID 和事务 ID, 与记录一同存储在磁盘上. 免 GC: 插入可以不执行 GC. 与日志结构布局相比, OdinANN 直接复用无效记录的位置, 无须将有效记录收集到新索引的逻辑垃圾回收. 设计面向带 FTL 的 SSD, 不干预设备内部的物理垃圾回收. 删除仍需轻量级合并来回收空间 (原文第 3.4.2 节), 这一过程类似逻辑 GC. 插入延迟: 相比 DiskANN 的缓冲插入, OdinANN 直接将更新写到磁盘, 插入延迟更高, 约为 11.1 ms (原文第 4.4 节). 实际系统 [7, 22] 的目标索引延迟在 10 ms 左右, 因此我们认为这一延迟可以接受.
+
+Memory usage. OdinANN stores three things in memory:
+
+**内存占用.** OdinANN 在内存中保存三类数据:
+
+PQ table for PQ-compressed vectors, 32 bytes per vector.
+
+保存 PQ 压缩向量的 PQ 表, 每个向量 32 字节.
+
+ID-to-location and ID-to-tag hash tables contain the mapping of vector ID to 4-byte record location and 4-byte tag (the same as DiskANN [23]), 16 bytes per vector.
+
+ID 到位置及 ID 到标签的哈希表, 分别映射到 4 字节记录位置和 4 字节标签, 标签与 DiskANN [23] 相同, 每个向量共占 16 字节.
+
+Location-to-ID hash table contains the mapping of record location to vector ID, used by the first pass of a merge. We use per-page fixed-size arrays for this, requiring 4 bytes per record (including empty ones) and 4 bytes per page. For a typical OdinANN index with 2× disk space consumption and 6 records per page, the memory usage is ~58 bytes per vector or 58GB for billion-scale datasets. The memory usage in our evaluation is higher (83.8GB, §4.3). This is due to the memory overheads of hash tables, and free slots caused by dynamic doubling of the PQ table and hash tables.
+
+位置到 ID 的哈希表, 将记录位置映射回向量 ID, 用于合并的第一遍扫描. 实现采用每页定长数组, 每条记录, 包括空记录, 占 4 字节, 每页另占 4 字节. 典型配置使用两倍磁盘空间, 每页容纳 6 条记录, 内存约为每向量 58 字节, 十亿级数据约需 58 GB. 实验中的占用更高, 为 83.8 GB (原文第 4.3 节), 原因是哈希表的额外开销, 以及 PQ 表和哈希表动态扩容翻倍时产生的空槽.
+
+# 5. 评估
+
+We evaluate OdinANN to answer the following questions:
+
+我们通过实验回答以下问题:
+
+How does OdinANN compare to other updatable ANNS indexes for concurrent inserts and searches? (§4.2)
+
+插入与搜索并发时, OdinANN 与其他可更新 ANNS 索引相比表现如何 (原文第 4.2 节)?
+
+How does OdinANN perform in billion-scale datasets compared to other ANNS indexes? (§4.3)
+
+在十亿级数据集上, OdinANN 与其他 ANNS 索引相比表现如何 (原文第 4.3 节)?
+
+How do the techniques in OdinANN contribute to the performance of direct insert? (§4.4)
+
+OdinANN 的各项技术如何改善直接插入性能 (原文第 4.4 节)?
+
+How do OdinANN's techniques for inserts impact internal metrics, `e.g.`, disk consumption and index quality? (§4.5)
+
+这些插入技术如何影响磁盘占用和索引质量等内部指标 (原文第 4.5 节)?
+
+How does the number of out-neighbors impact OdinANN's insert and search performance? (§4.6)
+
+出邻居数量如何影响插入与搜索性能 (原文第 4.6 节)?
+
+How does OdinANN perform for workloads with concurrent inserts, deletes, and searches? (§4.7)
+
+插入, 删除和搜索并发时, OdinANN 表现如何 (原文第 4.7 节)?
+
+## 5.1 实验设置
+
+Basic configuration. We use one node for evaluation, which has the following configuration:
+
+**基础配置.** 实验使用一个节点, 配置如下:
+
+CPU: 2× 28-core Intel Xeon Gold 6330 @ 2.00GHz;
+
+CPU: 两颗 28 核 Intel Xeon Gold 6330, 主频 2.00 GHz.
+
+RAM: 512GB (16× 32GB DDR4 2933MT/s);
+
+**内存:** 512 GB, 由 16 条 32 GB DDR4 2933 MT/s 内存组成.
+
+SSD: 1× Samsung PM9A3 3.84TB;
+
+SSD: 一块 Samsung PM9A3, 容量 3.84 TB.
+
+OS: Ubuntu 22.04 LTS with Linux kernel 5.15.0.
+
+**操作系统:** Ubuntu 22.04 LTS, Linux 内核 5.15.0.
+
+Datasets. We use three vector datasets for evaluation:
+
+**数据集.** 实验使用三个向量数据集:
+
+SIFT100M [12], a dataset containing 100 million uint8 vectors with a dimension of 128, and 10,000 query vectors.
+
+SIFT100M [12]: 1 亿个 128 维 uint8 向量, 以及 10000 个查询向量.
+
+DEEP100M [3], a dataset containing 100 million float vectors with a dimension of 96, and 10,000 query vectors.
+
+DEEP100M [3]: 1 亿个 96 维浮点向量, 以及 10000 个查询向量.
+
+SIFT1B [12], a dataset containing one billion uint8 vectors with a dimension of 128, and 10,000 query vectors. SIFT100M and DEEP100M are subsets of SIFT1B and DEEP1B with 100 million vectors. Compared systems. We compare OdinANN with two state-of-the-art ANNS indexes: DiskANN [23] and SPFresh [30].
+
+SIFT1B [12]: 10 亿个 128 维 uint8 向量, 以及 10000 个查询向量. SIFT100M 和 DEEP100M 分别是 SIFT1B 和 DEEP1B 中包含 1 亿向量的子集. 对比系统: 我们选择两种先进 ANNS 索引, DiskANN [23] 和 SPFresh [30].
+
+DiskANN is a graph-based index using buffered inserts. OdinANN is implemented based on DiskANN. Unless otherwise stated, we use the following update configurations for them: Insert candidate pool size li is 128. Maximum out-neighbors per record R is 96 for SIFT100M and DEEP100M, and 128 for SIFT1B. The maximal number of vectors to prune in delete C is 384. DiskANN merges updates when the in-memory index size reaches 6% of the on-disk index.
+
+DiskANN 是采用缓冲插入的图索引, OdinANN 基于它实现. 除非另有说明, 两者采用如下更新配置: 插入候选池长度 l_i 为 128; SIFT100M 和 DEEP100M 的最大出邻居数 R 为 96, SIFT1B 为 128; 删除剪枝最多考虑 C = 384 个向量. DiskANN 在内存索引达到磁盘索引规模的 6% 时合并.
+
+For search configurations, they use a beamwidth equal to 4. The default search candidate list ls is set to 20 for SIFT100M, and 25 for DEEP100M and SIFT1B. The near-root neighbor cache is disabled. For efficiency, we use io_uring [13] in replace of libaio as their I/O engine.
+
+搜索束宽为 4. 默认搜索候选池长度 l_s 在 SIFT100M 上为 20, 在 DEEP100M 和 SIFT1B 上为 25. 关闭靠近搜索起点的邻居缓存. 为提高效率, I/O 引擎由 libaio 换为 io_uring [13].
+
+SPFresh is a variant of SPANN [5], a cluster-based index that divides vectors into clusters. It supports vector updates by updating the target vector in its nearest clusters. To reduce the imbalance of clusters, SPFresh splits and merges them. We configure SPFresh using the same settings as its open-source code. The maximum cluster size is set to 16KB for SIFT and 48KB for DEEP, for the same number of vectors in a cluster.
+
+SPFresh 是基于聚类的 SPANN [5] 的变体. 它将向量划分为簇, 在目标向量最近的簇中更新该向量, 并通过分裂和合并簇来缓解不均衡. 配置沿用其开源代码: SIFT 的最大簇大小为 16 KB, DEEP 为 48 KB, 使每簇容纳相同数量的向量.
+
+We do not compare with other on-disk ANNS systems, such as Starling [27], as they are not designed to support updates.
+
+我们未与 Starling [27] 等其他磁盘 ANNS 系统比较, 因为它们并非为支持更新而设计.
+
+Metrics. OdinANN is designed for online ANNS scenarios, so we evaluate the search performance, search accuracy, and memory usage during concurrent updates. We use multiple search threads to evaluate search performance, as high search throughput is required in real-world workloads (`e.g.`, 5000 QPS [29]). We gradually add search threads to increase throughput while keeping latency relatively low. For OdinANN and DiskANN, we use 32 search threads. For SPFresh, we use 16 search threads in SIFT and 8 threads in DEEP.
+
+**评估指标.** OdinANN 面向在线 ANNS, 因此我们考察并发更新下的搜索性能, 搜索准确率和内存占用. 实际负载需要较高搜索吞吐量, 如 5000 QPS [29], 所以采用多线程搜索, 逐步增加线程数来提高吞吐量, 同时保持较低延迟. OdinANN 和 DiskANN 使用 32 个搜索线程; SPFresh 在 SIFT 上使用 16 个, 在 DEEP 上使用 8 个.
+
+## 5.2 整体性能: 插入与搜索并发
+
+In this evaluation, we build indexes using SIFT100M and DEEP100M datasets and then insert another 100 million vectors into them. Multi-thread searches are concurrently executed to show their interference by inserts and merges.
+
+分别使用 SIFT100M 和 DEEP100M 构建索引, 再向其中插入另外 1 亿个向量, 同时执行多线程搜索, 观察插入和合并带来的干扰.
+
+The evaluated systems take different times in the evaluations. This is because we do not insert vectors during DiskANN's merge, and the average insert throughputs of compared indexes are different. We set their insert throughputs to 800~1200 QPS, similar to previous works [30].
+
+各系统的实验总时长不同, 因为 DiskANN 合并时不接收插入, 各索引的平均插入吞吐量也不同. 与已有工作 [30] 类似, 我们将插入吞吐量设为 800-1200 QPS.
+
+### 5.2.1 SIFT100M
+
+Figure 6 shows the results in the SIFT100M dataset. From the figure, we make the following observations: Low and stable search latency. The results are shown in Figure 6(a)~Figure 6(c). Compared with DiskANN, OdinANN shows lower P50 (median) search latency with less fluctuation (`i.e.`, maximum P50 latency / minimum P50 latency). OdinANN has 13.3% lower P50 latency than DiskANN on average, which shows that direct insert introduces little cost for disk writes compared to merging them. Besides, the P50 latency of OdinANN fluctuates only 1.07× at most, compared to 2.44× in DiskANN. This is because merging in DiskANN causes bandwidth interference with search tasks, which increases the search latency.
+
+图 6 展示了 SIFT100M 的结果. 首先, 搜索延迟低且稳定 (图 6a-6c). 相比 DiskANN, OdinANN 的 P50, 即中位数延迟更低, 波动也更小; 波动定义为最大 P50 与最小 P50 之比. 平均 P50 比 DiskANN 低 13.3%, 表明相比批量合并磁盘写入, 直接插入的额外写入代价很小. OdinANN 的 P50 最大波动仅为 1.07 倍, DiskANN 为 2.44 倍, 因为后者合并时争用搜索带宽, 抬高了延迟.
+
+Compared with DiskANN, OdinANN has 34.6%/19.5% lower P90/P99 search latency on average, more significant than the P50 latency. This is because of read-write conflicts of DiskANN's in-memory index, which uses per-node read-write locks for concurrency control. An insert acquires the per-node lock and blocks concurrent readers. Contrastively, OdinANN uses approximate concurrency control to reduce such blocking. Writers only block readers when they are updating the id-to-location mapping.
+
+OdinANN 的平均 P90/P99 搜索延迟比 DiskANN 低 34.6%/19.5%, 改善幅度大于 P50. DiskANN 的内存索引使用节点级读写锁, 插入会持有节点锁并阻塞并发读者. OdinANN 则通过近似并发控制减少阻塞, 写者只在更新 ID 到位置映射时阻塞读者.
+
+Compared with SPFresh, OdinANN has 51.7%/36.5%/ 28.4% lower P50/P90/P99 search latency on average. This is because fine-grained graph-based indexes (OdinANN) are advantageous in search compared to coarse-grained cluster-based indexes (SPFresh), especially in disk bandwidth consumption. On average, OdinANN reads 41 pages per search, while SPFresh reads 198 pages. Although SPFresh replicates the clusters to make disk reads mostly sequential, it still shows higher latency than OdinANN. High search throughput. Compared with DiskANN and SPFresh, OdinANN has 1.15× and 1.99× throughput on average, as in Figure 6(d). The reason here is the same as that in latency. DiskANN needs extra search in the in-memory index, and it suffers from bandwidth interference during merge. The cluster-based SPFresh consumes more disk IOPS than OdinANN per search, which limits its throughput.
+
+相比 SPFresh, OdinANN 的平均 P50/P90/P99 延迟低 51.7%/36.5%/28.4%. 细粒度图索引相对粗粒度聚类索引具有搜索优势, 尤其节省磁盘带宽: OdinANN 每次搜索平均读取 41 页, SPFresh 则读取 198 页. 即使 SPFresh 通过复制簇使磁盘读取大多连续, 延迟仍更高. 搜索吞吐量方面, OdinANN 平均为 DiskANN 的 1.15 倍, SPFresh 的 1.99 倍 (图 6d), 原因与延迟相同. DiskANN 需要额外搜索内存索引, 合并时还争用带宽; SPFresh 每次搜索消耗更多磁盘 IOPS, 限制了吞吐量.
+
+Unsacrificed search accuracy. As shown in Figure 6(e), the accuracy of OdinANN is comparable with DiskANN. The accuracy of OdinANN is 99.1%~100% that of DiskANN when the in-memory index is empty. The accuracy gap between OdinANN and DiskANN increases along with the in-memory index size, as DiskANN finds top-k in both the in-memory and on-disk indexes for each search. However, the in-memory index forces DiskANN to merge updates to disks, which causes performance fluctuation.
+
+搜索准确率未明显受损. 图 6e 中, OdinANN 与 DiskANN 的准确率相近. 当 DiskANN 内存索引为空时, OdinANN 的准确率为其 99.1%-100%. 随着内存索引增大, 差距扩大, 因为 DiskANN 每次在内存和磁盘索引中分别寻找 top-k. 但内存索引最终需要合并到磁盘, 又会造成性能波动.
+
+OdinANN and DiskANN consistently show higher accuracy than SPFresh. This is because graph-based indexes are more advantageous than cluster-based indexes in terms of search [7]. We show that this advantage still exists even after the index is updated. In all, OdinANN maintains lower latency, higher throughput, and higher search accuracy than SPFresh.
+
+OdinANN 和 DiskANN 的准确率始终高于 SPFresh, 因为图索引在搜索方面优于聚类索引 [7], 更新后这一优势仍然存在. 整体而言, OdinANN 比 SPFresh 延迟更低, 吞吐量和准确率更高.
+
+The accuracy of OdinANN and DiskANN drops with time. This is because they use PQ to accelerate pruning in insert operations, which is less accurate than the initial graph building [23]. Another reason is that larger datasets intrinsically require a larger search L for higher accuracy.
+
+OdinANN 和 DiskANN 的准确率随时间下降. 一方面, 插入采用 PQ 加速剪枝, 精度低于初始建图 [23]; 另一方面, 数据集越大, 本就需要更大的搜索 L 才能维持较高准确率.
+
+The accuracy of SPFresh increases over time, because of its cluster split protocol. However, it comes at the cost of more pages accessed per request, which results in a throughput drop over time, as shown in Figure 6(d). Low memory footprint. OdinANN's peak memory usage is 29.3% of DiskANN. This is because OdinANN uses direct inserts. OdinANN only needs an extra ID-to-location mapping in memory to support out-of-place record updates, while DiskANN stores the in-memory index and the delta of updates for merging. They lead to a 56.3GB peak memory usage in the final index with ~200M vectors. The in-memory data structures in DiskANN require even more memory when the on-disk index size further increases, to keep a fixed merge threshold (6% of the on-disk index size in our configuration).
+
+SPFresh 的准确率随时间提高, 来自簇分裂机制, 但代价是每次请求访问更多页面, 导致吞吐量逐渐下降 (图 6d). 内存方面, OdinANN 的峰值仅为 DiskANN 的 29.3%. 直接插入只需额外维护 ID 到位置映射, 以支持异地更新; DiskANN 却要保存内存索引和待合并增量, 最终约 2 亿向量的索引峰值内存达到 56.3 GB. 当磁盘索引继续增大, 为维持固定合并比例, 本实验为 6%, 内存需求还会增长.
+
+Compared with SPFresh, OdinANN has 86.8% peak memory usage. SPFresh stores a navigation graph for indexing the nearby clusters of the target vector. The graph size increases when a cluster split happens.
+
+OdinANN 的峰值内存为 SPFresh 的 86.8%. SPFresh 在内存中保存导航图, 用于定位目标向量附近的簇, 簇分裂时图也随之增大.
+
+<div class="paper-shared">
+
+![OdinANN 图 6](/assets/images/posts/odinann/figure-06.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 6: Overall performance in SIFT100M dataset, insert another 100M vectors.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 6: SIFT100M 上的整体性能, 向索引再插入 1 亿向量.</span>
+
+### 5.2.2 DEEP100M
+
+Figure 7 shows the result in the DEEP100M dataset. In this dataset, OdinANN keeps low and stable latency, and low memory usage. We make further observations:
+
+图 7 为 DEEP100M 的结果. OdinANN 同样保持低而稳定的延迟和较低内存占用, 还有以下观察.
+
+(1) The performance boost of OdinANN in DEEP100M is less significant than in SIFT100M. This is because it benefits less from out-of-place record updates. Each vector in DEEP100M is 384B, compared to 128B in SIFT100M. Larger vectors result in fewer records on a page (5 vs. 7), and thus fewer merge opportunities for updates.
+
+(1) DEEP100M 的性能提升不如 SIFT100M 明显, 因为异地更新的收益更少. DEEP100M 每向量 384 字节, SIFT100M 为 128 字节; 向量更大, 每页记录数更少, 分别为 5 和 7 条, 可合并更新的机会也更少.
+
+(2) The advantage of OdinANN over SPFresh is more significant in DEEP100M, due to larger vectors. OdinANN and DiskANN only use one vector per search step, whose size is smaller than a page. Therefore, large vectors have little impact on performance. Their performance drop mainly accounts for the change of search L. However, SPFresh executes a brute-force search for all the vectors in a cluster. In this configuration, we use the same number of per-cluster vectors as SIFT. Larger vectors result in more per-cluster disk I/O, which is the bottleneck of SPFresh's search performance.
+
+(2) DEEP100M 向量更大, 使 OdinANN 相对 SPFresh 的优势更明显. OdinANN 和 DiskANN 每个搜索步骤只使用一个小于页面大小的向量, 因而向量增大影响有限, 性能下降主要来自搜索 L 的变化. SPFresh 则对整个簇暴力搜索. 实验保持与 SIFT 相同的每簇向量数, 更大的向量导致每簇 I/O 增多, 成为 SPFresh 搜索的瓶颈.
+
+<div class="paper-shared">
+
+![OdinANN 图 7](/assets/images/posts/odinann/figure-07.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 7: Overall performance in DEEP100M dataset, insert another 100M vectors.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 7: DEEP100M 上的整体性能, 向索引再插入 1 亿向量.</span>
+
+## 5.3 整体性能: SIFT1B
+
+In this section, we show that OdinANN efficiently handles billion-scale datasets. We build an initial index with 800M vectors in SIFT1B. Then, we insert the other 200M vectors into it and execute concurrent searches. DiskANN merges the in-memory index to disk when it reaches 30 million vectors (~3%), the same as its paper [23].
+
+为验证十亿级数据处理能力, 我们先用 SIFT1B 的 8 亿个向量构建索引, 再插入其余 2 亿个, 同时执行搜索. DiskANN 的内存索引达到 3000 万向量, 约 3% 时合并, 与其论文设置相同 [23].
+
+Figure 8 shows the results. From the figure, we find that the stable performance of OdinANN holds, so we can draw similar conclusions as in §4.2. For example, OdinANN shows 85.7% and 62.1% median latency on average compared to DiskANN and SPFresh. We make two new observations:
+
+图 8 表明 OdinANN 仍保持稳定性能, 可得出与原文第 4.2 节类似的结论. 例如, 搜索延迟中位数平均为 DiskANN 的 85.7%, SPFresh 的 62.1%. 此外还有两项新观察.
+
+First, for DiskANN, although the number of vectors per merge is reduced from 6% (in §4.2) to 3% of the on-disk index, it still shows a high memory usage (> 200GB). Also, P99 search latency spikes are observed, due to bandwidth contention when merging to disk. Second, SPFresh uses less memory than OdinANN (52.2GB vs. 83.8GB). This is because SPFresh uses a coarse-grained cross-cluster index. To achieve a higher search accuracy, SPFresh should make its clusters fine-grained, inducing higher memory usage.
+
+第一, DiskANN 的每次合并比例虽然从 6% 降到 3%, 内存占用仍超过 200 GB; 合并到磁盘时的带宽争用还造成 P99 延迟尖峰. 第二, SPFresh 的内存低于 OdinANN, 分别为 52.2 GB 和 83.8 GB, 因为它使用粗粒度的跨簇索引. 若要提高准确率, 就需细化簇, 增加内存占用.
+
+<div class="paper-shared">
+
+![OdinANN 图 8](/assets/images/posts/odinann/figure-08.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 8: Overall performance in SIFT1B dataset, insert 200M vectors into an index of 800M vectors.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 8: SIFT1B 上的整体性能, 向 8 亿向量索引插入 2 亿向量.</span>
+
+## 5.4 分项性能分析
+
+In this section, we break down the performance gap between Baseline and OdinANN, to show the contributions of the techniques to efficient direct insert. We build a base index using the SIFT100M dataset and insert 100K vectors into it. We evaluate insert latency and throughput using 27 insert threads, without concurrent search. Baseline. We implement the Baseline based on OdinANN. It does direct inserts by updating records in place and uses the basic approximate concurrency control, without the two optimizations. We do not use two-phase locking for Baseline, as it seriously degrades the performance. Figure 9 shows that Baseline has low insert throughput, which can not meet the demands of real-world workloads (`e.g.`, 1000 QPS [29]). +Async. We move the disk I/O out of the critical section (Optimization #1 in §3.3). It reduces the insert latency to 80.8%. However, the insert throughput can not be increased because of the inherent cost of inserts. +OP. We do space overprovision and out-of-place record updates (§3.2). It increases the insert throughput to 5.12× and reduces its latency to 27.1%. This is because it not only reduces the inherent cost of disk writes by combining them, but reduces contention by updating the pages with fewer records. +Prune. We use delta pruning (Optimization #2 in §3.3) to reduce the compute overhead. It further increases the throughput to 2.59× and reduces the latency to 39.7%. By adopting all the optimizations, OdinANN reaches 2000 QPS with 11.1ms median latency for insert, which meets the demands of real-world workloads better.
+
+我们分析基线与 OdinANN 的差距, 衡量各项技术对直接插入的贡献. 基于 SIFT100M 构建索引后插入 10 万向量, 使用 27 个插入线程, 不并发搜索. 基线基于 OdinANN 实现, 采用原地更新和基础近似并发控制, 未启用两项优化. 两阶段锁会严重降低性能, 因而未采用. 图 9 中基线吞吐量很低, 无法满足实际负载, 如 1000 QPS [29]. 加入 +Async, 将磁盘 I/O 移出临界区后 (原文第 3.3 节优化 1), 插入延迟降至 80.8%, 但受固有插入成本限制, 吞吐量未提高. 再加入 +OP, 额外预留空间并异地更新 (原文第 3.2 节), 吞吐量升至前一配置的 5.12 倍, 延迟降至 27.1%. 这既合并了磁盘写入, 也通过更新记录更少的页面降低了争用. 最后加入 +Prune 增量剪枝 (原文第 3.3 节优化 2), 吞吐量再升至 2.59 倍, 延迟降至 39.7%. 全部优化后, 插入吞吐量达到 2000 QPS, 延迟中位数为 11.1 ms, 更符合实际负载需求.
+
+<div class="paper-shared">
+
+![OdinANN 图 9](/assets/images/posts/odinann/figure-09.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 9: Breakdown analysis of insert.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 9: 插入性能的分项分析.</span>
+
+## 5.5 深入分析
+
+To further understand the tradeoffs in OdinANN, we collect statistics for the indexes in §4.2 on disk space consumption and index quality.
+
+为理解 OdinANN 的取舍, 我们统计原文第 4.2 节各索引的磁盘空间和索引质量.
+
+Disk space consumption. OdinANN does space overprovision for fewer writes. Here, we compare the disk space consumption of OdinANN and SPFresh. We exclude DiskANN as its on-disk index is immutable and thus with ideal size.
+
+**磁盘空间.** OdinANN 额外预留空间来减少写入. 这里比较它与 SPFresh 的磁盘占用; DiskANN 的磁盘索引不可变, 大小理想, 因而不纳入比较.
+
+Figure 10(a) shows the disk space consumption of OdinANN and SPFresh for the final index of §4.2 with 200M vectors. (1) OdinANN has 1.98×/2.29× space amplification for SIFT/DEEP datasets, which concludes that the record allocation policy in OdinANN has near-ideal space amplification (§3.2.3). (2) OdinANN requires 84.8%/49.7% of SPFresh's disk space for the final index. This is because SPFresh uses vector replication (8× by default) for better search accuracy, which consumes more space than the edges in OdinANN. Also, SPFresh splits clusters into half-empty ones for cluster balancing, which causes space amplification.
+
+图 10a 展示原文第 4.2 节最终 2 亿向量索引的占用. (1) OdinANN 在 SIFT/DEEP 上的空间放大为 1.98/2.29 倍, 说明记录分配策略接近理想情况 (原文第 3.2.3 节). (2) 最终磁盘占用分别为 SPFresh 的 84.8%/49.7%. SPFresh 默认将向量复制 8 份以提高搜索准确率, 比 OdinANN 的边更占空间; 为平衡簇, 它还将簇分裂为半满簇, 增加了空间放大.
+
+Index quality. Approximate concurrency control uses a relaxed isolation level and delta pruning for better concurrency, at the cost of index quality. Figure 10(b) shows the index quality of DEEP100M after the last merge in §4.2.2 (`i.e.`, 93M vectors inserted). With the same recall, OdinANN accesses ~4.5% more disk pages than DiskANN. The performance loss is acceptable considering the benefits of direct inserts, and it can be further optimized by a more accurate algorithm for delta pruning, which we leave for future work.
+
+**索引质量.** 近似并发控制通过放宽隔离级别和增量剪枝提高并发度, 代价是一定的索引质量损失. 图 10b 展示 DEEP100M 最后一次合并之后的质量, 此时已插入 9300 万向量 (原文第 4.2.2 节). 相同召回率下, OdinANN 比 DiskANN 多访问约 4.5% 的磁盘页. 考虑直接插入的收益, 这一损失可以接受. 未来可通过更精确的增量剪枝算法继续优化.
+
+<div class="paper-shared">
+
+![OdinANN 图 10](/assets/images/posts/odinann/figure-10.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 10: (a) Disk space consumption of OdinANN and SPFresh compared to the ideal case (no overprovision and split). (b) Index quality of OdinANN and DiskANN after inserting 93 million vectors into an index of DEEP100M.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 10: (a) OdinANN 和 SPFresh 的磁盘占用, 与不预留额外空间且不分裂的理想情况比较. (b) 向 DEEP100M 插入 9300 万向量后, OdinANN 与 DiskANN 的索引质量.</span>
+
+## 5.6 参数研究: 出邻居数量
+
+In this section, we show how the number of maximum out-neighbors (R) impacts insert and search performance. We build indexes on SIFT100M using different Rs (32, 64, 96, 128), where the maximum R is used by previous works [24] and OdinANN to support billion-scale datasets. The insert candidate pool size li is set to R + 32 (`e.g.`, 128 for R = 96). We use 10 insert threads and 32 search threads for concurrent insert and search, the same as in §4.2.1.
+
+我们考察最大出邻居数 R 对插入和搜索的影响. 在 SIFT100M 上分别用 R = 32, 64, 96, 128 建图. 最大值也是已有工作 [24] 和 OdinANN 支持十亿级数据时使用的配置. 插入候选池长度 l_i = R + 32, 如 R = 96 时为 128. 与原文第 4.2.1 节相同, 使用 10 个插入线程和 32 个搜索线程并发运行.
+
+Figure 11 shows the results. From the figure, we observe that: (1) A large R increases search performance but reduces insert throughput. A large R contributes to better graph connectivity, which leads to reduced search latency. However, it requires a large insert candidate pool (li) to find enough neighbors. Thus, an insert requires to search more vectors, decreasing its performance. As shown in the figure, R = 96 strikes a balance between search performance and insert throughput, so we choose R = 96 as our SIFT100M configuration.
+
+图 11 表明: (1) 较大的 R 提高搜索性能, 却降低插入吞吐量. R 增大改善图连通性, 减少搜索延迟, 但也需要更大的插入候选池 l_i 才能找到足够邻居, 使每次插入搜索更多向量, 降低性能. R = 96 在两者间取得平衡, 因此被选为 SIFT100M 的配置.
+
+(2) The memory usage is nearly constant across different Rs, as discussed in §3.5. However, setting R to 128 results in ~800MB (8.75%) more memory usage compared to R = 64. This is due to our implementation of the location-to-ID table, which uses per-page arrays with size 10. A larger R leads to more pages in the index, and thus a larger location-to-ID table. When R = 32, we use a larger array size of 15. It shows higher memory usage than R = 64, due to the dynamic doubling of tables during insert. We consider the difference in memory usage is not a major issue, as we can always select an appropriate per-page array size for each graph index.
+
+(2) 如原文第 3.5 节所述, 内存占用总体随 R 变化不大. 但 R = 128 比 R = 64 多约 800 MB, 即 8.75%, 原因是位置到 ID 表使用每页长度为 10 的数组, R 越大, 索引页越多, 表也越大. R = 32 时使用长度为 15 的数组, 插入期间表的动态翻倍使其内存高于 R = 64. 我们认为这不是主要问题, 因为可以为每个图索引选择适当的每页数组长度.
+
+<div class="paper-shared">
+
+![OdinANN 图 11](/assets/images/posts/odinann/figure-11.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 11: The impact of maximum out-neighbors (R) on (a) search latency; (b) insert throughput; (c) memory usage. 10 insert threads and 32 search threads.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 11: 最大出邻居数 R 对 (a) 搜索延迟, (b) 插入吞吐量, (c) 内存占用的影响. 使用 10 个插入线程和 32 个搜索线程.</span>
+
+## 5.7 含删除操作的负载
+
+In this section, we show the performance of OdinANN in workload with deletes. We build an index on SIFT100M, and then gradually replace the original 100M vectors with another 100M vectors. OdinANN merges at 20% updated vectors, while DiskANN merges at 6%. We do not update vectors during merge, to directly show the interference of merge on the frontend search. We show the results for similar durations.
+
+在 SIFT100M 上建图, 再逐步用另外 1 亿向量替换原有 1 亿向量. OdinANN 在更新比例为 20% 时合并, DiskANN 为 6%. 合并期间不更新向量, 以直接观察合并对前台搜索的干扰, 并展示相近时长的结果.
+
+The result is shown in Figure 12, in which the performance of SPFresh is similar to that in §4.2. We compare OdinANN with DiskANN and make the following observations:
+
+图 12 中 SPFresh 的表现与原文第 4.2 节类似. 比较 OdinANN 与 DiskANN, 可得到以下观察.
+
+(1) The merge period of OdinANN has little interference on frontend search, as merging deletes only requires two scans of the on-disk index, which is not I/O-intensive. However, merging inserts in DiskANN is I/O intensive, so it has bandwidth interference with frontend search tasks.
+
+(1) OdinANN 的合并对前台搜索干扰很小. 删除合并只需顺序扫描索引两遍, 并非 I/O 密集操作; DiskANN 的插入合并则 I/O 密集, 会争用前台搜索带宽.
+
+(2) Merging in OdinANN can be less frequent than in DiskANN because buffered deletes require much less memory than buffered inserts during runtime. Deleting a vector only records an ID in memory, while inserting records the vector and its edges in the in-memory index.
+
+(2) OdinANN 可以更少地执行合并, 因为缓冲删除的运行时内存开销远小于缓冲插入. 删除只记录一个 ID, 插入则在内存索引中保存向量及其边.
+
+(3) OdinANN uses less memory than DiskANN during a merge. This is because OdinANN only loads 20 nearest neighbors for each deleted node into memory, while DiskANN loads all the 96 neighbors. The neighbor number can be configured to trade index quality (~2.5% accuracy for the final index, with the same number of disk I/Os) off for memory. An accurate and memory-efficient delete method is preferred to optimize this, which we leave for future work.
+
+(3) OdinANN 合并时内存更少, 因为只加载每个删除节点最近的 20 个邻居, DiskANN 则加载全部 96 个. 邻居数可配置, 在内存和质量之间取舍; 相同磁盘 I/O 数下, 最终索引准确率相差约 2.5%. 更准确且节省内存的删除方法仍有待研究.
+
+(4) The search accuracy of OdinANN can be ensured between two merges, thanks to the dynamic candidate pool design. With a fixed configuration of candidate pool length, OdinANN can ensure the search accuracy regardless of deleted vectors, at the cost of more disk I/O per search.
+
+(4) 动态候选池保证了两次合并之间的搜索准确率. 即使候选池长度配置固定, 系统仍能在存在已删除向量时维持准确率, 代价是每次搜索更多磁盘 I/O.
+
+<div class="paper-shared">
+
+![OdinANN 图 12](/assets/images/posts/odinann/figure-12.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 12: Workload with deletes in SIFT100M dataset, replace the original 100M vectors with another 100M vectors. Note that OdinANN merges at 20% updated vectors, while DiskANN merges at 6% for less memory usage. With similar elapsed time in this figure, OdinANN and SPFresh finish replacing the whole 100M vectors, while DiskANN replaces 50M vectors.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 12: SIFT100M 的含删除负载, 用另外 1 亿向量替换原有 1 亿向量. OdinANN 在更新 20% 时合并, DiskANN 为节省内存在 6% 时合并. 图示相近时长内, OdinANN 和 SPFresh 完成全部 1 亿向量替换, DiskANN 完成 5000 万.</span>
+
+# 6. 相关工作
+
+Billion-Scale ANNS indexes. Real-world workloads do vector search on billions of vectors [7, 22]. Traditional ANNS indexes are stored in memory [4, 7, 18]. To support billion-scale datasets in a single node, they suffer from high prices and limited scalability. To this end, two new methods, hybrid storage and vector compression, are proposed. Hybrid storage. Some works rely on hybrid storage media for more capacity, such as SSD and DRAM. DiskANN [24] and Starling [27] are on-disk graph-based indexes. They store the full graph on disk, and compressed vectors in memory for graph navigation. SPANN [5] is an on-disk cluster-based index. It stores the clusters on disk, and a small graph in memory to index the nearest clusters. HM-ANN [21] maintains a hierarchical graph [18] in DRAM and persistent memory.
+
+**十亿级 ANNS 索引.** 实际负载需要搜索十亿级向量 [7, 22]. 传统内存 ANNS 索引 [4, 7, 18] 若在单节点支持这一规模, 成本高且扩展性受限, 因此出现混合存储和向量压缩两类方法. 混合存储: 利用 SSD 与 DRAM 等不同介质扩大容量. DiskANN [24] 和 Starling [27] 在磁盘保存完整图, 内存保存压缩向量用于导航; SPANN [5] 在磁盘保存簇, 内存保存小图用于定位最近簇; HM-ANN [21] 则在 DRAM 和持久内存中维护分层图 [18].
+
+Some other works seek performance boosts with near-data processing. CXL-ANNS [11] uses processing units near the CXL memory for distance calculation, and SmartANNS [25] uses FPGAs in SmartSSDs for graph traversal. These methods can not only reduce the CPU burden for computation, but mitigate the bandwidth bottleneck by avoiding transferring vectors between CPU and slow-speed storage media.
+
+还有工作通过近数据处理提升性能. CXL-ANNS [11] 利用 CXL 内存附近的处理单元计算距离; SmartANNS [25] 使用 SmartSSD 内的 FPGA 遍历图. 这些方法既减轻 CPU 计算负担, 也避免在 CPU 和较慢介质之间传输向量, 缓解带宽瓶颈.
+
+OdinANN uses commodity SSDs for capacity expansion. It does not rely on near-data processing for better compatibility. Vector compression. Instead of increasing capacity, some works compress vectors for smaller index sizes in memory. Product quantization (PQ) [8,14] is a popular vector compression method for ANNS. It splits vectors into equally sized chunks and does clustering for each chunk. Vectors are replaced with per-chunk IDs representing their nearest centroids. This way is used by IVF [2] indexes for less memory footprint. DiskANN [24] also stores PQ-compressed vectors in memory to reduce neighbor reads during graph navigation. LVQ [1] focuses on single-vector compression instead of cross-vector clustering. It uses scalar quantization in each vector to map floating-point vectors to bits, which improves search performance with reduced memory footprint.
+
+OdinANN 使用通用 SSD 扩容, 不依赖近数据处理, 因而兼容性更好. 向量压缩: 另一类方法不增加容量, 而通过压缩向量缩小内存索引. 乘积量化 (PQ) [8, 14] 是常用方法, 将向量分成等长子块, 分别聚类, 再以每块最近质心的 ID 表示向量. IVF 索引 [2] 用它降低内存占用; DiskANN [24] 也在内存中保存 PQ 压缩向量, 减少图导航时的邻居读取. LVQ [1] 不跨向量聚类, 而对单个向量进行标量量化, 将浮点值映射为比特表示, 以较低内存开销提高搜索性能.
+
+OdinANN stores PQ-compressed vectors in memory for graph navigation. The designs in OdinANN are orthogonal to vector compression methods.
+
+OdinANN 在内存保存 PQ 压缩向量用于图导航, 其设计与具体向量压缩方法相互独立.
+
+Updatable ANNS indexes. Graph-based DiskANN [23] uses buffered inserts, which interfere with frontend search tasks, motivating our designs for OdinANN. Cluster-based SPFresh [30] supports in-place vector updates. It is more challenging for graph-based OdinANN to support efficient updates than cluster-based SPFresh, due to the intrinsic complexity of graph neighbor maintenance. However, OdinANN benefits from better search accuracy and performance. Reserving space for efficient updates. ALEX [6] is a learned index that also leverages reserved space (called "gaps" in its paper) for efficient updates. Unlike ALEX, which uses one gap for each new key-value pair to avoid model retraining, OdinANN uses multiple record slots for a single insert, combining record updates in the same page.
+
+**可更新 ANNS 索引.** DiskANN [23] 使用缓冲插入, 干扰前台搜索, 促成了 OdinANN 的设计. SPFresh [30] 支持原地向量更新. 图邻居维护本身更复杂, 因而 OdinANN 实现高效更新比基于聚类的 SPFresh 更困难, 但能获得更好的准确率和性能. 为高效更新预留空间: 学习型索引 ALEX [6] 也预留空位, 论文称为 gap. ALEX 为每个新键值对使用一个空位, 避免模型重新训练; OdinANN 则为一次向量插入使用多个记录槽, 将同页上的记录更新合并写入.
+
+# 7. 结论
+
+We argue that direct insert is more suitable for graph-based ANNS indexes and propose OdinANN. It efficiently processes inserts in the on-disk index instead of buffering them. Evaluations show that OdinANN keeps stable insert and search performance in billion-scale vector datasets. This work demonstrates that on-disk graph-based ANNS indexes can benefit from high search accuracy, stable search performance, as well as efficient updates simultaneously using direct insert.
+
+我们认为直接插入更适合 ANNS 图索引, 并据此提出 OdinANN. 它直接高效更新磁盘索引, 无须缓冲插入. 实验表明, 在十亿级向量数据集上, OdinANN 保持了稳定的插入与搜索性能. 这项工作说明, 磁盘 ANNS 图索引可以通过直接插入, 同时获得较高搜索准确率, 稳定搜索性能和高效更新.
+
+# 8. 致谢
+
+We sincerely thank our shepherd, Bingzhe Li, and the anonymous reviewers for their valuable feedback. This work is supported by the National Key R&D Program of China (Grant No. 2024YFE0203300), the National Natural Science Foundation of China (Grant No. 62332011), and Beijing Natural Science Foundation (Grant No. L242016).
+
+感谢论文指导人 Bingzhe Li 和匿名审稿人的宝贵意见. 本研究获得国家重点研发计划 (2024YFE0203300), 国家自然科学基金 (62332011) 和北京市自然科学基金 (L242016) 资助.
+
+# 9. 参考文献
+
+<div class="paper-shared">
+
+[1] Cecilia Aguerrebere, Ishwar Bhati, Mark Hildebrand, Mariano Tepper, and Ted Willke. Similarity search in the blink of an eye with compressed indices. In Proceedings of the VLDB Endowment, VLDB '23, pages 3433-3446, Vancouver, Canada, 2023. VLDB Endowment.
+
+[2] Artem Babenko and Victor Lempitsky. The inverted multi-index. In 2012 IEEE Conference on Computer Vision and Pattern Recognition, CVPR '12, pages 3069-3076, Providence, RI, USA, 2012. IEEE Computer Society.
+
+[3] Artem Babenko and Victor S. Lempitsky. Efficient Indexing of Billion-Scale Datasets of Deep Descriptors. In 2016 IEEE Conference on Computer Vision and Pattern Recognition, CVPR '16, pages 2055-2063, Las Vegas, NV, USA, 2016. IEEE Computer Society.
+
+[4] Dmitry Baranchuk, Artem Babenko, and Yury Malkov. Revisiting the inverted indices for billion-scale approximate nearest neighbors. In Proceedings of the European Conference on Computer Vision, ECCV '18, pages 202-216, Berlin, Heidelberg, 2018. Springer-Verlag.
+
+[5] Qi Chen, Bing Zhao, Haidong Wang, Mingqin Li, Chuanjie Liu, Zengzhong Li, Mao Yang, and Jingdong Wang. SPANN: highly-efficient billion-scale approximate nearest neighbor search. In Proceedings of the 35th International Conference on Neural Information Processing Systems, NIPS '21, Red Hook, NY, USA, 2021. Curran Associates Inc.
+
+[6] Jialin Ding, Umar Farooq Minhas, Jia Yu, Chi Wang, Jaeyoung Do, Yinan Li, Hantian Zhang, Badrish Chandramouli, Johannes Gehrke, Donald Kossmann, David Lomet, and Tim Kraska. ALEX: An Updatable Adaptive Learned Index. In Proceedings of the 2020 ACM SIGMOD International Conference on Management of Data, SIGMOD '20, page 969-984, Portland, OR, USA, 2020. Association for Computing Machinery.
+
+[7] Cong Fu, Chao Xiang, Changxu Wang, and Deng Cai. Fast approximate nearest neighbor search with the navigating spreading-out graph. In Proceedings of the VLDB Endowment, VLDB '19, pages 461-474, Los Angeles, CA, USA, 2019. VLDB Endowment.
+
+[8] Tiezheng Ge, Kaiming He, Qifa Ke, and Jian Sun. Optimized Product Quantization for Approximate Nearest Neighbor Search. In 2013 IEEE Conference on Computer Vision and Pattern Recognition, CVPR '13, pages 2946-2953, Portland, OR, USA, 2013. IEEE Computer Society.
+
+[9] Martin Grohe. word2vec, node2vec, graph2vec, X2vec: Towards a Theory of Vector Embeddings of Structured Data. In Proceedings of the 39th ACM SIGMOD-SIGACT-SIGAI Symposium on Principles of Database Systems, PODS'20, pages 1-16, New York, NY, USA, 2020. Association for Computing Machinery.
+
+[10] Jui-Ting Huang, Ashish Sharma, Shuying Sun, Li Xia, David Zhang, Philip Pronin, Janani Padmanabhan, Giuseppe Ottaviano, and Linjun Yang. Embedding-based Retrieval in Facebook Search. In Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining, KDD '20, pages 2553-2561, New York, NY, USA, 2020. Association for Computing Machinery.
+
+[11] Junhyeok Jang, Hanjin Choi, Hanyeoreum Bae, Seungjun Lee, Miryeong Kwon, and Myoungsoo Jung. CXL-ANNS: Software-Hardware Collaborative Memory Disaggregation and Computation for Billion-Scale Approximate Nearest Neighbor Search. In 2023 USENIX Annual Technical Conference, USENIX ATC '23, pages 585-600, Boston, MA, 2023. USENIX Association.
+
+[12] Hervé Jégou, Romain Tavenard, Matthijs Douze, and Laurent Amsaleg. Searching in one billion vectors: rerank with source coding. In 2011 IEEE International Conference on Acoustics, Speech and Signal Processing, ICASSP '11, pages 861-864, Prague, Czech Republic, 2011. IEEE Computer Society.
+
+[13] Kanchan Joshi, Anuj Gupta, Javier Gonzalez, Ankit Kumar, Krishna Kanth Reddy, Arun George, Simon Lund, and Jens Axboe. I/O Passthru: Upstreaming a flexible and efficient I/O Path in Linux. In 22nd USENIX Conference on File and Storage Technologies, FAST '24, pages 107-121, Santa Clara, CA, 2024. USENIX Association.
+
+[14] Herve Jégou, Matthijs Douze, and Cordelia Schmid. Product Quantization for Nearest Neighbor Search. IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI), 33(1): 117-128, 2011.
+
+[15] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. Retrieval-augmented generation for knowledge-intensive NLP tasks. In Proceedings of the 34th International Conference on Neural Information Processing Systems, NIPS '20, Red Hook, NY, USA, 2020. Curran Associates Inc.
+
+[16] Jie Li, Haifeng Liu, Chuanghua Gui, Jianyu Chen, Zhenyuan Ni, Ning Wang, and Yuan Chen. The Design and Implementation of a Real Time Visual Search System on JD E-commerce Platform. In Proceedings of the 19th International Middleware Conference Industry, Middleware '18, pages 9-16, Rennes, France, 2018. Association for Computing Machinery.
+
+[17] Sen Li, Fuyu Lv, Taiwei Jin, Guli Lin, Keping Yang, Xiaoyi Zeng, Xiao-Ming Wu, and Qianli Ma. Embedding-based Product Retrieval in Taobao Search. In Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining, KDD '21, pages 3181-3189, Virtual Event, 2021. Association for Computing Machinery.
+
+[18] Yu A. Malkov and D. A. Yashunin. Efficient and Robust Approximate Nearest Neighbor Search Using Hierarchical Navigable Small World Graphs. IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI), 42(4): 824-836, 2020.
+
+[19] Tomás Mikolov, Kai Chen, Greg Corrado, and Jeffrey Dean. Efficient Estimation of Word Representations in Vector Space. In 1st International Conference on Learning Representations, Workshop Track Proceedings, ICLR '13, Scottsdale, Arizona, USA, 2013.
+
+[20] PCPartPicker. Price Trends. `https://pcpartpicker.com/trends/`, 2025.
+
+[21] Jie Ren, Minjia Zhang, and Dong Li. HM-ANN: Efficient Billion-Point Nearest Neighbor Search on Heterogeneous Memory. In H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin, editors, Advances in Neural Information Processing Systems, NIPS '20, pages 10672-10684, Virtual Event, 2020. Curran Associates, Inc.
+
+[22] Harsha Simhadri. Research talk: Approximate nearest neighbor search systems at scale. `https://www.youtube.com/watch?v=BnYNdSIKibQ&list=PLD7HFcN7LXReJTWFKYqwMcCc1nZKIXBo9&index=9`, 2022.
+
+[23] Aditi Singh, Suhas Jayaram Subramanya, Ravishankar Krishnaswamy, and Harsha Vardhan Simhadri. FreshDiskANN: A Fast and Accurate Graph-Based ANN Index for Streaming Similarity Search. CoRR, abs/2105.09613, 2021.
+
+[24] Suhas Jayaram Subramanya, Devvrit, Rohan Kadekodi, Ravishankar Krishaswamy, and Harsha Vardhan Simhadri. DiskANN: fast accurate billion-point nearest neighbor search on a single node. In Proceedings of the 33rd International Conference on Neural Information Processing Systems, NIPS '19, Red Hook, NY, USA, 2019. Curran Associates Inc.
+
+[25] Bing Tian, Haikun Liu, Zhuohui Duan, Xiaofei Liao, Hai Jin, and Yu Zhang. Scalable Billion-point Approximate Nearest Neighbor Search Using SmartSSDs. In 2024 USENIX Annual Technical Conference, USENIX ATC '24, pages 1135-1150, Santa Clara, CA, 2024. USENIX Association.
+
+[26] Jianguo Wang, Xiaomeng Yi, Rentong Guo, Hai Jin, Peng Xu, Shengjun Li, Xiangyu Wang, Xiangzhou Guo, Chengming Li, Xiaohai Xu, Kun Yu, Yuxing Yuan, Yinghao Zou, Jiquan Long, Yudong Cai, Zhenxiang Li, Zhifeng Zhang, Yihua Mo, Jun Gu, Ruiyi Jiang, Yi Wei, and Charles Xie. Milvus: A Purpose-Built Vector Data Management System. In Proceedings of the 2021 International Conference on Management of Data, SIGMOD '21, pages 2614-2627, Virtual Event, 2021. Association for Computing Machinery.
+
+[27] Mengzhao Wang, Weizhi Xu, Xiaomeng Yi, Songlin Wu, Zhangyang Peng, Xiangyu Ke, Yunjun Gao, Xiaoliang Xu, Rentong Guo, and Charles Xie. Starling: An I/O-Efficient Disk-Resident Graph Index Framework for High-Dimensional Vector Similarity Search on Data Segment. In Proceedings of the ACM on Management of Data, SIGMOD '24, Santiago, Chile, 2024. Association for Computing Machinery.
+
+[28] Yang Wang, Manos Kapritsos, Zuocheng Ren, Prince Mahajan, Jeevitha Kirubanandam, Lorenzo Alvisi, and Mike Dahlin. Robustness in the salus scalable block store. In 10th USENIX Symposium on Networked Systems Design and Implementation, pages 357-370, Lombard, IL, 2013. USENIX Association.
+
+[29] Chuangxian Wei, Bin Wu, Sheng Wang, Renjie Lou, Chaoqun Zhan, Feifei Li, and Yuanzhe Cai. AnalyticDBV: a hybrid analytical engine towards query fusion for structured and unstructured data. In Proceedings of the VLDB Endowment, VLDB '20, pages 3152-3165, Tokyo, Japan, 2020. VLDB Endowment.
+
+[30] Yuming Xu, Hengyu Liang, Jin Li, Shuotao Xu, Qi Chen, Qianxi Zhang, Cheng Li, Ziyue Yang, Fan Yang, Yuqing Yang, Peng Cheng, and Mao Yang. SPFresh: Incremental In-Place Update for Billion-Scale Vector Search. In Proceedings of the 29th Symposium on Operating Systems Principles, SOSP '23, pages 545-561, Koblenz, Germany, 2023. Association for Computing Machinery.
+
+</div>
