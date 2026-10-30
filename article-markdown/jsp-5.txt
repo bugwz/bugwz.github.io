@@ -1,0 +1,316 @@
+# JSP 脚本元素指令与动作 JSP 笔记-5
+
+# 1. JSP 脚本元素:
+
+由于都是在一定的格式里起纳入 Java 代码, 因此经常把 "表达式", Scriptlet,"声明" 都称为脚本元素.
+
+## 1.1 JSP 表达式:
+
+JSP 表达式是对数据的表示, 系统将其作为一个值进行计算和显示. 示例代码如下所示:
+
+```java
+<%@ page language="java" import="java.util.*" pageEncoding="UTF-8"%>
+<html>
+  <head>
+    <title>jspDemo1.jsp</title>
+  </head>
+  <body>
+    <h1>JSP表达式 示例</h1>
+    <!-- 常量,方法值,算术运算,关系运算 -->
+    <b>PI 的值: </b><%=Math.PI %><br />
+    <b>100,99中最大的值 :</b><%=Math.max(100,99) %><br />
+    <b>100,99中最小的值 :</b><%=Math.min(100,99) %><br />
+    <b>3+2-5的值 :</b><%=3+2-5 %><br />
+    <b>(3+2)==5的值 :</b><%=(3+2)==5 %><br/>
+    <b>(3+2)!=5的值(表达式输出) :</b><%=(3+2)!=5 %><br />
+    <!-- out.print() 与表达式作用类似 -->
+    <b><%out.println("(3+2)!=5的值(out.print输出) :"+((3+2)!=5)); %><br/>
+  </body>
+</html>
+```
+
+## 1.2 JSP Scriptlet:
+
+JSP Scriptlet 就是在 JSP 页面里面嵌入一段 Java 代码, 也成为脚本代码段, 它在 JSP 页面中的表现形式为:<% Java代码 %>, 代码示例如下:
+
+```java
+<%@ page language="java" import="java.util.*" pageEncoding="UTF-8"%>
+<html>
+  <head>
+    <title>jspDemo2.jsp</title>
+  </head>
+  <body>
+    <h1>java 程序片 示例</h1>
+    <%
+      //java程序片 定义一个变量 (结论:局部变量,反复声明,数值不变)
+      int i=0;
+      i++;
+     %>
+     <h1>你是第<%=i %>个访问本站的用户</h1>
+     <br>
+     <!-- java 程序片 写具体代码 -->
+     <h1>以直角三角形的形式显示数字</h1>
+     <%
+	     for(int k=1;k<10;k++) {
+	        for(int j=1;j<=k;j++) {
+	           out.println(j);
+	        }
+	     out.println("<br/>");
+	    }
+      %>
+      <h1>计算1到100的和</h1>
+      <%
+        //计算1到100的和
+	    int sum=0;
+	    for(int k=1;k<=100;k++){
+	    	sum+=k;
+	    }
+	    out.println("sum="+sum);
+      %>
+  </body>
+</html>
+```
+
+## 1.3 JSP 声明:
+
+JSP 声明就是在 JSP 页面中声明 Java 方法或变量等 (用于定义 JSP 代表的 Servlet 类的成员变量和方法).JSP 声明在 JSP 页面中的表现形式为:<%! Java 代码 %>, 实例代码如下:
+
+```java
+<%@ page language="java" import="java.util.*" pageEncoding="UTF-8"%>
+<html>
+<head>
+<title>jspDemo3.jsp</title>
+</head>
+<body>
+	<h1>java 声明变量和方法 示例</h1>
+	<%!//声明变量 变量类型为java允许的任何类型 (结论:全局变量即类的成员变量,只声明一次,i数值递增)
+	int i, a, b = 10, c;
+	String tom = null, jerry = "love JSP";
+	Date date;
+	//声明方法
+	public String sayHello(String name) {
+		return "Hello," + name + "!";
+	}%>
+	<%
+		i++;
+		//给变量进行赋值操作
+		date = new Date();
+	%>
+	<h1>
+		你是第<%=i%>个访问本站的用户
+	</h1>
+	<br><%=jerry%>
+	<br><%=tom%>
+	<br><%=date%>
+	<br><%=sayHello("zhangsan")%>
+</body>
+</html>
+```
+**有个问题:**
+
+当两个或多个线程同时访问同一个共享的变量时, 并且一个线程需要修改这个变量时, 我们应对这样的问题做出处理, 否则可能发生混乱. 根据 Tomcat 服务器的机制, Tomcat 会为每个访问网站的用户开启一个新的线程, 当多个用户同时请求一个 JSP 页面时, JSP 页面的程序片 (<%  %>中的) 就会被多次调用运行, 分别运行在不同的线程中, JSP 页面的成员变量和方法 (<%! %>) 会被多个用户共享和访问. 有些 JSP 页面的方法在操作成员变量, 可能不需要被其他用户影响, 以免产生不利影响, 那么就要使用线程同步了, 相当于加了一把锁. 这样就能保障不同的用户对于同一个数据的处理时, 不会发生混乱.
+
+**synchronized 修饰的作用为: 当一个线程在执行被 synchronized 修饰的方法时, 其他线程想在程序片中调用这个 synchronized 修饰的方法时就必须等待, 直等到方法执行完.**
+
+关于线程同步的方法有两种:
+
+1. 使用同步块进行线程同步:`synchronized(object){要同步的语句}`, 实例代码如下:
+
+```java
+<%@ page language="java" import="java.util.*" pageEncoding="UTF-8"%>
+<html>
+	<head>
+	  <title>关于线程同步的两个措施</title>
+	</head>
+	<body>
+	<p>synchronized块 实现线程同步</p>
+	<%! 
+		//声明Integer 对象
+		Integer number=new Integer(0);
+	%>
+	<% 
+		//把i++操作放入synchronized块中
+		synchronized(number)
+		{
+			Thread.sleep(5000);
+			int i=number.intValue();
+			i++;
+			number=new Integer(i);
+		}
+	%>
+	<P>您是第<%=number.intValue()%>个访问本站的客户.
+  </body>
+</html>
+```
+
+2. 使用同步方法进行线程同步:`synchronized void methodA(){}`, 实例代码如下:
+
+```java
+<%@ page language="java" import="java.util.*" pageEncoding="UTF-8"%>
+<html>
+<head>
+<title>jspDemo3_2.jsp</title>
+</head>
+<body>
+	<h1>方法前加synchronized关键字 实现线程同步</h1>
+	<%!//定义变量
+	int i = 0;
+	//声明方法 
+	//public void countPeople() 
+	//synchronized修饰方法
+	synchronized void countPeople() throws Exception {
+		Thread.sleep(5000);
+		/*
+		try{
+			Thread.sleep(5000);
+		}catch(Exception e){
+			
+		}
+		*/
+		i++;
+	}%>
+	<%
+		countPeople();
+	%>
+	<P>
+		您是第<%=i%>个访问本站的客户.
+</body>
+</html>
+```
+# 2. JSP 指令:
+
+(编译指令) 相当于在编译期间的命令 (换句话说 jsp 转换成 Servlet 过程期间需要用到的指令), 其中 JSP 指令包括 page, include, taglib 等.
+
+## 2.1 page 指令:
+
+Page 指令用来定义整个 JSP 页面的一些属性和这些属性的值. 属性值总是用单引号或双引号括起来, 可以用一个 page 指令制定多个属性的值, 也可以用多个 page 为单个属性指定值.
+
+```java
+//一个page指令制定多个属性的值
+<%@ page 属性1="属性一的值" 属性2="属性二的值" ... %>
+//多个page指令制定多个属性的值
+<%@ page 属性1="属性一的值"%>
+<%@ page 属性2="属性二的值"%>
+```
+
+另外 page 指令常用与进行错误页面的跳转, 这其中一定会包括两个页面, 一个是出错的页面, 一个是出错后要跳转到的页面, 部分代码如下:
+
+```java
+//出错页面的page指令信息
+<%@ page language="java" import="java.util.*" pageEncoding="UTF-8" errorPage="error.jsp" %>
+
+//出错后跳转到的页面的page指令信息
+<%@ page language="java" import="java.util.*" pageEncoding="UTF-8" isErrorPage="true" %>
+```
+
+## 2.2 include 指令:
+
+include 指令用于在运行时将 html 文件或者 jsp 页面嵌入到另一个 jsp 页面 (为了代码的复用, 写好的 jsp 页面可以被所有的其他 jsp 页面进行银行用), 部分代码如下所示:
+
+```java
+<%--
+  include指令包含,静态包含特点:
+  1,先包含后处理,生成一个servlet类.
+    即当前jsp页面和插入的文件合并成一个新的jsp文件,然后JSP引擎再将这个新的JSP页面转译成java文件
+  2,只生成一个class文件
+  3,不能传参数
+  4,同一个request对象
+  --%>
+  <body>
+    <h1>includeDemo1.jsp</h1>
+    <!-- 特点1:包含文件定义变量i,被包含文件定义相同变量i时,报错 原因:先包含后处理,定义变量重复-->
+    <%
+       int i=100;
+     %>
+     i=<%=i %>
+    <br>
+    <!--  特点2:查看work下项目的临时文件-->
+	<!-- 特点3:不能传参数 -->
+    <!--  特点4:包含页面和被包含页面访问的是同一个request内嵌对象-->
+	<%request.setAttribute("username","xiaoming");%>
+	<%System.out.println("includeDemo1.jsp中request="+request); %>
+	<%@include file="include1.jsp" %> 
+
+  </body>
+```
+## 2.3 taglib 指令:
+
+taglib 指令的作用是在 jsp 页面中, 将 `标签库描述符文件` 引入到该页面中, 并设置前缀, 而去利用标签的 `前缀` 去使用标签库表述文件中的标签. 部分代码如下所示:
+
+```java
+<!-- 引入JSTL标签 -->
+<%@ taglib prefix="c" uri="http://java.sun.com/jstl/core" %>
+<html>
+  <head>
+    <title>taglib标签引用</title>
+  </head>
+  <body>
+    <c:out value="欢迎测试你的第一个使用到JSTL的网页"/>
+  </body>
+</html>
+```
+
+# 3. JSP 动作
+
+jsp 动作包括 include, param, forward, plugin, useBean 等动作, 详细介绍如下所示:
+
+## 3.1 param 动作:
+
+param 标签以 "名字--值" 对的形式为其他标签提供附加信息, 这个标签与 jsp: include, jsp: forward, jsp: plugin 标签一起使用. param 动作标记语法格式如下:
+```java
+<jsp:param name="名字" value="指定param的值" />
+```
+
+## 3.2 include 动作:
+
+include 动作的特点为:
+
+  1. 先处理后包含, 生成多个 servlet 类. 即能自动区分包含的文件是静态文件还是动态文件; 执行时, 如果为静态文件, 直接将资源包含处理, 与静态包含相同; 如果为动态文件, 则选各自处理资源, 之后将处理后的结果包含在一起.
+  2. 生成多个 class 文件
+  3. 能传参数
+  4. 不同一个 request 对象, 可以取得包含它的页面的参数, 并添加了自己的参数
+
+include 动作的标记语法格式如下:
+```java
+<jsp:include page="文件的URL" />
+或者
+<jsp:include page="文件的URL">
+</jsp:include>
+```
+## 3.3 动态 include 和静态 include 的区别如下:
+
+1. `<%@ include file="date.jsp" %>`
+ + include 编译指令是在 jsp 程序的转换时期就将 file 属性所制定的程序内容嵌入, 然后再编译执行;
+ + 只生成一个 class 文件
+ + include 不能带参数
+ + 同一个 request 对象
+2. `<jsp:include page="date.jsp" flush="true" />`
+ + 而 include 指令在转换期间是不会被编译的, 只有在客户端请求时期如果被执行到才会被动态的编译载入.
+ + 生成多个 class 文件
+ + <jsp:include>可以
+ + 不同的 request 对象, 可以去的包含他的页面的参数, 并添加了自己的参数.
+
+## 3.4 forward 动作:
+
+forward 的动作标记语法格式:
+```java
+<jsp:forward page="文件的URL" />
+或者
+<jsp:forward page="文件的URL">
+//可以在forward中进行传参操作
+<jsp:param name="参数名称" value="参数值"/>
+</jsp:forward>
+```
+## 3.5 plugin 动作:
+
+plugin 标签只是 jsp 文件加载 java plugin, 该插件由客户负责下载, 并使用该插件负责下载, 并使用该插件来运行 java applet, 其中 plugin 动作标记语法格式如下:
+```java
+<jsp:plugin type="applet" code="小应用程序的字节码文件" jreversion="java虚拟机版本号" width="小程序宽度值" height="小程序口高度值">
+  <jsp:fallback>
+     提示信息:用来提示用户的浏览器是否支持插件下载.
+  </jsp:fallback>
+</jsp:plugin>
+```
+## 3.6 useBean 动作:
+
+useBean 标签用来创建并使用一个 java beans, 是非常重要的一个动作标签. sun 公司的倡导是: 用 html 完成 jsp 页面的静态部分, 用 javabeans 完成动态部分, 实现真正意义上的静态和动态分割.

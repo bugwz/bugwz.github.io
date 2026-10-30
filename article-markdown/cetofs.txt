@@ -1,0 +1,840 @@
+# 译 - CETOFS: A High-Performance File System with Host-Server Collaboration for Remote Storage
+
+<div class="paper-shared">
+
+原论文 [CETOFS: A High-Performance File System with Host-Server Collaboration for Remote Storage](https://www.usenix.org/conference/fast26/presentation/jia) 发表于 FAST 2026 (第 24 届 USENIX 文件与存储技术会议), 中文题名为 "CETOFS: 通过主机与服务器协作实现面向远程存储的高性能文件系统".
+
+远程 NVMe SSD 让文件系统可以共享存储资源, 但传统内核路径和跨网络的多次交互会增加访问延迟. CETOFS 将主机与存储服务器的工作重新分配:
+
+**访问路径**
+
+- 数据操作走用户态路径, 减少内核栈开销; 权限检查仍由远程服务器执行, 避免用户态直接访问设备带来的保护问题.
+
+**协作机制**
+
+- 服务器同时承担并发控制和故障原子性 IO 所需的处理, 减少主机与服务器之间的往返. 论文还给出了请求排序等实现细节.
+
+**评估结果**
+
+- 在论文测试的负载下, 单线程文件访问延迟最多降低 52%, 并发访问吞吐量最高提升 19 倍; 论文将 CETOFS 与内核态和用户态文件系统进行了比较.
+
+CETOFS 是一套面向远程 NVMe SSD 的文件系统, 这篇 FAST 2026 论文讨论如何同时降低内核栈开销和远程访问中的网络往返. 传统内核文件系统可以通过 NVMe-over-RDMA 访问分离式 SSD, 但读写请求仍要经过多层内核路径; 文件或目录并发访问时, 主机侧的控制操作还会把网络延迟带入关键路径. CETOFS 将数据平面放在用户态, 同时把权限检查留给远程存储服务器, 避免用户态路径直接获得不受约束的设备访问权. 服务器还承担并发控制与故障原子性 IO 保障, 让多个需要协调的步骤尽量在同一侧完成, 减少主机和服务器反复通信. 论文介绍了协作架构, 请求排序机制及相应的保护语义, 并将系统与内核态和用户态文件系统比较. 在其测试负载下, 单线程文件访问延迟最多降低 52%, 并发访问吞吐量最高提升 19 倍. 这些结果需要结合论文的硬件配置, 负载和对照系统理解, 也展示了远程文件系统不只要缩短数据路径, 还要安排好控制操作的位置.
+
+实验结论与系统能力以论文中的条件为准. initiator 和 target 分别译为发起端与目标端; failure-atomic IO 译为故障原子性 IO, 指崩溃后一组写入全部生效或全部不生效.
+
+</div>
+
+# 0. 摘要
+
+With the development of high-performance RDMA network and modern storage devices, disaggregated NVMe SSDs have become increasingly popular due to the high resource utilization and superior performance. Although existing kernel file systems (`e.g.`, Ext4) can directly access the disaggregated SSD via the NVMe-over-RDMA protocol, the data path suffers from heavy kernel stack overhead and thus degraded performance. The extra networking latency introduced in accessing remote storage also prevents file system from achieving scalable concurrent accesses and efficient failure-atomic IO. In this paper, we present CETOFS, a high-performance file system with host-server collaboration for disaggregated NVMe SSD. CETOFS designs a userspace-kernel collaborative architecture to place data plane entirely in userspace meanwhile separate permission checking from in-kernel control plane. Then CETOFS exploits the processing capability of remote storage server to offload three tasks: permission checking, concurrency control, and failure-atomic IO guaranteeing. The offloading mechanisms greatly reduce the networking overhead. We implement CETOFS and evaluate it against both kernel and userspace file systems. The evaluation shows CETOFS achieves high-performance data path that reduces latency by up to 52% for single-threaded file access and improves throughput by up to 19X for concurrent accesses.
+
+随着高性能 RDMA 网络和现代存储设备的发展, 分离式 NVMe SSD 凭借较高的资源利用率和出色的性能得到越来越广泛的应用. 现有内核文件系统 (如 Ext4) 虽然可以通过 NVMe-over-RDMA 协议直接访问这类 SSD, 但数据路径上的内核栈开销很大, 因而影响了性能. 访问远程存储带来的额外网络延迟, 也阻碍了并发访问的扩展和高效故障原子性 IO 的实现. 本文提出 CETOFS, 一种面向分离式 NVMe SSD, 由主机与服务器协同工作的高性能文件系统. CETOFS 采用用户态与内核协同的架构, 将数据平面完全放在用户态, 同时把权限检查从内核控制平面中分离出来. 随后, 它利用远程存储服务器的处理能力, 将权限检查, 并发控制和故障原子性 IO 保障三项任务卸载到服务器端, 大幅减少网络开销. 我们实现了 CETOFS, 并与内核态和用户态文件系统进行了对比评估. 结果表明, CETOFS 的高性能数据路径可使单线程文件访问延迟最多降低 52%, 并发访问吞吐量最高提升 19 倍.
+
+# 1. 引言
+
+Storage disaggregation is a well-known approach to independently scale storage and compute resources to achieve high resource utilization <sup>[24, 25]</sup>. The disaggregated hard disks or solid state drives (SSDs) are exposed as local block devices attached to hosts through remote block device protocols (`e.g.`, iSCSI <sup>[2]</sup>). Recently, disaggregated NVMe SSD has been increasingly popular due to the rapid development of storage and network hardware. For example, modern SSDs such as Samsung Z-SSD <sup>[49]</sup> and Intel Optane SSD <sup>[15, 16]</sup> provide sub-ten microseconds of IO latency and up to 7.0 GB/s <sup>[16]</sup> of IO bandwidth. The RDMA networking also provides sub-ten microseconds of round-trip latency, enabling fast data transmission. Moreover, the adoption of NVMe-over-Fabric (NVMe-oF) protocol provides more efficient remote storage access compared to the traditional iSCSI protocol.
+
+存储分离是一种广为采用的架构: 存储资源与计算资源可以独立扩展, 从而提高资源利用率 <sup>[24, 25]</sup>. 分离部署的硬盘或固态硬盘 (SSD) 通过远程块设备协议 (如 iSCSI <sup>[2]</sup>) 暴露给主机, 使用起来如同本地块设备. 近年来, 存储与网络硬件快速发展, 推动了分离式 NVMe SSD 的普及. 例如, Samsung Z-SSD <sup>[49]</sup> 和 Intel Optane SSD <sup>[15, 16]</sup> 等现代 SSD 的 IO 延迟低于 10 微秒, IO 带宽最高可达 7.0 GB/s <sup>[16]</sup>. RDMA 网络的往返延迟也低于 10 微秒, 能够快速传输数据. 此外, NVMe-over-Fabric (NVMe-oF) 协议比传统 iSCSI 协议提供了更高效的远程存储访问.
+
+The disaggregated SSD introduces remote storage accessing. When accessing the remote storage, the efficiency of file systems running atop the exposed block devices is important to applications using disaggregated SSDs. Thus, we target to explore the problem in this paper: how to build a high-performance file system for accessing the disaggregated NVMe SSD. Existing kernel file systems (`e.g.`, Ext4 <sup>[3]</sup> and F2FS <sup>[6]</sup>) can directly access disaggregated SSDs. However, we analyze the performance overhead of kernel file systems with NVMe-over-RDMA networking and find three inefficiencies as follows.
+
+SSD 分离部署后, 访问存储就需要经过网络. 对于使用分离式 SSD 的应用, 运行在这些块设备之上的文件系统是否高效十分重要. 因此, 本文研究的问题是: 如何构建高性能文件系统来访问分离式 NVMe SSD. 现有内核文件系统 (如 Ext4 <sup>[3]</sup> 和 F2FS <sup>[6]</sup>) 可以直接访问分离式 SSD. 不过, 我们分析了内核文件系统使用 NVMe-over-RDMA 网络时的性能开销, 发现以下三方面效率问题.
+
+Heavy kernel stack. The kernel file system accesses remote storage through the multi-layer kernel stack, including syscall, file system itself, NVMe driver, and NVMe-over-RDMA driver. We observe that the kernel software stack accounts for up to 66% of the total latency on data path for file operations (`e.g.`, read and write). The overhead of kernel software stack exceeds the network and storage device time. Especially, the NVMe-over-RDMA driver occupies 36% of total latency, becoming the major performance bottleneck.
+
+**内核栈开销大.** 内核文件系统访问远程存储时, 需要经过系统调用, 文件系统本身, NVMe 驱动和 NVMe-over-RDMA 驱动等多层内核栈. 我们观察到, 在读写等文件操作的数据路径上, 内核软件栈占总延迟的比例最高达到 66%, 超过网络与存储设备耗时之和. 其中, NVMe-over-RDMA 驱动占总延迟的 36%, 是主要性能瓶颈.
+
+Exacerbated serialization overhead. Concurrent file accesses of kernel file system are protected by the inode-level reader-writer lock which is performed on the host. As for concurrent file operations, the following operation cannot be processed until the preceding operation is completed. Under remote storage accessing, the serialization required by the locking suffers from extra networking latency and its overhead is exacerbated. This not only hurts the file system scalability but also leaves the RDMA network and SSD underutilized.
+
+**串行化开销加剧.** 内核文件系统通过主机上的 inode 级读写锁保护并发文件访问. 对于需要串行执行的并发文件操作, 后一个操作必须等待前一个操作完成后才能处理. 访问远程存储时, 加锁所要求的串行执行还要承担额外网络延迟, 进一步放大了开销. 这不仅损害文件系统的扩展性, 还使 RDMA 网络和 SSD 无法得到充分利用.
+
+Expensive data movement. Failure-atomic IO <sup>[8, 47, 51]</sup> is an important data path feature to guarantee the atomicity of multiple write operations. Existing kernel file systems employ either copy-on-write mechanism or journaling mechanism to achieve failure-atomic IO. Unfortunately, both mechanisms either require frequent metadata updates on remote storage server or incur expensive data movement of log entries between host and remote storage servers. This results in low efficiency of failure-atomic IO.
+
+**数据搬移代价高.** 故障原子性 IO <sup>[8, 47, 51]</sup> 是数据路径的一项重要功能, 用于保证多个写操作的原子性. 现有内核文件系统通过写时复制或日志机制实现故障原子性 IO. 然而, 这两种机制要么频繁更新远程存储服务器上的元数据, 要么在主机与远程存储服务器之间搬移日志条目, 代价都很高, 导致故障原子性 IO 的效率不佳.
+
+To address the inefficiencies of data path of existing kernel file systems, we explore to build userspace file system for disaggregated SSD. Although a few recent works propose userspace file systems for SSDs <sup>[5, 54]</sup> or persistent memory <sup>[19, 57]</sup>, there exist two non-trivial challenges for building file system for remote storage. First, previous userspace file systems only focus on locally attached storage devices, which does not take networking overhead into account for making design choices. Second, the permission checking is critical to file system, but the approaches of previous works cannot be directly applied to remote storage. Some works require specific hardware modifications <sup>[5, 54]</sup> or introduce costly CPU and communication overheads to the host <sup>[35]</sup>. Others <sup>[19, 57]</sup> rely on page table control for persistent memory, which is not applicable to control accessing to SSD.
+
+为解决现有内核文件系统数据路径的效率问题, 我们探索为分离式 SSD 构建用户态文件系统. 近期已有一些面向 SSD <sup>[5, 54]</sup> 或持久内存 <sup>[19, 57]</sup> 的用户态文件系统, 但面向远程存储时, 仍有两个不易解决的问题. 首先, 此前的用户态文件系统只针对本地存储设备, 设计时没有考虑网络开销. 其次, 权限检查对文件系统至关重要, 而已有方案无法直接用于远程存储. 一些方案需要专门修改硬件 <sup>[5, 54]</sup>, 或给主机带来高昂的 CPU 与通信开销 <sup>[35]</sup>; 另一些方案 <sup>[19, 57]</sup> 依靠页表控制持久内存访问, 不适用于 SSD.
+
+In this paper, we propose CETOFS, a high-performance file system for the disaggregated SSD with the collaboration between host and remote storage servers. To address the aforementioned inefficiencies and challenges, we propose the following three offloading techniques.
+
+本文提出 CETOFS, 通过主机与远程存储服务器协作, 为分离式 SSD 提供高性能文件系统. 为解决上述效率问题与设计难点, 我们提出三项卸载技术.
+
+First, we employ a userspace-kernel collaborative architecture for CETOFS. We place the data plane entirely in userspace to achieve high performance. Meanwhile, we reuse kernel file system to manage the control plane but separate permission checking from the kernel stack. We design permission checking offloading at the remote storage server. This offloading mechanism uses per-file request queue and reverse permission table to enable block-granularity access control. By doing so, CETOFS fully exploits the high performance of userspace data plane without compromising data security.
+
+第一, CETOFS 采用用户态与内核协同的架构, 将数据平面完全放在用户态以提高性能. 同时, 它复用内核文件系统管理控制平面, 但把权限检查从内核栈中分离出来, 卸载到远程存储服务器. 该机制通过每个文件独立的请求队列和反向权限表实现块粒度访问控制. 因而, CETOFS 能够在不损害数据安全的前提下, 充分发挥用户态数据平面的性能优势.
+
+Second, we design concurrency control offloading to pass the serialization responsibility of concurrent requests to the remote storage server. CETOFS allows the host to submit conflicted requests to remote storage server in parallel, which greatly reduces the network waiting time of concurrent requests. At the remote storage server, we use request group to ensure the correctness of concurrent accessing. Meanwhile, we use merging group to accelerate the processing of the request groups without conflicts. Thus, CETOFS improves scalability without compromising correctness.
+
+第二, 我们将并发控制卸载到远程存储服务器, 由服务器负责并发请求的串行化. CETOFS 允许主机并行向服务器提交存在冲突的请求, 显著缩短并发请求的网络等待时间. 服务器通过请求组保证并发访问的正确性, 并通过合并请求组加快无冲突请求的处理. 这样, CETOFS 在保持正确性的同时提高了扩展性.
+
+Third, we design redo logging offloading in CETOFS to process write transaction at the remote storage server. This offloading technique enables CETOFS to only write transaction data once from the host to the remote storage. The failure atomicity is guaranteed by redo logging at the remote storage server. We also adopt the transaction-aware submission and completion to reduce the CPU-initiated MMIOs of RDMA.
+
+第三, CETOFS 将重做日志处理卸载到远程存储服务器, 在服务器端处理写事务. 主机只需把事务数据传到远程存储一次, 再由服务器端的重做日志机制保证故障原子性. 我们还采用以事务为单位组织提交和完成通知的机制, 减少 CPU 为 RDMA 发起的 MMIO 操作.
+
+We implement CETOFS as a combination of a userspace library, a kernel file system, and a remote storage server-sided request handler. We evaluate CETOFS using file system benchmarks and real-world applications against three file systems: Ext4, F2FS, uFS <sup>[35]</sup>. The evaluation results show that CETOFS reduces the access latency by up to 52% for single-threaded file access, and achieves up to 19X throughput improvement for concurrent accesses.
+
+CETOFS 由用户态库, 内核文件系统和远程存储服务器端的请求处理器共同构成. 我们使用文件系统基准测试和实际应用, 将 CETOFS 与 Ext4, F2FS 和 uFS <sup>[35]</sup> 进行比较. 评估结果表明, CETOFS 可使单线程文件访问延迟最多降低 52%, 并发访问吞吐量最高提升 19 倍.
+
+In summary, this paper makes the following contributions:
+
+本文的贡献如下:
+
+A detailed quantification and analysis of performance overheads for using kernel file system to access the disaggregated SSD.
+
+详细量化并分析了内核文件系统访问分离式 SSD 时的性能开销.
+
+A userspace-kernel collaborative file system architecture with a separated and offloaded permission checking, enabling high-performance and protected data plane.
+
+提出用户态与内核协同的文件系统架构, 将权限检查分离并卸载, 使数据平面兼具高性能与访问保护.
+
+Two remote storage server based offloading mechanisms to perform concurrency control and redo logging separately, achieving scalable data plane to fully exploit parallelism of hardware devices and providing efficient failure-atomic IO.
+
+提出两种在远程存储服务器上分别执行并发控制和重做日志处理的卸载机制, 提升数据平面的扩展性, 充分利用硬件并行能力, 并实现高效的故障原子性 IO.
+
+An extensive evaluation of CETOFS to show its efficiency for accessing the disaggregated SSD.
+
+通过全面评估, 展示了 CETOFS 访问分离式 SSD 的效率.
+
+# 2. 背景与研究动机
+
+## 2.1 分离式 NVMe SSD
+
+Disaggregated storage has gained wide adoption in data centers, providing flexibility to utilize storage devices such as HDDs and SSDs. This approach enhances resource utilization and reduce the total cost of ownership. Recently, disaggregated NVMe SSDs <sup>[24, 25, 33, 53, 55]</sup> have become increasingly popular due to their superior performance. As an extension from NVMe specification, NVMe over Fabrics (NVMe-oF) has emerged as a popular block storage protocol for accessing disaggregated NVMe SSDs over network fabrics. Compared to traditional iSCSI protocol <sup>[2]</sup>, NVMe-oF offers higher efficiency due to its low protocol overhead and high parallelism. As shown in Figure 1, NVMe-oF comprises two primary components: the initiator and the target. The target refers to the remote storage server, which has certain computation capability and is attached with a bundle of storage devices (`i.e.`, NVMe SSDs here). The initiator, on the other hand, is the host server that issues IO requests over the network to the storage server.
+
+分离式存储已广泛用于数据中心, 使 HDD, SSD 等存储设备能够得到灵活利用, 提高资源利用率并降低总体拥有成本. 近年来, 分离式 NVMe SSD <sup>[24, 25, 33, 53, 55]</sup> 凭借性能优势日益普及. NVMe over Fabrics (NVMe-oF) 是 NVMe 规范的扩展, 已成为通过网络访问分离式 NVMe SSD 的常用块存储协议. 相比传统 iSCSI 协议 <sup>[2]</sup>, NVMe-oF 的协议开销更低, 并行度更高, 因而效率更高. 如图 1 所示, NVMe-oF 主要包含发起端 (initiator) 和目标端 (target). 目标端是远程存储服务器, 具有一定计算能力, 并连接一组存储设备, 本文中为 NVMe SSD. 发起端则是通过网络向存储服务器发送 IO 请求的主机服务器.
+
+NVMe-oF supports various types of network fabrics including TCP, RDMA, and others. While high-performance NVMe SSDs deliver microsecond-level latency, the traditional TCP stack operates at millisecond-level latency, making the network a performance bottleneck when using the TCP fabric. In contrast, RDMA provides microsecond-level latency, making it a better match for the low-latency NVMe SSDs. Therefore, we choose RDMA as the network fabric in this paper (`i.e.`, NVMe-over-RDMA). NVMe-over-RDMA operates in two modes: CPU mode and offload mode. In CPU mode, the target CPU processes NVMe-oF commands through a in-kernel software stack consisting of the block layer, NVMe driver, and NVMe-over-RDMA driver. The offload mode entirely offloads the target data path to the RDMA NIC, allowing the NIC to directly access the SSD without CPU involvement. Although the offload mode saves target CPU resources, it suffers from significant performance degradation (up to 88% <sup>[7]</sup>) due to the NIC's limited processing capability and inflexibility. Consequently, similar to prior studies <sup>[33, 39, 55]</sup>, we focus on the CPU mode of NVMe-over-RDMA in this work.
+
+NVMe-oF 支持 TCP, RDMA 等多种网络. 高性能 NVMe SSD 的延迟已达到微秒级, 而传统 TCP 栈的延迟处于毫秒级, 因此采用 TCP 网络时, 网络会成为性能瓶颈. 相比之下, RDMA 提供微秒级延迟, 更适合低延迟 NVMe SSD. 因此, 本文选择 RDMA 网络, 即 NVMe-over-RDMA. NVMe-over-RDMA 有 CPU 模式和卸载模式两种运行方式. CPU 模式下, 目标端 CPU 通过由块层, NVMe 驱动和 NVMe-over-RDMA 驱动组成的内核软件栈处理 NVMe-oF 命令. 卸载模式则把目标端数据路径完全交给 RDMA 网卡, 由网卡直接访问 SSD, 无需 CPU 参与. 尽管卸载模式节省了目标端 CPU 资源, 但网卡处理能力有限且缺乏灵活性, 会造成明显的性能下降, 最高可达 88% <sup>[7]</sup>. 因此, 与已有研究 <sup>[33, 39, 55]</sup> 一样, 本文关注 NVMe-over-RDMA 的 CPU 模式.
+
+<div class="paper-shared">
+
+![基于 NVMe-over-RDMA 的内核文件系统.](/assets/images/posts/cetofs/figure-01.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 1: Kernel File System based on NVMe-over-RDMA</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 1: 基于 NVMe-over-RDMA 的内核文件系统.</span>
+
+When NVMe-oF Meets File System. The NVMe-oF protocol exposes disaggregated NVMe SSDs as local block devices attached to the initiator, applications can use file systems to manage data on disaggregated SSDs. The kernel file systems (`e.g.`, Ext4 and F2FS) can directly access disaggregated SSDs through the existing kernel stack. Figure 1 shows the major components involved in the data path of kernel file systems. We take a write operation as an example to illustrate the workflow of them. An application thread issues a write syscall (①) on a file stored on the remote storage. The write request traverses the file system stack (②), including the virtual file system and the block layer. The request is then forwarded to the initiator-side NVMe driver (③), where it is encapsulated as an NVMe-oF command and written into a pre-registered memory buffer via `RDMA_SEND` by the NVMe-over-RDMA driver (④). Upon receiving the command, the target-side NVMe-over-RDMA driver extracts the NVMe-oF command (⑤) and fetches the data for writing from the initiator via `RDMA_READ`. The target then generates the IO request and writes the data to the SSD through the NVMe driver (⑥) and block layer (⑦). Once the data writing is complete, the target sends a completion response to the initiator via `RDMA_SEND`. Finally, the application thread is notified about the finish of data writing. The workflow of the read operation is similar to that of the write operation. Unlike write only sending completion response to the initiator, the target needs to transfer the required data to the initiator using `RDMA_WRITE`.
+
+**NVMe-oF 与文件系统.** NVMe-oF 将分离式 NVMe SSD 暴露为连接到发起端的本地块设备, 应用可以通过文件系统管理其中的数据. Ext4, F2FS 等内核文件系统能够通过现有内核栈直接访问这些 SSD. 图 1 展示了数据路径中的主要组件. 以写操作为例: 应用线程对远程存储上的文件发起 write 系统调用 (①), 写请求经过包含虚拟文件系统和块层的文件系统栈 (②), 随后进入发起端 NVMe 驱动 (③), 被封装为 NVMe-oF 命令, 再由 NVMe-over-RDMA 驱动通过 `RDMA_SEND` 写入预注册的内存缓冲区 (④). 目标端 NVMe-over-RDMA 驱动收到命令后, 提取 NVMe-oF 命令 (⑤), 并通过 `RDMA_READ` 从发起端获取待写数据. 随后, 目标端生成 IO 请求, 通过 NVMe 驱动 (⑥) 和块层 (⑦) 将数据写入 SSD. 写入完成后, 目标端通过 `RDMA_SEND` 返回完成响应, 最终通知应用线程. 读操作的流程类似, 区别在于目标端除了返回完成信息, 还需要通过 `RDMA_WRITE` 将所读数据传回发起端.
+
+## 2.2 研究动机
+
+In this section, we quantify and analyze the overhead of kernel file systems when accessing the disaggregated SSD.
+
+本节量化并分析内核文件系统访问分离式 SSD 的开销.
+
+### 2.2.1 NVMe-over-RDMA 访问的内核开销
+
+We first quantify the performance breakdown of each component on the data path. We choose Ext4 to access a disaggregated Intel Optane 4800X SSD through NVMe-over-RDMA. The RDMA NICs on both initiator and target are ConnectX-5. Table 1 shows the raw device read/write latencies (Dev-L and Dev-R) of Optane 4800X SSD accessed locally and remotely, respectively. The remote device latencies increase by about 7µs due to the RDMA networking.
+
+我们首先量化数据路径中各组件的耗时. 实验使用 Ext4, 通过 NVMe-over-RDMA 访问一块分离部署的 Intel Optane 4800X SSD; 发起端和目标端均使用 ConnectX-5 RDMA 网卡. 表 1 列出了本地访问与远程访问 Optane 4800X SSD 的原始设备读写延迟, 分别记为 Dev-L 和 Dev-R. RDMA 网络使远程设备访问延迟增加了约 7 µs.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 1: The Access Latencies of 4KB Random Read/Write. Kernel-L and Kernel-R represent the file system latencies based on local and remote SSD. Dev-L and Dev-R represent the device latency accessing local and remote SSD.</span>
+
+| Operation | Dev-L (µs) | Dev-R (µs) | Kernel-L (µs) | Kernel-R (µs) |
+|:---|---:|---:|---:|---:|
+| Read | 7.01 | 14.38 | 13.56 | 42.34 |
+| Write | 7.04 | 14.23 | 14.27 | 40.91 |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 1: 4 KB 随机读写延迟. Kernel-L/Kernel-R 分别表示本地/远程 SSD 的文件系统访问延迟, Dev-L/Dev-R 分别表示本地/远程设备访问延迟.</span>
+
+| 操作 | Dev-L (µs) | Dev-R (µs) | Kernel-L (µs) | Kernel-R (µs) |
+|:---|---:|---:|---:|---:|
+| 读 | 7.01 | 14.38 | 13.56 | 42.34 |
+| 写 | 7.04 | 14.23 | 14.27 | 40.91 |
+
+</div>
+
+</div>
+
+We run two single-thread workloads: random read and random write with 4KB request size. When Ext4 accesses the local SSD, the total read and write latencies are 13.56µs and 14.27µs respectively as shown in Table 1. The software stack, including syscall, file system and NVMe driver, occupies 49% (read) and 51% (write) of the total latencies. Similar overhead observations are also reported in the recent study <sup>[44]</sup>. When accessing remote storage, the NVMe-over-RDMA driver on both initiator and target introduces extra latencies. As shown in Table 1, the total read and write latencies reach 42.34µs and 40.91µs, respectively. The latency of the software stack occupies 66% (read) and 65% (write) of total latencies respectively, which exceeds the hardware latency.
+
+我们运行两种单线程负载: 请求大小均为 4 KB 的随机读和随机写. 如表 1 所示, Ext4 访问本地 SSD 时, 读写总延迟分别为 13.56 µs 和 14.27 µs. 系统调用, 文件系统和 NVMe 驱动构成的软件栈, 分别占读写总延迟的 49% 和 51%. 近期研究 <sup>[44]</sup> 也观察到了类似开销. 访问远程存储时, 发起端和目标端的 NVMe-over-RDMA 驱动又引入了额外延迟. 如表 1 所示, 读写总延迟分别达到 42.34 µs 和 40.91 µs, 软件栈分别占 66% 和 65%, 超过了硬件延迟.
+
+To further quantify the overheads of main components in the software stack, we measure the latencies spent on syscall, Ext4 (including block layer), NVMe-over-RDMA driver (on both initiator and target), and NVMe driver for write operation. Table 2 shows the latency breakdown results as well as the SSD device time and RDMA networking time. Notably, the NVMe-over-RDMA driver becomes the major overhead, occupying 36.1% of total latency.
+
+为进一步量化软件栈主要组件的开销, 我们分别测量写操作在系统调用, Ext4 (含块层), 两端的 NVMe-over-RDMA 驱动以及 NVMe 驱动中的耗时. 表 2 给出了分项结果, 同时列出 SSD 设备耗时和 RDMA 网络耗时. 其中, NVMe-over-RDMA 驱动占总延迟的 36.1%, 是主要开销来源.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 2: The Average latency breakdown of 4KB random write syscall on remote Optane SSD.</span>
+
+| Component | Time | Share |
+|:---|---:|---:|
+| Syscall | 0.61 | 1.5% |
+| FS stack | 7.42 | 18.1% |
+| NVMe driver | 3.9 | 9.5% |
+| NVMe-over-RDMA driver | 14.75 | 36.1% |
+| Device time | 7.04 | 17.2% |
+| Network time | 7.19 | 17.5% |
+| Total | 40.91 | 100% |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 2: 远程 Optane SSD 上 4 KB 随机 write 系统调用的平均延迟拆解.</span>
+
+| 组件 | 耗时 (µs) | 占比 |
+|:---|---:|---:|
+| 系统调用 | 0.61 | 1.5% |
+| 文件系统栈 | 7.42 | 18.1% |
+| NVMe 驱动 | 3.9 | 9.5% |
+| NVMe-over-RDMA 驱动 | 14.75 | 36.1% |
+| 设备耗时 | 7.04 | 17.2% |
+| 网络耗时 | 7.19 | 17.5% |
+| 合计 | 40.91 | 100% |
+
+</div>
+
+</div>
+
+Actually, the NVMe-over-RDMA driver employs interrupt to notify kernel threads about the the arrival of NVMe-oF commands at the target and the completion of RDMA operations (`e.g.`, `RDMA_SEND`, `RDMA_RECV`, `RDMA_READ`, `RDMA_WRITE`). Handling RDMA interrupt brings high latency when accessing the remote storage. As for a write operation, there are two pairs of `RDMA_SEND` and `RDMA_RECV` for sending and receiving command and response between the initiator and the target, and one `RDMA_READ` operation for the target fetching data from the initiator. Among the processing of these RDMA commands, there are three interrupt handling occurring on the critical path: 1) The interrupt handler wakes up the kernel thread at the target to receive the NVMe-oF command from the initiator. 2) Once the `RDMA_READ` for fetching data completes at the target, the interrupt occurs. 3) The RDMA interrupt is triggered to notify the completion response to the application.
+
+NVMe-over-RDMA 驱动通过中断通知内核线程: 目标端收到 NVMe-oF 命令, 或 `RDMA_SEND`, `RDMA_RECV`, `RDMA_READ`, `RDMA_WRITE` 等 RDMA 操作已经完成. 处理 RDMA 中断会给远程存储访问带来较高延迟. 一次写操作需要两组 `RDMA_SEND`/`RDMA_RECV`, 分别在两端之间传输命令和响应, 还需要一次 `RDMA_READ`, 由目标端从发起端获取数据. 处理这些 RDMA 命令时, 关键路径上会发生三次中断处理: 1) 中断处理程序唤醒目标端内核线程, 接收发起端的 NVMe-oF 命令; 2) 获取数据的 `RDMA_READ` 在目标端完成后触发中断; 3) 通过 RDMA 中断将完成响应通知应用.
+
+### 2.2.2 并发控制的串行化开销加剧
+
+The file system for the disaggregated SSD is expected to fully exploit the increasingly enhanced parallelism provided by RDMA and modern SSDs. However, existing kernel file systems exhibit poor scalability when accessing remote storage. We perform an experiment to measure the concurrent write throughput of Ext4 and F2FS for accessing local and remote storage. We use the same hardware configuration as in §2.2.1.
+
+面向分离式 SSD 的文件系统应当充分利用 RDMA 和现代 SSD 不断增强的并行能力. 然而, 现有内核文件系统访问远程存储时的扩展性较差. 我们使用与原文第 2.2.1 节相同的硬件配置, 测量 Ext4 和 F2FS 访问本地与远程存储时的并发写吞吐量.
+
+Figure 2 shows the aggregate write throughput across concurrent threads, where each thread concurrently updates a shared 10GB file. We have two observations. First, compared to accessing local storage, accessing remote storage decreases the throughput by 63% due to the network overhead. Second, the write scalability on local storage is limited, with non-increasing throughput when concurrent thread increases. Unfortunately, the write throughput on remote storage even decreases by 30% when the thread count increases from 1 to 20, exhibiting poor scalability.
+
+图 2 展示了多个线程的总写吞吐量, 每个线程都并发更新同一个 10 GB 文件. 我们得到两点观察. 第一, 相比本地访问, 远程访问因网络开销而使吞吐量降低 63%. 第二, 本地存储的写扩展性也有限, 增加并发线程并不会提高吞吐量. 远程存储的情况更差: 线程数从 1 增至 20 时, 写吞吐量反而下降了 30%.
+
+<div class="paper-shared">
+
+![并发写吞吐量. Local 和 Remote 分别表示本地 SSD 与远程 SSD.](/assets/images/posts/cetofs/figure-02.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 2: Concurrent Write Throughput. Local and Remote represent accessing locally-attached SSD and remote SSD.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 2: 并发写吞吐量. Local 和 Remote 分别表示本地 SSD 与远程 SSD.</span>
+
+The execution process of a write operation can be split into three synchronous phases. ① The initiator transmits the NVMe-oF command to the target and the target fetches the associated data. ② The target writes data into the SSD. ③ The target sends a completion response back to the initiator. The phases ① and ③ incur networking latency, and the phase ② incurs SSD write latency. To protect concurrent accessing of a shared file, the inode-level reader-writer lock is employed to serialize the executions of concurrent reads and writes. The serialization overhead is exacerbated by the phases ① and ③. Figure 3 shows an example when three threads (T1 ~ T3) write 4KB data to the same file concurrently. T1 first acquires the lock and executes the aforementioned three phases to write 4KB data. T2 and T3 have to wait and cannot transmit the NVMe-oF command until T1 and T2 release the lock. According to Table 2, T2 and T3 suffer from extra 26.6µs and 53.2µs waiting time due to the networking latency.
+
+写操作可分为三个同步阶段: ① 发起端向目标端传输 NVMe-oF 命令, 目标端获取相关数据; ② 目标端将数据写入 SSD; ③ 目标端向发起端返回完成响应. 阶段 ① 和 ③ 产生网络延迟, 阶段 ② 产生 SSD 写延迟. 为保护共享文件的并发访问, 文件系统用 inode 级读写锁将存在冲突的读写操作串行化, 而阶段 ① 和 ③ 放大了串行化开销. 图 3 展示了 T1~T3 三个线程并发向同一文件写入 4 KB 数据的例子. T1 先获得锁, 执行上述三个阶段; T2 和 T3 必须分别等到 T1 和 T2 释放锁后, 才能发送 NVMe-oF 命令. 根据表 2, 网络延迟使 T2 和 T3 分别额外等待 26.6 µs 和 53.2 µs.
+
+<div class="paper-shared">
+
+![并发控制的串行化开销.](/assets/images/posts/cetofs/figure-03.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 3: Serialization Overhead of Concurrency Control.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 3: 并发控制的串行化开销.</span>
+
+The exacerbated serialization overhead not only hurts the file system scalability, but also under-utilizes the hardware resources. Although a few works propose to improve the concurrency efficiency using range lock <sup>[27, 57]</sup>, these work either suffer from costly multiple locking due to page-level sub-lock <sup>[57]</sup> or bring extra CPU overhead due to complex lock structure <sup>[27]</sup>. Moreover, the serialization overhead still exists when accessing overlapped file ranges concurrently.
+
+串行化开销的增加不仅影响文件系统扩展性, 也使硬件资源利用不足. 已有一些工作通过范围锁提高并发效率 <sup>[27, 57]</sup>, 但有的需要获取多个页级子锁, 代价较高 <sup>[57]</sup>; 有的锁结构复杂, 带来额外 CPU 开销 <sup>[27]</sup>. 此外, 并发访问重叠的文件范围时, 串行化开销仍然存在.
+
+### 2.2.3 故障原子性 IO 的数据搬移开销
+
+Failure-atomic IO is an important feature of file system <sup>[8, 47, 51]</sup>, which is adopted by many applications to guarantee application modifications are either all or none applied after a crash occurs. Existing file systems employ two common techniques to guarantee failure-atomicity: journaling and copy-on-write (CoW). Unfortunately, both techniques incur expensive data movement on remote storage and result in substantial performance penalties. We take journaling as an example to illustrate the data movement. As shown in Figure 4, the journaling mechanism first writes logs into the logging area on remote SSD (①). Then, the checkpoint process reads logs from remote SSD to the initiator and writes them back to the target area on remote SSD (②). Furthermore, updating journaling-related metadata requires extra IOs across network. Thus, the journaling mechanism incurs more than twice data movement across network. As for CoW, it writes duplicated data blocks for modifications, which requires frequent out-of-place updates to the metadata index on remote storage and may incur the wandering tree problem <sup>[6]</sup>. This also causes severe network data movement.
+
+故障原子性 IO 是文件系统的重要功能 <sup>[8, 47, 51]</sup>. 许多应用依赖它保证发生崩溃后, 一组修改要么全部生效, 要么全部不生效. 现有文件系统通常通过日志或写时复制 (CoW) 保证故障原子性. 然而, 这两种技术都会在远程存储上产生昂贵的数据搬移, 严重影响性能. 以日志机制为例, 如图 4 所示, 首先将日志写入远程 SSD 的日志区 (①); 随后, 检查点过程把日志从远程 SSD 读回发起端, 再写入远程 SSD 的目标区域 (②). 更新日志相关元数据还需要额外的跨网络 IO. 因此, 日志机制会产生超过两次的跨网络数据搬移. CoW 则通过写入新的数据块副本完成修改, 需要频繁异地更新远程存储上的元数据索引, 还可能引发 wandering tree 问题 <sup>[6]</sup>, 同样会造成大量网络数据搬移.
+
+<div class="paper-shared">
+
+![日志机制中的数据搬移.](/assets/images/posts/cetofs/figure-04.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 4: Data Movement of the Journaling Mechanism.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 4: 日志机制中的数据搬移.</span>
+
+In summary, the high overhead on the data path from the kernel stack of existing file systems motivates us to place data path entirely in userspace. Moreover, accessing remote storage introduces extra networking latency to the data path. This imposes specific challenges to concurrent accesses and failure-atomic IO, which degrades file system performance and scalability. Thus, we are motivated to address the aforementioned inefficiencies for building high-performance file system towards remote storage.
+
+这些分析促使我们将数据路径完全放到用户态, 消除现有文件系统内核栈的高额开销. 同时, 远程访问给数据路径引入了额外网络延迟, 尤其不利于并发访问和故障原子性 IO, 损害了文件系统性能与扩展性. 因此, 我们需要解决上述问题, 构建面向远程存储的高性能文件系统.
+
+# 3. CETOFS 架构
+
+## 3.1 设计概览
+
+Inspired by the performance breakdown in §2.2.1, we design CETOFS by placing its data plane entirely in userspace to avoid kernel stack overhead. By doing so, applications can directly access disaggregated SSDs via userspace driver without kernel involvement. In addition, we propose two techniques: concurrency control offloading and redo logging offloading to address the extra networking latency issue occurred on the data path of concurrent access and failure-atomic IO.
+
+根据原文第 2.2.1 节的性能分析, CETOFS 将数据平面完全放在用户态, 以避开内核栈开销. 应用可以通过用户态驱动直接访问分离式 SSD, 无需内核参与. 此外, 我们提出并发控制卸载和重做日志卸载, 处理并发访问与故障原子性 IO 数据路径上的额外网络延迟.
+
+As for the control plane of CETOFS, it mainly involves metadata operations and permission checking. CETOFS reuses existing kernel file systems for metadata operations as previous works do <sup>[10, 19]</sup>. However, the userspace data plane poses specific challenges for permission checking. Since application threads use the userspace driver to issue IO commands, applications can send requests with arbitrary device addresses to remote storage, which may corrupt the file system (`e.g.`, modifying the metadata). Some works enforce permission checking inside SSD <sup>[5]</sup> or extend IOMMU to provide access protection <sup>[54]</sup> but at the cost of specific hardware modifications. Other work <sup>[35]</sup> consolidates all file system functionalities into a trusted process and enforce permission checking in this trusted entity. However, this tripartite structure <sup>[28, 45]</sup> brings extra CPU overhead and communication overhead, leading to sub-optimal performance <sup>[17, 54]</sup>.
+
+CETOFS 的控制平面主要包括元数据操作和权限检查. 与已有工作 <sup>[10, 19]</sup> 一样, CETOFS 复用内核文件系统处理元数据操作. 但用户态数据平面给权限检查带来了特殊挑战: 应用线程通过用户态驱动发送 IO 命令, 因而可以向远程存储提交包含任意设备地址的请求, 可能破坏文件系统, 例如篡改元数据. 一些工作在 SSD 内部执行权限检查 <sup>[5]</sup>, 或扩展 IOMMU 提供访问保护 <sup>[54]</sup>, 代价是需要专门修改硬件. 另一些工作 <sup>[35]</sup> 将全部文件系统功能放入可信进程, 在该进程中检查权限. 然而, 这种三方结构 <sup>[28, 45]</sup> 引入了额外 CPU 和通信开销, 性能仍不理想 <sup>[17, 54]</sup>.
+
+To address the permission checking issue, we split the permission checking into two parts in CETOFS. On one hand, the kernel file system is responsible for maintaining permission metadata, including process credentials, file permissions and access-control lists. When a file is opened, the kernel file system checks whether the application has the access permission. On the other hand, we offload the permission checking for data plane operations into the target. The target is commonly a storage appliance provided by the storage hardware vendor, which we assume to be a trusted entity. By doing so, CETOFS achieves high performance from the userspace data plane but without compromising security.
+
+CETOFS 将权限检查拆成两部分. 一方面, 内核文件系统维护进程凭据, 文件权限和访问控制列表等权限元数据, 并在打开文件时检查应用是否有访问权限. 另一方面, 数据平面操作的权限检查卸载到目标端. 目标端通常是存储硬件厂商提供的存储设备, 本文假定其可信. 因而, CETOFS 在获得用户态数据平面性能优势的同时, 保留了访问安全保障.
+
+## 3.2 CETOFS 的组成
+
+Figure 5 shows the cross-layered architecture of CETOFS. It consists of a userspace library (U-Lib), a kernel file system (K-FS), and a target-side request handler (T-Handler).
+
+图 5 展示了 CETOFS 的跨层架构, 包含用户态库 U-Lib, 内核文件系统 K-FS 和目标端请求处理器 T-Handler.
+
+<div class="paper-shared">
+
+![CETOFS 架构与主要组件.](/assets/images/posts/cetofs/figure-05.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 5: CETOFS Architecture and Key Components</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 5: CETOFS 架构与主要组件.</span>
+
+Userspace Library (U-Lib). U-Lib is a shim library linked to applications, which is responsible for handling the data plane operations (`i.e.`, read/write) directly in userspace and forwarding the metadata operations (`e.g.`, open, mkdir) to K-FS. It also intercepts system calls to avoid application modifications. U-Lib relies on per-file request queue for submitting file requests. A request queue is created by K-FS in RDMA memory regions and assigned to each opened file. Each request queue consists of two pre-registered ring buffers: one for sending file requests from the initiator to the target (called `server_rb`) and one for sending file operation responses from the target back to the initiator (called `host_rb`). T-Handler is designed to support up to 64K request queues similar to the NVMe-oF driver <sup>[43]</sup>. Since each opened file requires a request queue, CETOFS currently supports 64K concurrently opened files. In large-scale systems where the opened files may exceed 64K, one can group files with the same permission <sup>[9]</sup> to share the same request queue to mitigate the 64K limitation. Note that per-file queues are not RDMA QPs. CETOFS assigns one RDMA QP to each initiator thread instead of each opened file, thus the scalability issue <sup>[52]</sup> of QPs does not affect opened files.
+
+**用户态库 U-Lib.** U-Lib 是链接到应用的适配库, 在用户态直接处理读写等数据平面操作, 并把 open, mkdir 等元数据操作转交 K-FS. 它通过拦截系统调用避免修改应用. U-Lib 使用每个文件独立的请求队列提交文件请求. K-FS 在 RDMA 内存区域中为每个打开的文件创建一个队列. 每个队列包含两个预注册的环形缓冲区: `server_rb` 用于从发起端向目标端发送文件请求, `host_rb` 用于从目标端向发起端返回操作响应. 与 NVMe-oF 驱动 <sup>[43]</sup> 类似, T-Handler 最多支持 64K 个请求队列. 因为每个打开的文件都需要一个队列, CETOFS 当前最多支持同时打开 64K 个文件. 在文件数可能超过这一规模的系统中, 可以将权限相同的文件分组 <sup>[9]</sup>, 共享请求队列, 缓解 64K 的限制. 需要注意, 文件请求队列并不是 RDMA 队列对 (QP). CETOFS 为每个发起端线程分配一个 RDMA QP, 而非为每个文件分配, 因而 QP 的扩展性问题 <sup>[52]</sup> 不直接限制打开的文件数.
+
+When an application thread accesses files, U-Lib leverages the `RDMA_WRITE_WITH_IMM` command to submit IO requests to the `server_rb`. This command uses the immediate data field to carry the memory address of submitted request in the `server_rb`. T-Handler can immediately locate the request via the embedded `server_rb` address, which avoids polling all queues (`i.e.`, `server_rb`) when opening a larger number of files. Meanwhile, U-Lib polls the completion flag on `host_rb` for detecting the request completion.
+
+应用线程访问文件时, U-Lib 通过 `RDMA_WRITE_WITH_IMM` 向 `server_rb` 提交 IO 请求, 并在立即数数据字段中携带该请求在 `server_rb` 中的内存地址. T-Handler 可以据此直接定位请求, 避免在打开大量文件时轮询所有 `server_rb` 队列. 同时, U-Lib 轮询 `host_rb` 中的完成标志, 判断请求是否完成.
+
+Since the offset-to-block indexing of a file is managed by K-FS, it is costly for U-Lib to inquiry K-FS for each file access. To reduce the interactions with K-FS, U-Lib maintains an address translation table for translating file offsets (the parameters of read and write) into the device block address in userspace for each opened file. The translation table has one entry for per file extent and is organized as an in-memory extent tree. Since K-FS maintains the latest offset-to-block indexing, if a lookup fails to find an extent for a file offset, U-Lib uses the fiemap ioctl to retrieve the indexing information and populates the table on demand. CETOFS enforces a concurrent reads or exclusive write file sharing policy as previous work <sup>[48, 57]</sup>. Thus, no table synchronization is required for the same file under concurrent accessing as a U-Lib is the only writer or the file is read-only.
+
+文件偏移到块地址的索引由 K-FS 管理, 如果 U-Lib 每次访问文件都查询 K-FS, 开销会很大. 为减少交互, U-Lib 为每个打开的文件维护一张地址转换表, 在用户态将 read, write 的文件偏移参数转换为设备块地址. 转换表按文件 extent 建立条目, 组织为内存 extent 树. K-FS 保存最新的偏移到块地址索引; 如果转换表找不到某个偏移对应的 extent, U-Lib 就通过 fiemap ioctl 获取索引信息, 按需填充转换表. 与已有工作 <sup>[48, 57]</sup> 一样, CETOFS 对文件采用并发读或独占写的共享策略. 因此, 并发访问同一文件时, 要么只有一个 U-Lib 写入, 要么文件只读, 无需同步转换表.
+
+Kernel File System (K-FS). K-FS is a kernel file system (`e.g.`, Ext4 in this paper) used by CETOFS to manage all metadata (`e.g.`, inodes, directory trees, offset-to-block index, and access permissions) and serves all metadata operations. K-FS is also responsible for checking permissions whenever a file is opened by a process. After that, CETOFS relies on T-Handler to perform permission checking for direct userspace accesses. K-FS maintains an administration queue to support communication between T-Handler and itself.
+
+**内核文件系统 K-FS.** CETOFS 使用内核文件系统 K-FS 管理 inode, 目录树, 偏移到块地址索引, 访问权限等全部元数据, 并处理所有元数据操作; 本文选用 Ext4. 进程打开文件时, K-FS 还负责检查权限. 此后, 用户态直接访问的权限检查交由 T-Handler 执行. K-FS 维护一条管理队列, 用于与 T-Handler 通信.
+
+Target Request Handler (T-Handler). T-Handler operates as a userspace process designed to receive IO requests and access underlying SSDs directly in userspace at the target. One reverse permission table is maintained in T-Handler for offloaded permission checking (as detailed in §3.3). T-Handler contains a configurable number of worker threads, and each thread runs by iterating three tasks: ① fetching IO requests from `server_rb`. ② performing permission checking for each IO request via the reverse permission table, and only legal requests are allowed to access the SSD. ③ polling the SSD for completion, and setting completion flag of the corresponding request in `host_rb`.
+
+**目标端请求处理器 T-Handler.** T-Handler 是目标端的用户态进程, 接收 IO 请求并直接在用户态访问底层 SSD. 它维护反向权限表, 执行卸载的权限检查, 详见原文第 3.3 节. T-Handler 的工作线程数可以配置, 每个线程循环执行三项任务: ① 从 `server_rb` 取出 IO 请求; ② 查询反向权限表检查每个请求, 只允许合法请求访问 SSD; ③ 轮询 SSD 的完成状态, 并在 `host_rb` 中设置对应请求的完成标志.
+
+The Workflow of Serving File Requests. To illustrate the collaboration of CETOFS components for processing file requests, we take the open operation as an example. During the initialization of U-Lib, the application first establishes a RDMA queue pair (QP) with T-Handler, which is used to submit RDMA verbs via userspace library (`i.e.`, libibverbs <sup>[1]</sup>). Once U-Lib intercepts an open syscall, it creates a `host_rb` at the initiator, then turns to invoke a new system call `ceto_open` provided K-FS with the accessing information (rkey and raddr) of `host_rb`. After receiving `ceto_open`, K-FS checks whether the application has the right access permission (read-only, write-only, read/write) to the target file. If so, K-FS notifies T-Handler to create `server_rb` at the target. The accessing information of `host_rb` and `server_rb` are exchanged to T-Handler and U-Lib respectively through K-FS. After the execution of open, the application can write IO requests of read and write to `server_rb` in userspace directly. Meanwhile, T-Handler can also write completion notifications to `host_rb` directly.
+
+**文件请求的处理流程.** 以 open 操作为例说明各组件如何协作. U-Lib 初始化时, 应用先与 T-Handler 建立 RDMA QP, 用于通过 libibverbs <sup>[1]</sup> 等用户态库提交 RDMA verbs. U-Lib 拦截 open 系统调用后, 先在发起端创建 `host_rb`, 再调用 K-FS 提供的新系统调用 `ceto_open`, 传入 `host_rb` 的访问参数 rkey 和 raddr. K-FS 收到请求后, 检查应用是否具有目标文件所需的只读, 只写或读写权限. 若通过检查, 就通知 T-Handler 在目标端创建 `server_rb`. `host_rb` 和 `server_rb` 的访问参数经 K-FS 分别交给 T-Handler 和 U-Lib. open 完成后, 应用即可在用户态直接将读写 IO 请求写入 `server_rb`, T-Handler 也可以直接向 `host_rb` 写入完成通知.
+
+## 3.3 权限检查卸载
+
+The key idea of permission checking offloading is to let the target check whether the block address of an IO request is legal. To achieve this, we design a block-granularity reverse permission table at the target and introduce how to utilize it for permission checking as follows.
+
+权限检查卸载的核心是让目标端验证 IO 请求中的块地址是否合法. 为此, 我们在目标端设计了块粒度的反向权限表, 并通过它执行权限检查.
+
+Reverse Permission Table. We divide the blocks of a file system into three types: free blocks, blocks for storing metadata, and blocks for storing file data. We define an owner for each block and use the owner ID to identify it. We set the owner of any free block and any metadata block to be K-FS, and the owner ID is zero. The owner of one data block is its corresponding file. Its owner ID is set to be the file inode number. The owner ID of each block composes an entry of the reverse permission table, which are organized according to the order of block addresses. We store the permission table in a reserved area of the SSD. The size of an owner ID is 8 bytes and one device block can store 512 owner IDs. Given a 1TB SSD, the total size of the reverse permission table is 2GB, which occupies less than 0.2% of the whole device size.
+
+**反向权限表.** 文件系统中的块分为三类: 空闲块, 元数据块和文件数据块. 每个块都有一个所有者, 通过所有者 ID 标识. 空闲块和元数据块的所有者均为 K-FS, ID 为 0. 数据块的所有者是对应文件, ID 为该文件的 inode 号. 每个块的所有者 ID 构成反向权限表中的一个条目, 按块地址顺序排列. 权限表存放在 SSD 的保留区域. 所有者 ID 占 8 字节, 一个设备块可存储 512 个 ID. 对于 1 TB SSD, 反向权限表总共占 2 GB, 不到设备容量的 0.2%.
+
+To accelerate the lookup performance of the reverse permission table, T-Handler can cache either the whole table or frequently-accessed entries in memory. We use an in-memory radix tree for indexing cached owner IDs and the granularity for caching is the device block (512 owner ids). When new blocks are allocated to a file or stale blocks are de-allocated, K-FS is responsible for updating the permission table. K-FS first journals the modifications to the reverse permission table as part of the file system journaling to ensure consistency. Then, K-FS notifies T-Handler to update the cached permission table.
+
+为加快反向权限表查询, T-Handler 可将整张表或常用条目缓存在内存中. 缓存以设备块为单位, 每块包含 512 个所有者 ID, 并用内存基数树建立索引. 文件分配新块或释放旧块时, K-FS 负责更新权限表: 先将修改纳入文件系统日志以保证一致性, 再通知 T-Handler 更新缓存.
+
+Permission Check Rule. Since each opened file has a request queue (`host_rb` and `server_rb`), we assign the queue's owner as its corresponding file. Each `server_rb` is attached with an access permission flag to indicate the legal operations (read-only, write-only or read/write) for the accessing process. T-Handler perform the permission checking according to the following two rules: ① the owner of a requested block should match with the owner of the submitting request queue. ② the requested operation type should match with the permission flag of the submitting request queue. This rule can prevent application threads from accessing illegal addresses.
+
+**权限检查规则.** 每个打开的文件都有请求队列 (`host_rb` 和 `server_rb`), 队列的所有者设为对应文件. 每个 `server_rb` 附带访问权限标志, 指明访问进程可执行只读, 只写还是读写操作. T-Handler 按两条规则检查权限: ① 请求块的所有者必须与提交请求的队列所有者一致; ② 请求操作类型必须符合该队列的权限标志. 这样可阻止应用线程访问非法地址.
+
+The workflow of target-side permission checking is executed as follows. T-Handler first extracts the operation type (read or write) and block address from an IO request. Then, T-Handler queries the block's owner from the reverse permission table, and compares the owner IDs of the block and the submitting queue. Meanwhile, T-Handler checks whether the access permission flag of the submitting queue matches the request operation. If both rules are matched, the IO request can be processed. Otherwise, the request is considered as an illegal one and T-Handler returns error without serving it.
+
+目标端的权限检查流程如下: T-Handler 先从 IO 请求提取读写类型和块地址, 再查询反向权限表获取块的所有者, 将其与提交队列的所有者 ID 比较. 同时, 检查队列的访问权限标志是否允许该操作. 两条规则均满足时才处理 IO 请求; 否则认定请求非法, 直接返回错误.
+
+Handling Appends. Unlike the overwrite operation, the append operation writes new data and does not have offset-to-block indexing and permission entries before it executes. Thus, U-Lib splits the append operation into two stages. First, U-Lib uses fallocate to let K-FS allocate new blocks and sets the permission entries. Then, U-Lib can still write data in userspace to achieve high-performance data path. To further improve the performance of append-only workloads, one optimization is to use a background thread to perform preallocation, which converts incoming append operations into overwrite ones. As for the crash consistency guarantee of append, CETOFS keeps the same level as XFS/Ext4 in the metadata-journaling/write-back mode <sup>[34]</sup>.
+
+**追加写处理.** 与覆盖写不同, 追加写入的是新数据, 执行前还没有对应的偏移到块地址索引和权限条目. 因此, U-Lib 分两步处理: 先通过 fallocate 让 K-FS 分配新块并设置权限条目, 再在用户态写入数据, 保留高性能数据路径. 对于只追加的负载, 还可以用后台线程预分配块, 将后续追加操作转为覆盖写, 进一步提高性能. 在追加写的崩溃一致性上, CETOFS 与 XFS/Ext4 的元数据日志/write-back 模式保持相同保障 <sup>[34]</sup>.
+
+Put It Together. We take the read operation as an example to show how CETOFS performs permission checking for userspace data plane operations as shown in Figure 6. When an application thread issues pread operation to file A, U-Lib first translates (①) the file offset (0x1000) into the device address (0x6000). Then it sends the IO request (②) to the target server. U-Lib subsequently polls `host_rb` for detecting request completion. The worker thread in T-Handler receives the request and extracts the request block address. Then it checks the permission flag of the request queue and the owner of the requested block (③). If matched, the worker thread issues the NVMe commands to the underlying SSD and then polls for completion. Otherwise, this IO request is reported to incur illegal permission error.
+
+**完整示例.** 图 6 以读操作展示用户态数据平面的权限检查. 应用线程对文件 A 发起 pread 后, U-Lib 首先将文件偏移 0x1000 转换为设备地址 0x6000 (①), 然后向目标服务器发送 IO 请求 (②), 并轮询 `host_rb` 等待完成. T-Handler 工作线程收到请求, 提取块地址, 检查请求队列的权限标志及该块的所有者 (③). 若检查通过, 就向底层 SSD 提交 NVMe 命令并轮询完成状态; 否则返回访问权限错误.
+
+<div class="paper-shared">
+
+![CETOFS 读操作流程.](/assets/images/posts/cetofs/figure-06.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 6: The Process of CETOFS Read Operation</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 6: CETOFS 读操作流程.</span>
+
+# 4. 可扩展的并发数据访问
+
+Concurrent accessing to remote storage incurs request serialization at the initiator, which introduces extra networking latency to the waiting process for concurrent threads to acquire locking. To reduce the network waiting time, we propose concurrency control offloading technique. The key idea is allowing the initiator to send IO requests in parallel even conflicted requests exist, meanwhile letting the target perform request serialization to guarantee correct concurrency.
+
+并发访问远程存储时, 请求在发起端串行化, 网络延迟也被计入其他线程等待锁的时间. 为减少这部分等待, 我们提出并发控制卸载: 即使请求之间存在冲突, 发起端也可以并行发送 IO 请求, 再由目标端按需串行执行, 保证并发访问的正确性.
+
+To achieve this, we design Request Group to control the ordering of IO requests at the target. A request group consists of adjacent IO requests accessing the same file but without having conflict with each other. Specifically, the basic group policy is: each write request constitutes an individual group, and adjacent read requests also constitute a group. The request group is created by U-Lib at the initiator and used by T-Handler at the target to process requests in order. In this section, we first introduce the basic group policy and then extend it to the merging group policy for high concurrency.
+
+我们设计了请求组来控制目标端 IO 请求的顺序. 一个请求组包含访问同一文件, 彼此相邻且无冲突的 IO 请求. 基本分组策略是: 每个写请求单独成组, 相邻读请求组成一组. 请求组由发起端 U-Lib 创建, 由目标端 T-Handler 按组有序处理. 本节先介绍基本策略, 再扩展为支持更高并发度的合并分组策略.
+
+Creating Request Groups at Initiator. At the initiator, once a file is opened, U-Lib generates a monotonically increasing group ID for the opened file, staring for zero. When concurrent threads access the opened file, U-Lib determines the group for each incoming request using a per-file spin-lock as follows. For a write request, the issuing thread first tries to acquire the spin-lock. After acquiring the lock, the thread increases the group ID and embeds the ID into the request. This group ID represents the group that the request belongs to. Meanwhile, the thread assigns a monotonically increasing request ID to each request, also starting from zero. When a group is created, the first request ID within this group is recorded and passed the subsequent requests in the same group. Both the request ID and the first request ID within a group are embedded into the request. Then, the thread obtains a queue slot from the tail of the `server_rb` but not submit the request yet. Finally, the thread releases the spin-lock. The processing of read requests follow the same procedure but without increasing the group ID. After releasing the spin-lock, the thread can submit the request into the `server_rb` without waiting for other conflicted requests. The spin-lock consumes little time and does not introduce a bottleneck.
+
+**在发起端创建请求组.** 文件打开后, U-Lib 为它维护从 0 开始单调递增的组 ID. 并发线程访问该文件时, 通过文件独立的自旋锁确定请求所属组. 对于写请求, 线程先获取自旋锁, 增加组 ID 并写入请求. 同时, 为每个请求分配从 0 开始单调递增的请求 ID. 创建组时记录该组首个请求的 ID, 并传递给组内后续请求; 请求 ID 和组内首个请求 ID 都嵌入请求. 随后, 线程从 `server_rb` 尾部取得一个槽位, 暂不提交请求, 然后释放自旋锁. 读请求遵循相同流程, 但不增加组 ID. 释放锁后, 线程即可向 `server_rb` 提交请求, 无需等待其他有冲突的请求. 持有自旋锁的时间很短, 不会形成瓶颈.
+
+Figure 7 shows an example of request group creation. There are six threads (T1~T6) that issue read or write requests simultaneously. They all try to acquire the spin-lock and the order of acquiring lock is R1 (T1), R2 (T5), W1 (T2), R3 (T3), R4 (T6), and W2 (T4). Thus, there are four request groups totally. Then these requests can be submitted to the `server_rb` concurrently, which greatly saves their waiting time.
+
+图 7 展示了请求组创建过程. 六个线程 T1~T6 同时发起读写请求, 获取自旋锁的顺序为 R1 (T1), R2 (T5), W1 (T2), R3 (T3), R4 (T6), W2 (T4), 共形成四个请求组. 随后, 这些请求可以并发提交到 `server_rb`, 大幅减少等待时间.
+
+<div class="paper-shared">
+
+![创建请求组的过程. R/W(X, Y) 表示请求访问 LBA X, 长度为 Y.](/assets/images/posts/cetofs/figure-07.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 7: The Procedure of Creating Request Groups. R/W(X, Y) means the request access the LBA X and its length is Y.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 7: 创建请求组的过程. R/W(X, Y) 表示请求访问 LBA X, 长度为 Y.</span>
+
+Perform Ordering at Target. T-Handler must process inter-group requests with strict ordering as their conflicts may lead to incorrectness (`e.g.`, writing to the same block of one file). Although each IO request is assigned a group ID at the initiator, the initiator does not submit requests according to the sequence of group IDs. When processing a request, T-Handler should examine whether its preceding request group is finished. This is challenging if only using the group ID. Figure 8 shows one possible state of the `server_rb` after T1~T6 creates request groups and submit R1~R4 and W1~W2 in parallel. The requests R1, W1, and W2 arrive at the target in turn and enter into the pre-obtained queue slots of `server_rb`. Meanwhile, the requests R2, R3, and R4 are still in-flight. As a result, upon the arrival of W1 or W2, T-Handler cannot determine whether to process W1 or W2 as it has no information about the completion of previous groups.
+
+**在目标端保证顺序.** 不同组的请求可能存在冲突, 例如写入同一文件块, 因此 T-Handler 必须严格保持组间顺序. 虽然发起端为每个请求分配了组 ID, 但并不按组 ID 的顺序提交请求. T-Handler 处理请求前需要确认前序组已完成, 仅靠组 ID 难以判断. 图 8 展示了一种可能情况: T1~T6 创建请求组后, 并行提交 R1~R4 和 W1~W2; R1, W1, W2 依次到达目标端, 进入预先分配的 `server_rb` 槽位, 而 R2, R3, R4 仍在传输. W1 或 W2 到达时, T-Handler 无法得知前序组是否完成, 也就无法判断是否可以执行.
+
+<div class="paper-shared">
+
+![提交 IO 请求后的请求队列状态.](/assets/images/posts/cetofs/figure-08.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 8: Request Queue State After Submitting IO Requests.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 8: 提交 IO 请求后的请求队列状态.</span>
+
+To guarantee the ordering of inter-group requests, we propose a collaborative mechanism between the initiator and the target to record five additional status of the concurrent request processing for each request queue. ① `curr_gid`: the group ID currently being processed. ② `first_rid_table`: a hash table that records the first request ID of each arrival group. ③ `curr_fin_reqs`: the count of requests that have been completed. ④ `curr_max_rid`: the largest request ID that T-Handler has received so far. ⑤ `rid_to_queue_pos`: a hash table than maps request IDs to slots in the `server_rb`.
+
+为保证组间顺序, 发起端与目标端协作, 为每条请求队列额外记录五项状态: ① `curr_gid`, 当前正在处理的组 ID; ② `first_rid_table`, 记录已到达各组首个请求 ID 的哈希表; ③ `curr_fin_reqs`, 已完成请求数; ④ `curr_max_rid`, T-Handler 目前收到的最大请求 ID; ⑤ `rid_to_queue_pos`, 将请求 ID 映射到 `server_rb` 槽位的哈希表.
+
+Each worker thread of T-Handler performs alternate execution of two tasks: poller task for polling and handling arrived requests and finisher task for handling the completion of an IO request. Initially, the poller executes. Once there is no request arrival, the finisher runs to check the request completion. Then, the poller runs again when there is no request completion. Algorithm 1 shows the executions of them for guaranteeing the ordering of inter-group requests.
+
+T-Handler 的每个工作线程交替执行 poller 与 finisher 两项任务: 前者轮询并处理到达的请求, 后者处理 IO 完成事件. 初始先运行 poller; 没有新请求到达时, 切换到 finisher 检查完成状态; 没有完成事件时, 再切回 poller. 算法 1 展示了如何保证组间顺序.
+
+We explain the algorithms as follows. When receiving a new request, the poller first extracts its group ID (gid), request ID (rid), and the first request ID (`first_rid_group`) of its group (Line 2~5). If gid matches `curr_gid`, the poller can directly process this request (Line 6~7) as this request belongs to the current group. If gid is greater than `curr_gid` (Line 8), there exist two cases. Case I: The group of the incoming request just happens to be in the next group (`i.e.`, `curr_gid` + 1), and meanwhile all requests from previous groups have been completed (Line 10). Then the poller updates `curr_gid` to the incoming gid (Line 11) and submits this request to SSD immediately (Line 12). Case II: If the requests from previous groups are still pending, the poller updates the `first_rid_table` (Line 14) and `rid_to_queue_pos` (Line 15) without processing this request. As for both cases, the poller updates `curr_max_rid` (Line 9). By executing the above algorithm, the poller can determine whether to process incoming requests.
+
+收到新请求后, poller 提取组 ID (gid), 请求 ID (rid) 和组内首个请求 ID (`first_rid_group`), 对应第 2~5 行. 若 gid 等于 `curr_gid`, 请求属于当前组, 可直接处理 (第 6~7 行). 若 gid 大于 `curr_gid` (第 8 行), 分两种情况. 情况一: 请求恰好属于下一组 `curr_gid` + 1, 且此前各组请求均已完成 (第 10 行), 则将 `curr_gid` 更新为 gid (第 11 行), 立即提交 SSD 请求 (第 12 行). 情况二: 前序组仍有未完成请求, 则只更新 `first_rid_table` 和 `rid_to_queue_pos` (第 14~15 行), 暂不处理请求. 两种情况下都会更新 `curr_max_rid` (第 9 行). 由此, poller 可以判断到达的请求是否具备执行条件.
+
+<div class="paper-shared">
+
+Algorithm 1: Algorithms of Polling and Completion Tasks for Concurrency Control Offloading.
+
+算法 1: 并发控制卸载中的轮询与完成处理. 行号对应原论文, 正文解释各状态变量与执行条件.
+
+```text
+ 1 def cetofs_poller(worker)
+ 2     req = poll_cq()
+ 3     gid = req->group_id
+ 4     rid = req->request_id;
+ 5     first_rid_group = req->first_rid_group
+ 6     if gid == queue->curr_gid:
+ 7         submit_command_to_ssd()
+ 8     else if gid > queue->curr_gid
+ 9         curr_max_rid = max(curr_max_rid, rid)
+10         if gid == queue->curr_gid + 1 and
+               first_rid_group == queue->curr_fin_reqs
+11             queue->curr_gid = gid;
+12             submit_command_to_ssd()
+13         else
+14             first_rid_table[gid] = first_rid_group
+15             rid_to_queue_pos[rid] = current_queue_pos
+16
+17 def cetofs_finisher(req)
+18     queue->curr_fin_reqs = queue->curr_fin_reqs + 1
+19     gid = req->group_id
+20     rid = req->request_id
+21     nextgid = gid + 1
+22     first_rid_nextgroup = first_rid_table[nextgid]
+23     if first_rid_nextgroup != 0 and
+           first_rid_nextgroup == queue->curr_fin_reqs
+24         queue->curr_gid = next_gid
+25         for rid in (first_rid_nextgroup, curr_max_rid)
+26             next_req = queue[rid_to_queue_pos[rid]]
+27             if next_req->group_id > queue->curr_gid
+28                 break
+29             if next_req is not null
+30                 submit_command_to_ssd()
+```
+
+</div>
+
+When an SSD IO request is completed, the finisher first updates `curr_fin_reqs` (Line 18). Then the finisher calculates the next group ID (nextgid) (Line 21). Using nextgid, the finisher checks whether any request of the next group arrives and whether all request within current group are completed (Line 22 ~ 23). If so, the finisher starts to submit the requests of the next group that already arrive at the target to the SSD (Line 25 ~ 30). Note that the finisher stops request processing once it detects a larger group ID (Line 27 ~ 28) as the submitted requests of the group nextgid may not all complete yet. The finisher must guarantee the ordering between inter-group requests by first waiting for all request completions within one group on SSD and then submitting the requests of next group.
+
+SSD IO 完成后, finisher 先更新 `curr_fin_reqs` (第 18 行), 计算下一组 ID nextgid (第 21 行), 再检查下一组是否已有请求到达, 以及当前组是否全部完成 (第 22~23 行). 若两者均满足, 就把下一组中已经到达目标端的请求提交给 SSD (第 25~30 行). 一旦遇到更大的组 ID, finisher 就停止处理 (第 27~28 行), 因为 nextgid 组已提交的请求可能还没有全部完成. 为保证组间顺序, 必须等一组请求全部在 SSD 上完成, 才能提交下一组.
+
+Merging Group. T-Handler processes requests group by group, which inherently restricts concurrent accesses to disjoint portions of a file from different groups, thereby limiting concurrency. To address this limitation, we propose a merging group policy at the initiator, which allows adjacent groups without access conflicts to be merged with low overhead. Instead of relying on complex range locks, U-Lib employs two simple red-black trees (rb-tree) for each file: one for read operations and the other for write operations. The rb-tree records the access ranges sorted by their starting addresses. Both the read and write rb-trees are initially empty when a file is opened. When receiving a new request, U-Lib decides its group as follows. For a read request, U-Lib checks for range conflicts by querying the write tree. If detecting a conflict, U-Lib creates a new group for this request. Otherwise, U-Lib inserts the request's range into the read tree and merge this request into current group. For a write request, U-Lib checks the range conflicts by querying both the read and write trees. If detecting a conflict in either tree, U-Lib creates a new group for this request. Otherwise, U-Lib inserts its range to the write tree and merge this request into current group. Whenever a new group is created, it indicates that the current group has merged all non-conflict requests. Thus U-Lib removes all ranges within the two trees and prepare empty rb-trees for the merging process of the new group. By leveraging this approach, CETOFS can further enhance its concurrency and scalability.
+
+**合并请求组.** 按组处理会限制不同组对同一文件不相交区域的并发访问. 为提高并发度, 我们在发起端引入合并分组策略, 以较低开销合并相邻且无访问冲突的组. U-Lib 不使用复杂范围锁, 而是为每个文件维护两棵简单的红黑树, 分别记录读操作和写操作的访问范围, 按起始地址排序. 文件刚打开时两棵树均为空. 新读请求到达后, U-Lib 查询写树检查范围冲突: 有冲突就创建新组, 无冲突则把范围插入读树, 并将请求并入当前组. 新写请求需要同时查询读树和写树: 任一树中存在冲突就创建新组, 否则把范围插入写树并加入当前组. 每次创建新组, 都表示当前组已收纳全部可连续合并的无冲突请求; U-Lib 随即清空两棵树, 用于新组的合并过程. 这一机制进一步提高了并发度与扩展性.
+
+We summarize the basic request group and merging group policies in Figure 9. We also show the original case without using concurrency control offloading (`i.e.`, using reader-writer lock). There are six threads (T1~T6) issuing read or write requests. We assume these threads acquire the reader-writer lock (in original case) or the spin-lock (in CETOFS) with the following order: R1 (T3), R2 (T2), W1 (T1), R3 (T5), W2 (T4), and W3 (T6). The reader-writer locking suffers from severe network waiting time as these requests are serialized at the initiator. Note that R2 acquires the reader lock after R1, and they can be executed concurrently at the target. As for the basic group policy, R1 and R2 successively acquire the spin-lock. Thus, they belong to the same group G1. The subsequent requests form the other four groups. G1~G5 can be submitted to the target in parallel, which saves the networking time. However, they are executed sequentially at the target to guarantee the inter-group ordering. As for the merging group policy, all requests except W3 are merged into the same group G1 as they have no range conflicts. As a result, they can not only be submitted in parallel, but also be executed in parallel at the target. This greatly improves concurrency and the hardware utilization.
+
+图 9 对比基本分组, 合并分组及未卸载并发控制的读写锁方案. 六个线程 T1~T6 发起读写请求, 假定获取读写锁或自旋锁的顺序为 R1 (T3), R2 (T2), W1 (T1), R3 (T5), W2 (T4), W3 (T6). 读写锁方案在发起端串行化请求, 网络等待时间很长; R2 在 R1 之后获取读锁, 两者可在目标端并发执行. 基本分组中, R1 和 R2 依次获取自旋锁, 同属 G1, 后续请求形成另外四组. G1~G5 可以并行传到目标端, 节省网络时间, 但目标端仍须按组顺序执行. 合并分组中, 除 W3 外的请求均无范围冲突, 可合并为 G1, 不仅能并行提交, 也能在目标端并行执行, 显著提高并发度与硬件利用率.
+
+<div class="paper-shared">
+
+![不同并发控制策略. R/W(X, Y) 表示请求访问 LBA X, 长度为 Y.](/assets/images/posts/cetofs/figure-09.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 9: Different Concurrency Control Policies. R/W(X, Y) means the request access the LBA X and its length is Y.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 9: 不同并发控制策略. R/W(X, Y) 表示请求访问 LBA X, 长度为 Y.</span>
+
+# 5. 故障原子性 IO
+
+CETOFS introduces three APIs in U-Lib to enforce atomicity, which guarantees a set of write operations is either fully persisted or entirely discarded. After opening a file, the application thread can initiate an atomic write via `atomic_write_start`. Then it can write data to file via write. Finally, it uses `atomic_write_commit` to commit the writing data for atomicity. If required, the atomic operation can be aborted by `atomic_write_abort`. To minimize data movement overhead from writing the disaggregated SSD, CETOFS offloads the failure-atomic IO support to the target.
+
+CETOFS 在 U-Lib 中提供三个 API, 保证一组写操作要么全部持久化, 要么全部丢弃. 文件打开后, 应用线程通过 `atomic_write_start` 开始原子写, 再调用 write 写入数据, 最后通过 `atomic_write_commit` 提交. 必要时可以调用 `atomic_write_abort` 中止操作. 为尽量减少向分离式 SSD 写入时的数据搬移, CETOFS 将故障原子性 IO 的实现卸载到目标端.
+
+Logging Policy. CETOFS utilizes the processing capability of the target to perform target-side logging to atomically persist data to the disaggregated SSD. There are two common logging mechanisms: redo logging and undo logging. As for the undo logging, data updates should be performed synchronously: first writing the old data and then writing the new data. The twice data movement brings significant latency in the critical execution path. Thus, we choose the redo logging: first writing the new data to the log area and the second write (`i.e.`, checkpoint) can be executed asynchronously in the background. To ensure atomicity, all data writes are first persisted to the SSD log area via T-Handler, which are later checkpointed to their original file positions, enabling transparency to applications. When crash occurs during writing to the log area, the data is discarded. When crash occurs after committing, the data can be recovered. Specially, with offloading, CETOFS only requires one data movement through network to guarantee the atomicity and minimize overhead.
+
+**日志策略.** CETOFS 利用目标端的处理能力, 在目标端记录日志, 将数据原子地持久化到分离式 SSD. 常用方案有撤销日志和重做日志. 撤销日志要求同步完成两次写入: 先写旧数据, 再写新数据, 两次数据搬移都会增加关键路径延迟. 因此, 我们选择重做日志: 先把新数据写到日志区, 第二次写入, 即检查点, 可在后台异步执行. 为保证原子性, 所有数据先经 T-Handler 持久化到 SSD 日志区, 随后再通过检查点写回原文件位置, 对应用透明. 写日志期间崩溃则丢弃数据; 提交后崩溃则可恢复数据. 卸载后, CETOFS 只需一次跨网络数据搬移即可保证原子性, 降低开销.
+
+Transaction Management. As shown in Figure 10, the transaction management comprises four components: an in-memory transaction table (`mt_table`), a persistent recovery transaction table (`pt_table`), the transaction logs (`t_log`), and an in-memory log index (`log_index`). `mt_table` keeps the metadata of transactions which consists of the mapping entries from the address of `t_log` to the original address of data. `t_log` contains multiple device blocks as the log data area. `log_index` maintains the mapping entries from the original address of data to the address of `t_log` for each request queue, which is used to serve the read operation. When `atomic_write_start` comes, T-Handler creates a new entry in `mt_table`. T-Handler supports concurrent transactions by maintaining distinct entries in `mt_table`. Initially, the status of one transaction is running, which means it can be discarded when meeting crash. When a subsequent write arrives, T-Handler writes its data into the `t_log`, records its mapping between its address in `t_log` and writing address to `mt_table`, then updates the `log_index`. After receiving `atomic_write_commit`, T-Handler only requires flushes the transaction metadata to `pt_table`. After committing, T-Handler can perform checkpoint in the background. Upon the completion of checkpoint, the transaction status is changed into checkpointed, allowing the reclamation of transaction metadata and log entries. Flushing `pt_table` incurs small writes to SSD, which brings write amplification. One can optimize it by utilizing the new NVMe feature persistent memory region (PMR) <sup>[42]</sup>, which leaves as future work.
+
+**事务管理.** 如图 10 所示, 事务管理包含内存事务表 `mt_table`, 持久化恢复事务表 `pt_table`, 事务日志 `t_log` 和内存日志索引 `log_index`. `mt_table` 保存事务元数据, 即从 `t_log` 地址到数据原始地址的映射. `t_log` 由多个设备块组成, 用作日志数据区. `log_index` 为每条请求队列维护从数据原始地址到 `t_log` 地址的映射, 用于处理读操作. 收到 `atomic_write_start` 后, T-Handler 在 `mt_table` 中创建条目, 通过不同条目支持并发事务. 事务初始状态为 running, 崩溃时可直接丢弃. 后续写请求到达时, T-Handler 将数据写入 `t_log`, 在 `mt_table` 记录日志地址与写入地址的映射, 并更新 `log_index`. 收到 `atomic_write_commit` 后, 只需将事务元数据刷入 `pt_table`. 提交后, T-Handler 可在后台执行检查点; 完成后将状态改为 checkpointed, 便可回收事务元数据和日志条目. 刷写 `pt_table` 会产生小块 SSD 写入和写放大. 后续可利用 NVMe 的持久内存区域 (PMR) 功能 <sup>[42]</sup> 优化, 本文暂未实现.
+
+Transaction-Aware Submission and Completion. One transaction consists of one or more write requests. At the initiator, each request triggers one RDMA operation, which necessitates multiple CPU-initiated Memory-Mapped IO (MMIO) operations (`i.e.`, ring the doorbell) and incurs non-trivial PCIe overhead. The same overhead exists at the target when T-Handler notifies the initiator. To mitigate such overhead, we adopts a transaction-aware submission and completion mechanism <sup>[20, 32]</sup>. Specifically, U-Lib employs a delayed submission strategy, dispatching the requests either upon the full arrival of all requests within a transaction or when accumulated requests exceed a predefined threshold. Meanwhile, T-Handler adopts a batch processing approach that handles all transaction requests and notifies their completion to the initiator in batch.
+
+**以事务为单位组织提交和完成通知.** 一个事务包含一个或多个写请求. 在发起端, 每个请求触发一次 RDMA 操作, 需要 CPU 发起多次内存映射 IO (MMIO), 即敲门铃, 带来不可忽略的 PCIe 开销. 目标端通知发起端时也存在相同开销. 为此, 我们采用面向事务的提交与完成机制 <sup>[20, 32]</sup>. U-Lib 延迟提交请求, 等一个事务的全部请求到齐, 或累计请求数超过预设阈值, 再统一发送. T-Handler 同样批量处理事务请求, 并向发起端批量通知完成状态.
+
+<div class="paper-shared">
+
+![T-Handler 中的事务管理.](/assets/images/posts/cetofs/figure-10.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 10: Transaction Management in T-Handler.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 10: T-Handler 中的事务管理.</span>
+
+# 6. 评估
+
+In this section, we present evaluation results for CETOFS. We first use a set of micro-benchmarks to evaluate the single-threaded performance of CETOFS. Then, we show the scalability of CETOFS under concurrent accessing. We also evaluate CETOFS using the macro-benchmark Filebench <sup>[12]</sup> and the real-world application LevelDB <sup>[13]</sup>. Finally, we conduct a performance breakdown for CETOFS.
+
+本节评估 CETOFS. 首先通过微基准测试测量单线程性能和并发扩展性, 再使用 Filebench <sup>[12]</sup> 和实际应用 LevelDB <sup>[13]</sup> 进行测试, 最后分析各部分的性能贡献.
+
+Experiment Setup. We conduct all experiments on two servers with two 24-core Intel(R) Xeon(R) Platinum 8260 CPUs, which run Ubuntu 20.04 with Linux kernel version 5.5.0. They are equipped with a dual-port Mellanox ConnextX-5 RDMA NIC. Hyper-threading is disabled. For all experiments, we issue direct IO (`O_DIRECT`) like previous works <sup>[54, 56]</sup>. The target server is equipped with 256GB DRAM and a 375GB Intel Optane P4800X SSD (2.3GB/s for peak read and write).
+
+**实验配置.** 所有实验在两台服务器上进行, 每台配备两颗 24 核 Intel Xeon Platinum 8260 CPU, 运行 Ubuntu 20.04 和 Linux 5.5.0, 使用双端口 Mellanox ConnectX-5 RDMA 网卡, 关闭超线程. 与已有工作 <sup>[54, 56]</sup> 一样, 全部实验使用直接 IO (`O_DIRECT`). 目标服务器配有 256 GB DRAM 和一块 375 GB Intel Optane P4800X SSD, 峰值读写带宽均为 2.3 GB/s.
+
+Compared Systems. We compare CETOFS against Ext4, F2FS, and uFS. Ext4 and F2FS are widely-used journaling and log-structured kernel file system respectively that can directly run on the disaggregated SSD. uFS is a state-of-the-art high-performance userspace file systems for local modern SSD. We extend it to support the disaggregated SSD.
+
+**对比系统.** 我们将 CETOFS 与 Ext4, F2FS 和 uFS 比较. Ext4 和 F2FS 分别是广泛使用的日志型和日志结构内核文件系统, 可直接运行于分离式 SSD. uFS 是面向本地现代 SSD 的先进高性能用户态文件系统, 我们扩展了它, 使其支持分离式 SSD.
+
+## 6.1 单线程性能
+
+We use five synthetic micro-benckmarks: sequential read/write, random read/write, and append to measure single-threaded throughput. Each workload runs with different IO sizes and one million operations on a 4GB file.
+
+我们使用顺序读, 顺序写, 随机读, 随机写和追加写五种合成微基准测试测量单线程吞吐量. 每种负载采用不同 IO 大小, 在一个 4 GB 文件上执行 100 万次操作.
+
+Read. Figure 11(a) and 11(b) show the results for sequential and random reads. CETOFS places its data plane entirely in userspace and avoids kernel stack overheads. Thus, compared to Ext4, CETOFS achieves 10% to 1.12X higher throughput for all IO sizes. Similarly, CETOFS outperforms F2FS by achieving 9% to 1.23X higher throughput. uFS is a fully userspace file system. Its read throughputs are close to CETOFS with an average 16% degradation. The performance degradation mainly comes from the frequent communications between its client and uServer threads. Figure 11(f) shows the latency results of random read. CETOFS spends about 19µs to read 4KB data, which mainly consists of RDMA networking latency (about 7µs), SSD read latency (about 7µs) and other software latencies (the offset translation, permission checking, etc.). Ext4 and F2FS spend extra time (about 26µs) in the kernel stack. uFS instead incurs extra latency (about 5µs) for inter-process communication and copying data.
+
+**读操作.** 图 11(a) 和 11(b) 展示顺序读与随机读结果. CETOFS 将数据平面完全置于用户态, 避免了内核栈开销. 在所有 IO 大小下, 相比 Ext4, 吞吐量提高 10%~112%; 相比 F2FS, 提高 9%~123%. 完全运行于用户态的 uFS 读取吞吐量较接近 CETOFS, 但平均仍低 16%, 主要因为客户端与 uServer 线程之间频繁通信. 图 11(f) 展示随机读延迟. CETOFS 读取 4 KB 数据约需 19 µs, 主要包含 RDMA 网络延迟约 7 µs, SSD 读延迟约 7 µs, 以及偏移转换, 权限检查等软件耗时. Ext4 和 F2FS 在内核栈中额外花费约 26 µs; uFS 则因进程间通信和数据复制额外花费约 5 µs.
+
+Overwrite. Figure 11(c) and 11(d) show the results of sequential and random overwrites with pre-allocated data blocks. We use the direct IO mode for all tested systems to eliminate the potential interference from data caching (`e.g.`, page cache) that might absorb data writes and perform batch flushing. Similar to the read results, CETOFS benefits from its userspace data plane, it exhibits higher throughput across all IO sizes (4KB to 128KB). On average, CETOFS outperforms Ext4, F2FS, and uFS by about 74%, 65%, and 24%, respectively.
+
+**覆盖写.** 图 11(c) 和 11(d) 展示对预分配数据块进行顺序与随机覆盖写的结果. 所有系统均使用直接 IO, 排除页缓存等数据缓存吸收写入, 批量刷盘的干扰. 与读操作类似, CETOFS 的用户态数据平面在 4~128 KB 各种 IO 大小下都提供了更高吞吐量. 平均而言, 相比 Ext4, F2FS 和 uFS, 吞吐量分别提高约 74%, 65% 和 24%.
+
+Append. Figure 11(e) shows the results of the append operation performed on an empty file. To handle the append operation, CETOFS adopts a two-stage approach to first let K-FS allocate blocks and then write data in userspace. This enables CETOFS to still benefit from userspace data plane, achieving average throughput improvements of 52%, 50%, and 12% compared to Ext4, F2FS, and uFS. Although uFS also performs the append operation in userspace entirely, it suffers from severe data copy overhead when the IO size increases. Consequently, uFS shows comparable performance with CETOFS before the IO size reaches 32KB. After that, uFS behaves worse than CETOFS. Both Ext4 and F2FS still incur heavy kernel stack overhead and behave poorly.
+
+**追加写.** 图 11(e) 展示向空文件追加数据的结果. CETOFS 先由 K-FS 分配块, 再在用户态写数据, 因而仍能受益于用户态数据平面, 相比 Ext4, F2FS 和 uFS 的平均吞吐量分别提高 52%, 50% 和 12%. uFS 虽然完全在用户态执行追加写, 但 IO 越大, 数据复制开销越明显. 因此, IO 小于 32 KB 时, uFS 与 CETOFS 性能接近; 之后 uFS 落后. Ext4 和 F2FS 仍受较大内核栈开销影响, 性能较差.
+
+<div class="paper-shared">
+
+![单线程吞吐量.](/assets/images/posts/cetofs/figure-11.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 11: Single-Threaded Throughput</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 11: 单线程吞吐量.</span>
+
+## 6.2 并发访问性能
+
+We use FxMark <sup>[37]</sup> to evaluate the data path scalability under concurrent accessing. We select six workloads of FxMark: DRBL and DRBM read a private block in a private and a shared file respectively. DRBH reads a shared block in a shared file. DWOL and DWOM overwrite a private block in a private and a shared file respectively. DWAL appends data to a private file. Figure 12 shows the aggregated throughput results with increasing concurrent threads.
+
+我们用 FxMark <sup>[37]</sup> 评估并发访问下数据路径的扩展性, 选取六种负载: DRBL 和 DRBM 分别读取私有文件, 共享文件中的私有块; DRBH 读取共享文件中的共享块; DWOL 和 DWOM 分别覆盖写私有文件, 共享文件中的私有块; DWAL 向私有文件追加数据. 图 12 展示总吞吐量随线程数增加的变化.
+
+As for the read results shown in Figure 12(a) and 12(b), both Ext4 and F2FS scale with the increasing threads. However, they achieve lower throughput than CETOFS due to their costly kernel stack. uFS scales before reaching 8 threads (client threads in uFS). After that, the throughput of uFS increases little as its uServer is designed to have a limited number of worker threads for saving CPUs. Since CETOFS accesses the data in userspace and has no extra communication overhead, it exhibits good scalability and achieves the full bandwidth of hardware quickly (12 threads). Figure 12(c) shows the DRBH result. All tested file systems only scale to 160 Kops/s as all threads read the same SSD block and cannot fully utilize the SSD internal parallelism. Figure 12(d) and 12(f) show the throughput when concurrent threads overwrite and append private files separately. Since there is no thread contention, all tested file systems behave similarly to those under read workloads. CETOFS still achieves best scalability. On average, CETOFS outperforms Ext4, F2FS and uFS by 72%, 76% and 38% for DWOL, and by 61%, 48%, and 29% for DWAL, respectively.
+
+图 12(a) 和 12(b) 中, Ext4, F2FS 的读吞吐量随线程数增加而提升, 但因内核栈开销较大, 始终低于 CETOFS. uFS 在客户端线程数达到 8 之前可以扩展, 此后增长很小, 因为 uServer 为节省 CPU, 限制了工作线程数. CETOFS 在用户态访问数据且没有额外通信开销, 扩展性较好, 在 12 个线程时便达到硬件带宽上限. 图 12(c) 的 DRBH 中, 所有线程读取同一个 SSD 块, 无法充分利用 SSD 内部并行性, 因而所有系统都只能达到约 160 Kops/s. 图 12(d) 和 12(f) 分别展示并发覆盖写及追加写私有文件的结果. 因为没有线程争用, 各系统的趋势与读负载类似, CETOFS 仍具有最佳扩展性. 在 DWOL 中, CETOFS 相比 Ext4, F2FS, uFS 平均提高 72%, 76%, 38%; 在 DWAL 中分别提高 61%, 48%, 29%.
+
+As for the DWOM workload, concurrent threads have high contention for writing the same shared file. Only CETOFS scales well as shown in Figure 12(d). CETOFS offloads the concurrency control to the target server to mitigate the serialization overhead. Moreover, CETOFS merges the request groups without conflicts to allow concurrent accessing to disjoint portions of a file, which improves its scalability significantly. On the contrary, other file systems can only execute concurrent writes sequentially and obtain poor scalability.
+
+DWOM 中, 多个线程写同一共享文件, 争用较强. 如图 12 所示, 只有 CETOFS 保持良好扩展性. CETOFS 将并发控制卸载到目标服务器, 减轻串行化开销; 同时合并无冲突请求组, 允许并发访问文件的不相交区域, 显著提高扩展性. 其他文件系统只能串行执行并发写, 扩展性较差.
+
+<div class="paper-shared">
+
+![FxMark 下的并发吞吐量.](/assets/images/posts/cetofs/figure-12.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 12: Concurrent Throughput with FxMark</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 12: FxMark 下的并发吞吐量.</span>
+
+## 6.3 宏基准测试: Filebench
+
+We use a set of workloads from the Filebench <sup>[12]</sup> as the macro-benchmarks to evaluate CETOFS. We select four representative workloads: Fileserver, Varmail, Webserver, and Webproxy. The data read to write ratios for these workloads are set as follows: Fileserver (1:2), Varmail (1:1), Webserver (10:1), and Webproxy (5:1). Figure 13 shows the results with increasing concurrent threads. Generally, CETOFS exhibits superior performance for all four workloads. For Fileserver, it issues intensive concurrent writes. CETOFS outperforms Ext4, F2FS, and uFS by 75%, 72%, and 64% on average due to its lightweight data plane and offloaded concurrency control. For Webserver and Webproxy, they are read-intensive workloads and less thread contentions occur compared to Fileserver. CETOFS still outperforms other file systems but achieves smaller throughput improvement. Specifically, CETOFS improves throughput by 25% to 33% for Webserver, and 14% to 50% for Webproxy. CETOFS and F2FS achieve similar throughput for Varmail. This is because Varmail contains more metadata operations and handles a large number of small files, which brings frequent kernel interactions for CETOFS. Notably, F2FS outperforms Ext4 under Varmail as it employs an efficient roll-forward recovery mechanism to enhance fsync performance that only writes data blocks and the direct node blocks.
+
+我们从 Filebench <sup>[12]</sup> 选择 Fileserver, Varmail, Webserver 和 Webproxy 四种代表性负载作为宏基准测试. 读写比分别设为 1:2, 1:1, 10:1 和 5:1. 图 13 展示增加线程数后的结果. 总体上, CETOFS 在四种负载下均有较好表现. Fileserver 包含密集并发写, CETOFS 凭借轻量数据平面和并发控制卸载, 相比 Ext4, F2FS, uFS 平均分别提高 75%, 72%, 64%. Webserver 与 Webproxy 以读为主, 线程争用少于 Fileserver, CETOFS 仍领先, 但提升幅度较小, 分别为 25%~33% 和 14%~50%. Varmail 中, CETOFS 与 F2FS 吞吐量相近, 因为该负载包含更多元数据操作和大量小文件, CETOFS 需要频繁进入内核. F2FS 在 Varmail 中优于 Ext4, 因为它采用高效的前滚恢复机制, fsync 只需写数据块和直接节点块.
+
+<div class="paper-shared">
+
+![Filebench 性能.](/assets/images/posts/cetofs/figure-13.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 13: Performance of Filebench</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 13: Filebench 性能.</span>
+
+## 6.4 实际应用: LevelDB
+
+We evaluate CETOFS using the real-world application LevelDB <sup>[13]</sup>, which is a widely-used key-value store and uses file system to persist data. We run a number of workloads from the `db_bench` benchmark as shown in Table 3. We run LevelDB by performing 3 million operations with a fixed value size of 1KB. Since LevelDB is single-threaded, we measure the average latencies under different workloads. Table 3 shows the results. Compared to Ext4 and F2FS, CETOFS reduces the latencies of write sync by 57% and 30% separately. This is because CETOFS reduces the kernel stack overhead significantly. As for other write operations, CETOFS reduces latencies by up to 31% and 23% compared to Ext4 and F2FS. As for read operations, the latency improvement of CETOFS is relatively small as the block cache in LevelDB serves a portion of requests. uFS achieves comparable performance with CETOFS due to its userspace design. Moreover, the single-threaded LevelDB poses low pressure to the inter-process communication with uServer. However, the write sync latency of uFS is still 8% higher than that of CETOFS as each request must be persisted to the SSD without batching, resulting in high communication and data copy overhead to uServer.
+
+我们使用广泛应用的键值存储 LevelDB <sup>[13]</sup> 评估 CETOFS. LevelDB 通过文件系统持久化数据; 实验运行表 3 中的多种 `db_bench` 负载, 每次执行 300 万次操作, value 大小固定为 1 KB. 本实验中的 LevelDB 以单线程运行, 因而测量各负载的平均延迟. 表 3 显示, CETOFS 相比 Ext4, F2FS, 分别将同步写延迟降低 57% 和 30%, 主要得益于内核栈开销的减少. 其他写操作的延迟最多分别降低 31% 和 23%. 读操作的改善较小, 因为 LevelDB 的块缓存服务了部分请求. uFS 同样采用用户态设计, 性能与 CETOFS 接近; 单线程 LevelDB 对 uServer 进程间通信的压力也较小. 但 uFS 的同步写延迟仍高 8%, 因为每个请求都必须单独持久化到 SSD, 无法批处理, 导致与 uServer 之间的通信和数据复制开销较高.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 3: Latency (µs) Results of LevelDB under db_bench. The Read hot contains 1% of hot key-value pairs.</span>
+
+| Workload | Ext4 | F2FS | uFS | CETOFS |
+|:---|---:|---:|---:|---:|
+| Write sync. | 196.29 | 120.78 | 92.34 | 84.38 |
+| Write seq. | 3.55 | 3.27 | 3.09 | 2.82 |
+| Write rand. | 35.98 | 31.99 | 29.34 | 26.38 |
+| Overwrite | 45.58 | 41.07 | 35.91 | 31.23 |
+| Read seq. | 2.37 | 2.47 | 2.33 | 2.31 |
+| Read rand. | 4.03 | 4.03 | 3.89 | 3.62 |
+| Read hot | 1.27 | 1.29 | 1.23 | 1.18 |
+| Delete rand. | 2.72 | 2.57 | 2.39 | 2.22 |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 3: db_bench 中 LevelDB 的延迟, 单位 µs. 热点读中有 1% 的热点键值对.</span>
+
+| 负载 | Ext4 | F2FS | uFS | CETOFS |
+|:---|---:|---:|---:|---:|
+| 同步写 | 196.29 | 120.78 | 92.34 | 84.38 |
+| 顺序写 | 3.55 | 3.27 | 3.09 | 2.82 |
+| 随机写 | 35.98 | 31.99 | 29.34 | 26.38 |
+| 覆盖写 | 45.58 | 41.07 | 35.91 | 31.23 |
+| 顺序读 | 2.37 | 2.47 | 2.33 | 2.31 |
+| 随机读 | 4.03 | 4.03 | 3.89 | 3.62 |
+| 热点读 | 1.27 | 1.29 | 1.23 | 1.18 |
+| 随机删除 | 2.72 | 2.57 | 2.39 | 2.22 |
+
+</div>
+
+</div>
+
+## 6.5 原子写性能
+
+We now evaluate the atomic write performance using three different approaches: J-Undo (journaling with undo log), J-Redo (journaling with redo log), CETOFS (offloaded atomic write). J-Undo first writes the old data to the log area and then writes the new data. J-Redo first writes the new data to the log area and then checkpoints the data in the background. We first vary the IO sizes of individual atomic writes using single-threaded run. Each atomic write with the IO size larger than 4 KB is actually divided into multiple 4KB write operations. The results are shown in Figure 14(a). CETOFS averagely outperforms J-Undo and J-Redo by 1.8X and 58% respectively. The log writes of J-Undo execute on the critical path and brings twice data movements for one atomic write (one for writing old data and the other for writing new data), achieving the worst performance. J-Redo is performed by writing a journal description block, journal blocks, and a commit block to the remote storage. Although writing the description and commit blocks bring extra IO requests, these IO requests are small-sized and their impact on the performance gradually diminishes with the increasing IO size. CETOFS uses `atomic_write_start` and `atomic_write_commit` to notify T-Handler to perform redo logging at the target, which avoids the transmission of the description and commit blocks. Thus, CETOFS outperforms J-Redo with small IO size but the performance improvement narrows when IO size increases. Then we fix the atomic write size to be 64KB and vary the number of concurrent threads. Figure 14(b) shows the results. CETOFS achieves the highest throughput as it reduces the data movement overhead. Although J-Redo performs the checkpoint in the background, it still executes the checkpoint at the initiator, which first fetches the logs to the initiator and then sends them back to the target. This results in expensive data movement. J-Undo performs worst as it suffers twice data movement to the target on the critical path. Note that CETOFS stops scaling around 12 threads as the SSD bandwidth is saturated.
+
+我们比较三种原子写方案: 使用撤销日志的 J-Undo, 使用重做日志的 J-Redo, 以及卸载原子写的 CETOFS. J-Undo 先把旧数据写入日志区, 再写新数据; J-Redo 先将新数据写入日志区, 再在后台执行检查点. 首先在单线程下改变原子写的 IO 大小. 大于 4 KB 的原子写实际会拆成多个 4 KB 写操作. 图 14(a) 显示, CETOFS 相比 J-Undo 和 J-Redo, 平均性能分别提高 180% 和 58%. J-Undo 的日志写入位于关键路径, 一次原子写需要搬移旧数据和新数据两次, 因而性能最差. J-Redo 需要向远程存储写入日志描述块, 日志块和提交块. 描述块与提交块会产生额外 IO, 但大小较小, 随 IO 大小增加, 影响逐渐减弱. CETOFS 通过 `atomic_write_start` 和 `atomic_write_commit` 通知 T-Handler 在目标端记录重做日志, 避免传输描述块和提交块, 因而在小 IO 下优于 J-Redo; IO 增大后, 差距缩小. 随后, 我们将原子写固定为 64 KB, 改变并发线程数. 图 14(b) 中, CETOFS 因减少数据搬移而取得最高吞吐量. J-Redo 虽然在后台执行检查点, 但仍在发起端执行: 必须先把日志取回发起端, 再发送回目标端, 数据搬移代价很高. J-Undo 在关键路径上向目标端搬移两次数据, 性能最差. CETOFS 在约 12 个线程后不再扩展, 因为 SSD 带宽已饱和.
+
+<div class="paper-shared">
+
+![原子写性能.](/assets/images/posts/cetofs/figure-14.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 14: Performance of Atomic Write</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 14: 原子写性能.</span>
+
+## 6.6 性能分析
+
+In this section, we first conduct performance breakdown for single-threaded read operation to evaluate the overheads of the address translation table and permission checking offloading. Then we evaluate concurrent write performance using different concurrency control policies.
+
+本节先拆解单线程读延迟, 评估地址转换表和权限检查卸载的开销, 再比较不同并发控制策略下的并发写性能.
+
+Read Latency Breakdown. When serving a read request, CETOFS needs to lookup the address translation table at the initiator and lets the target perform permission check for each block access. We split the latency of a read operation into five components: T-Lookup (lookup address translation table), P-Lookup (lookup reverse permission table), SSD (read data), Network (transfer data), and other latency. Figure 15(a) shows the latency of each component. There are five cases: 1) Ideal case (I): without permission checking. 2) All hit (A-H): the translation table entry and the permission entry are in memory. 3) Translation table miss (T-M): the translation table entry should be read from the SSD. 4) Permission table miss (P-M): the permission table entry should be read from the SSD. 5) All miss (A-M): both table entries should be read from SSD. Compared to the case I, the case A-H has extra 0.2µs latency for permission checking at the target when it only queries the in-memory permission table. The latency of translation entry miss is higher than that of permission entry miss as U-Lib should retrieve the offset-to-block indexing from the target. For the worst case (A-M), CETOFS still has a lower latency (36.7µs) than Ext4 (42.34µs).
+
+**读延迟拆解.** CETOFS 处理读请求时, 发起端查询地址转换表, 目标端检查每个块的访问权限. 我们将延迟分为五部分: T-Lookup (地址转换表查询), P-Lookup (反向权限表查询), SSD (数据读取), Network (数据传输) 和其他耗时. 图 15(a) 展示五种情况: 1) 理想情况 I, 不检查权限; 2) 全部命中 A-H, 转换表与权限表条目均在内存; 3) 转换表未命中 T-M, 需要从 SSD 读取转换表条目; 4) 权限表未命中 P-M, 需要从 SSD 读取权限条目; 5) 全部未命中 A-M, 两类条目均需从 SSD 读取. 相比 I, A-H 的目标端权限检查仅查询内存表, 额外延迟为 0.2 µs. 转换表未命中的代价高于权限表未命中, 因为 U-Lib 要从目标端获取偏移到块地址索引. 即使在最差的 A-M 情况下, CETOFS 的延迟 36.7 µs 仍低于 Ext4 的 42.34 µs.
+
+Performance Contributions of Concurrent Write. We evaluate the write performance of CETOFS under the DWOM workload with four concurrency control policies: RW (Reader-Writer Locking), BG (Basic Group Policy), MG (Merging Group Policy), and Ideal (Without Locking). Figure 15(b) shows the results. RW performs worst due to the exacerbated serialization overhead. BG can reduce the network waiting time and improve the scalability with low thread count. But BG does not scale with high thread count as it cannot leverage the parallelism of SSD. MG employs in-DRAM red-black trees to support efficient insertion, lookup and merge with low overhead for group management. Thus, MG scales well by fully exploiting the parallelism of network and SSD.
+
+**并发写的性能贡献.** 我们在 DWOM 负载下比较四种策略: 读写锁 RW, 基本分组 BG, 合并分组 MG, 以及不加锁的理想情况 Ideal. 图 15(b) 中, RW 因串行化开销较大而表现最差. BG 减少了网络等待, 在线程较少时提高了扩展性, 但无法充分利用 SSD 并行性, 线程较多时不再扩展. MG 通过 DRAM 中的红黑树, 以较低组管理开销完成插入, 查询和合并, 充分利用网络与 SSD 并行能力, 因而具有良好扩展性.
+
+<div class="paper-shared">
+
+![性能拆解.](/assets/images/posts/cetofs/figure-15.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 15: Performance Breakdown</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 15: 性能拆解.</span>
+
+# 7. 讨论
+
+Overhead of File Open. The file-opening process indeed incurs extra overhead mainly from the creation of request queues, where the access information of `server_rb` and `host_rb` is exchanged via RDMA. We measure the extra overhead for opening varied-sized files, which introduces about 5µs latency, accounting for around 31% of the total execution time of open. The overhead is acceptable as the one-time cost before reading/writing files.
+
+**打开文件的开销.** 打开文件确实引入了额外开销, 主要来自请求队列创建: `server_rb` 和 `host_rb` 的访问参数需要通过 RDMA 交换. 对不同大小的文件测量后发现, 额外延迟约为 5 µs, 占 open 总耗时约 31%. 这是读写前的一次性开销, 因而可以接受.
+
+Scaling with Multiple SSDs/Targets/Initiators: On one hand, CETOFS can be built on multiple SSDs on one target or multiple targets by organizing multiple SSDs or multiple targets as a logical device (`e.g.`, RAID-0 or dRAID <sup>[50]</sup>). On the other hand, CETOFS can scale to multiple initiators by extending to a clustered file system like OCFS2 <sup>[11]</sup> (`i.e.`, adding distributed lock management). We leave them as future work.
+
+扩展到多个 SSD, 目标端或发起端. 一方面, 可通过 RAID-0 或 dRAID <sup>[50]</sup> 等方式, 将一个或多个目标端上的多个 SSD 组织为逻辑设备, 使 CETOFS 支持更大的存储规模. 另一方面, 可加入分布式锁管理, 将其扩展为类似 OCFS2 <sup>[11]</sup> 的集群文件系统, 支持多个发起端. 这些扩展留待后续研究.
+
+Adopting to Data Processing Unit (DPU)/SmartNIC: One can port CETOFS to DPU/SmartNIC based disaggregated storage <sup>[38]</sup>. The DPU <sup>[4, 40, 41]</sup> usually consists of 8 ~ 16 ARM cores and a set of hardware accelerators. The ARM cores can run the NVMe-oF stack as well as the offloading mechanisms in CETOFS. Moreover, a few operations like compression and encryption can be offloaded to the hardware accelerators. We leave the adoption as our future work.
+
+**适配 DPU/SmartNIC.** CETOFS 可以移植到基于 DPU/SmartNIC 的分离式存储 <sup>[38]</sup>. DPU <sup>[4, 40, 41]</sup> 通常包含 8~16 个 ARM 核和一组硬件加速器. ARM 核可以运行 NVMe-oF 栈和 CETOFS 的卸载机制, 压缩, 加密等操作还可交给硬件加速器. 这项适配也留待后续工作.
+
+# 8. 相关工作
+
+Remote Storage Systems. Klimovic et al. <sup>[24]</sup> and i10 <sup>[14]</sup> optimize the in-kernel remote storage stack to achieve high throughput. ReFlex <sup>[25]</sup> proposes a kernel-bypass data plane to closely integrate network and storage processing for low latency. Gimbal <sup>[38]</sup> presents a software switch that enables multi-tenant storage disaggregation on the SmartNIC JBOFs. RubbleDB <sup>[29]</sup> utilizes the offload mode of NVMe-over-RDMA to reduce the CPU overhead of replication. RIO <sup>[33]</sup> and Volley <sup>[55]</sup> focus on the storage order of remote storage access. However, these works pay little attention to the efficiency of file systems on disaggregated SSDs. They are orthogonal with CETOFS and can be applied to CETOFS to further improve the performance and QoS guarantee.
+
+**远程存储系统.** Klimovic 等 <sup>[24]</sup> 和 i10 <sup>[14]</sup> 通过优化内核远程存储栈提高吞吐量. ReFlex <sup>[25]</sup> 采用绕过内核的数据平面, 紧密结合网络与存储处理以降低延迟. Gimbal <sup>[38]</sup> 提出软件交换层, 在 SmartNIC JBOF 上支持多租户存储分离. RubbleDB <sup>[29]</sup> 利用 NVMe-over-RDMA 卸载模式降低复制的 CPU 开销. RIO <sup>[33]</sup> 和 Volley <sup>[55]</sup> 关注远程访问中的存储顺序. 但这些工作较少研究分离式 SSD 上的文件系统效率, 与 CETOFS 互补, 可结合使用以进一步改善性能和 QoS.
+
+Userspace File System. To reduce the kernel software overhead, many userspace file systems for SSD are proposed. Arrakis <sup>[46]</sup> virtualizes the SSD then each application can directly manage the virtualized device, requiring the SR-IOV <sup>[26]</sup> support. BypassD <sup>[54]</sup> adopts a hardware-based approach by offloading permission checks into IOMMU for local storage, but it cannot be directly applied to RDMA-based remote storage. This is because translating virtual addresses in RDMA requires the collaboration of the memory translation table (MTT) in NIC and IOMMU, requiring further RDMA NIC modifications. Moneta-D <sup>[5]</sup> offloads the permission check into SSD, requiring modifications to commercial hardware. Device-level file systems such as DevFS <sup>[22]</sup> and CrossFS <sup>[48]</sup> place most FS functionalities into the device firmware, but the efficiency is limited by the constrained CPU and memory resources inside the device. uFS <sup>[35]</sup> places the whole FS into a trusted process, which incurs extra CPU and communication overhead. Both SplitFS <sup>[19]</sup> and CETOFS employ userspace-kernel collaborative architecture, but SplitFS targets persistent memory and it perform permission checking using page table, which cannot be applied to SSD.
+
+**用户态文件系统.** 为减少内核软件开销, 已有多种面向 SSD 的用户态文件系统. Arrakis <sup>[46]</sup> 将 SSD 虚拟化, 使每个应用直接管理虚拟设备, 需要 SR-IOV <sup>[26]</sup> 支持. BypassD <sup>[54]</sup> 将本地存储权限检查卸载到 IOMMU, 但不能直接用于基于 RDMA 的远程存储: RDMA 虚拟地址转换需要网卡中的内存转换表 MTT 与 IOMMU 协作, 因而还需修改 RDMA 网卡. Moneta-D <sup>[5]</sup> 把权限检查卸载到 SSD, 也需要修改商用硬件. DevFS <sup>[22]</sup>, CrossFS <sup>[48]</sup> 等设备级文件系统将大部分功能放入设备固件, 但性能受设备内部有限 CPU 和内存资源约束. uFS <sup>[35]</sup> 将整个文件系统放入可信进程, 引入额外 CPU 与通信开销. SplitFS <sup>[19]</sup> 和 CETOFS 都采用用户态与内核协同架构, 但 SplitFS 面向持久内存, 通过页表检查权限, 无法直接用于 SSD.
+
+Storage Service Offloading: Many works leverage emerging DPU/SmartNIC to offload storage services. iPipe <sup>[36]</sup> proposes the actor programming model for offloading applications like KV stores, distributed transaction systems, and real-time analytics to SoC-based SmartNICs. LineFS <sup>[23]</sup> offloads a PM-optimized DFS to SmartNICs, including CPU-intensive DFS tasks (replication, compression, index, and consistency management). LeapIO <sup>[30]</sup> proposes that ARM cores in SmartNICs can run a complex cloud storage stack. OS2G <sup>[18]</sup> offloads the object storage client to the DPU for GPU-based deep learning applications. Similar to these works, the offloading mechanisms in CETOFS can also be applied to DPU/SmartNIC.
+
+**存储服务卸载.** 许多工作利用 DPU/SmartNIC 卸载存储服务. iPipe <sup>[36]</sup> 采用 actor 编程模型, 将键值存储, 分布式事务系统, 实时分析等应用卸载到基于 SoC 的 SmartNIC. LineFS <sup>[23]</sup> 将面向持久内存优化的分布式文件系统卸载到 SmartNIC, 包括复制, 压缩, 索引和一致性管理等 CPU 密集任务. LeapIO <sup>[30]</sup> 提出在 SmartNIC 的 ARM 核上运行复杂云存储栈. OS2G <sup>[18]</sup> 为基于 GPU 的深度学习应用将对象存储客户端卸载到 DPU. 与这些工作类似, CETOFS 的卸载机制也可用于 DPU/SmartNIC.
+
+Scalable File Access. Several file systems explore the data scalability issue. Similar to `server_rb` used in CETOFS, CrossFS <sup>[48]</sup> maps each file descriptor to one hardware IO queue (FD-queue) and uses the interval-tree to detect conflicts for accessing the same file. However, CrossFS only orders the write requests via the interval tree. CrossFS relaxes the concurrency control of traditional file systems (`e.g.`, Ext4) as it may read a mix of old and new data. Trio <sup>[57]</sup> adopts the range lock that allocates a lock for each page, which suffers from high overhead when meeting a large range. A few works focus on the scalability of accessing shared resources (`e.g.`, journal <sup>[21]</sup> and metadata structures <sup>[17, 31]</sup>), while CETOFS mainly addresses the serialization overhead from accessing remote storage.
+
+**可扩展文件访问.** 多种文件系统研究了数据访问的扩展性. 与 CETOFS 的 `server_rb` 类似, CrossFS <sup>[48]</sup> 将每个文件描述符映射到一个硬件 IO 队列 (FD-queue), 用区间树检测同一文件的访问冲突. 但它仅通过区间树为写请求排序, 放宽了 Ext4 等传统文件系统的并发控制语义, 可能读到新旧数据混合的结果. Trio <sup>[57]</sup> 为每页分配范围锁, 访问大范围时开销较高. 另一些工作关注日志 <sup>[21]</sup>, 元数据结构 <sup>[17, 31]</sup> 等共享资源的访问扩展性; CETOFS 则主要解决远程存储访问的串行化开销.
+
+# 9. 结论
+
+This paper presents CETOFS, a high-performance file system for disaggregated SSDs with the target to reduce both kernel stack overhead and networking time. To provide high-performance data path and data protection, CETOFS handles data operations entirely in userspace and offloads permission checking to the remote storage server to avoid the arbitrary reads/writes from the userspace. Moreover, CETOFS designs two offloading mechanisms for concurrency control and failure-atomic IO to reduce networking overhead. The evaluation results show that CETOFS achieves scalable data performance and efficient failure-atomic IO.
+
+本文提出面向分离式 SSD 的高性能文件系统 CETOFS, 同时降低内核栈开销和网络耗时. 为兼顾数据路径性能与数据保护, CETOFS 完全在用户态处理数据操作, 并将权限检查卸载到远程存储服务器, 防止用户态任意读写设备. 此外, 它将并发控制和故障原子性 IO 卸载到服务器, 减少网络开销. 实验表明, CETOFS 具有良好的数据访问扩展性, 并能高效实现故障原子性 IO.
+
+# 10. 致谢
+
+We sincerely thank our shepherd, Mingkai Dong, and the anonymous reviewers for their insightful feedback. This work is supported by the Major Research Plan of the National Natural Science Foundation of China (Grant No. 92270202).
+
+感谢论文指导评审 Mingkai Dong 和匿名评审提供的深入反馈. 本研究得到国家自然科学基金重大研究计划支持, 项目编号 92270202.
+
+# 11. 参考文献
+
+<div class="paper-shared">
+
+[1] RDMACore Userspace Libraries and Daemons. `https://github.com/linux-rdma/rdma-core`.
+
+[2] Internet Small Computer Systems Interface (iSCSI), 2004. `https://www.ietf.org/rfc/rfc3720.txt`.
+
+[3] Avantika Mathur, Mingming Cao, Suparna Bhattacharya, Andreas Dilger, Alex Tomas, and Laurent Vivier. The New Ext4 Filesystem: Current Status and Future Plans. In Proc. of the Linux Symposium, 2021.
+
+[4] Broadcom. Broadcom Stingray PS1100R SmartNIC. `https://www.broadcom.com/products/storage/ethernet-storage-adapters-ics/ps1100r`.
+
+[5] Adrian M Caulfield, Todor I Mollov, Louis Alex Eisner, Arup De, Joel Coburn, and Steven Swanson. Providing Safe, User Space Access to Fast, Solid State Disks. In Proc. of ACM ASPLOS, 2012.
+
+[6] Changman Lee, Dongho Sim, Joo Young Hwang, and Sangyeun Cho. F2FS: A New File System for Flash Storage. In Proc. of USENIX FAST, 2015.
+
+[7] Yiquan Chen, Jinlong Chen, Yijing Wang, Yi Chen, Zhen Jin, Jiexiong Xu, Guoju Fang, Wenhai Lin, Chengkun Wei, and Wenzhi Chen. Hyq: Hybrid I/O queue architecture for nvme over fabrics to enable high- performance hardware offloading. In Proc. of IEEE/ACM CCGrid, 2023.
+
+[8] Jungsik Choi, Jaewan Hong, Youngjin Kwon, and Hwansoo Han. Libnvmmio: Reconstructing software IO path with Failure-Atomic Memory-Mapped interface. In Proc. of USENIX ATC, 2020.
+
+[9] Mingkai Dong, Heng Bu, Jifei Yi, Benchao Dong, and Haibo Chen. Performance and Protection in the ZoFS User-Space NVM File System. In Proc. of ACM SOSP, 2019.
+
+[10] Dawson R Engler, M Frans Kaashoek, and James O'Toole Jr. Exokernel: An Operating System Architecture for Application-Level Resource Management. In Proc. of IEEE SOSP, 1995.
+
+[11] Mark Fasheh. OCFS2: The Oracle Clustered File System, Version 2. In Proc. of Linux Symposium, 2006.
+
+[12] Filebench. Filebench 1.4.9.1. `https://github.com/filebench/filebench`.
+
+[13] Google. LevelDB. `https://github.com/google/leveldb`.
+
+[14] Jaehyun Hwang, Qizhe Cai, Ao Tang, and Rachit Agarwal. TCP≈RDMA: CPU-efficient Remote Storage Access with i10. In In Proc. of USENIX NSDI, 2020.
+
+[15] Intel. Intel Optane SSD P4800X Specification. `https://www.intel.com/content/www/us/en/products/sku/129969/intel-optane-ssd-dc-d4800x-series-375gb-2-5in-pcie-2x2-3d-xpoint/specifications.html`.
+
+[16] Intel. Intel® Optane™ SSD P5800X Series. `https://www.intel.com/content/www/us/en/products/docs/memory-storage/solid-state-drives/data-center-ssds/optane-ssd-p5800x-p5801x-brief.html`.
+
+[17] Wenqing Jia, Dejun Jiang, and Jin Xiong. AugeFS: A Scalable Userspace Log-Structured File System for Modern SSDs. In Proc. of IEEE MSST, 2024.
+
+[18] Zhen Jin, Yiquan Chen, Mingxu Liang, Yijing Wang, Guoju Fang, Ao Zhou, Keyao Zhang, Jiexiong Xu, Wenhai Lin, Yiquan Lin, et al. OS2G: A High-Performance DPU Offloading Architecture for GPU-based Deep Learning with Object Storage. In Proc. of ACM ASPLOS, 2025.
+
+[19] Rohan Kadekodi, Se Kwon Lee, Sanidhya Kashyap, Taesoo Kim, Aasheesh Kolli, and Vijay Chidambaram. SplitFS: Reducing Software Overhead in File Systems for Persistent Memory. In Proc. of ACM SOSP, 2019.
+
+[20] Anuj Kalia, Michael Kaminsky, and David G Andersen. Design Guidelines for High Performance RDMA Systems. In Proc. of USENIX ATC, 2016.
+
+[21] Junbin Kang, Benlong Zhang, Tianyu Wo, Weiren Yu, Lian Du, Shuai Ma, and Jinpeng Huai. SpanFS: A Scalable File System on Fast Storage Devices. In Proc. of USENIX ATC, 2015.
+
+[22] Sudarsun Kannan, Andrea C Arpaci-Dusseau, Remzi H Arpaci-Dusseau, Yuangang Wang, Jun Xu, and Gopinath Palani. Designing a True Direct-Access File System with DevFS. In Proc. of USENIX FAST, 2018.
+
+[23] Jongyul Kim, Insu Jang, Waleed Reda, Jaeseong Im, Marco Canini, Dejan Kostic´, Youngjin Kwon, Simon Peter, and Emmett Witchel. Linefs: Efficient Smartnic Offload of a Distributed File System with Pipeline Parallelism. In Proc. of ACM SOSP, 2021.
+
+[24] Ana Klimovic, Christos Kozyrakis, Eno Thereska, Binu John, and Sanjeev Kumar. Flash Storage Disaggregation. In Proc. of ACM EuroSys, 2016.
+
+[25] Ana Klimovic, Heiner Litz, and Christos Kozyrakis. Reflex: Remote Flash ≈ Local Flash. In Proc. of ACM ASPLOS, 2017.
+
+[26] P. Kutch. PCI-SIG SR-IOV Primer: An Introduction to SR-IOV Technology, 2011. `https://cdrdv2-public.intel.com/321211/pci-sig-sr-iov-primer-sr-iov-technology-paper.pdf`.
+
+[27] Chang-Gyu Lee, Hyunki Byun, Sunghyun Noh, Hyeongu Kang, and Youngjae Kim. Write Optimization of Log-Structured Flash File System for Parallel I/O on Manycore Servers. In Proc. of ACM Systor, 2019.
+
+[28] Seung-seob Lee, Yanpeng Yu, Yupeng Tang, Anurag Khandelwal, Lin Zhong, and Abhishek Bhattacharjee. Mind: In-Network Memory Management for Disaggregated Data Centers. In Proc. of ACM ASPLOS, 2021.
+
+[29] Haoyu Li, Sheng Jiang, Chen Chen, Ashwini Raina, Xingyu Zhu, Changxu Luo, and Asaf Cidon. RubbleDB: CPU-Efficient Replication with NVMe-oF. In Proc. of USENIX ATC, 2023.
+
+[30] Huaicheng Li, Mingzhe Hao, Stanko Novakovic, Vaibhav Gogte, Sriram Govindan, Dan RK Ports, Irene Zhang, Ricardo Bianchini, Haryadi S Gunawi, and Anirudh Badam. Leapio: Efficient and Portable Virtual Nvme Storage on ARM SoCs. In Proc. of ACM ASPLOS, 2020.
+
+[31] Xiaojian Liao, Youyou Lu, Erci Xu, and Jiwu Shu. Max: A Multicore-Accelerated File System for Flash Storage. In Proc. of USENIX ATC, 2021.
+
+[32] Xiaojian Liao, Youyou Lu, Zhe Yang, and Jiwu Shu. Efficient Crash Consistency for NVMe over PCIe and RDMA. ACM Transactions on Storage, 2023.
+
+[33] Xiaojian Liao, Zhe Yang, and Jiwu Shu. RIO: OrderPreserving and CPU-Efficient Remote Storage Access. In Proc. of ACM EuroSys, 2023.
+
+[34] Linux. Ext4 Filesystem. `https://www.kernel.org/doc/Documentation/filesystems/ext4.txt`.
+
+[35] Jing Liu, Anthony Rebello, Yifan Dai, Chenhao Ye, Sudarsun Kannan, Andrea C Arpaci-Dusseau, and Remzi H Arpaci-Dusseau. Scale and Performance in a Filesystem Semi-Microkernel. In Proc. of ACM SOSP, 2021.
+
+[36] Ming Liu, Tianyi Cui, Henry Schuh, Arvind Krishnamurthy, Simon Peter, and Karan Gupta. Offloading Distributed Applications onto Smartnics using iPipe. In Proc. of ACM SIGCOMM, 2019.
+
+[37] Changwoo Min, Sanidhya Kashyap, Steffen Maass, and Taesoo Kim. Understanding Manycore Scalability of File Systems. In Proc. of USENIX ATC, 2016.
+
+[38] Jaehong Min, Ming Liu, Tapan Chugh, Chenxingyu Zhao, Andrew Wei, In Hwan Doh, and Arvind Krishnamurthy. Gimbal: Enabling Multi-tenant Storage Disaggregation on SmartNIC JBOFs. In Proc. of ACM SIGCOMM, 2021.
+
+[39] Darren Ng, Andrew Lin, Arjun Kashyap, Guanpeng Li, and Xiaoyi Lu. NVMe-oPF: Designing Efficient Priority Schemes for NVMe-over-Fabrics with Multi-Tenancy Support. In Proc. of IEEE IPDPS, 2024.
+
+[40] NVIDIA. NVIDIA BLUEFIELD-2 DPU. `https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/documents/datasheet-nvidia-bluefield-2-dpu.pdf`.
+
+[41] NVIDIA. NVIDIA BLUEFIELD-3 DPU. `https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/documents/datasheet-nvidia-bluefield-3-dpu.pdf`.
+
+[42] NVMe. NVMe 1.4 Spec Revision 1.4c. `https://nvmexpress.org/wp-content/uploads/NVM-Express-1_4c-2021.06.28-Ratified.pdf`.
+
+[43] NVMe. NVMe Over Fabrics. //`https://nvmexpress.org/wp-content/uploads/NVMe_Over_Fabrics.pdf,2019`.
+
+[44] Chanyoung Park, Minu Chung, and Hyungon Moon. Selective On-Device Execution of Data-Dependent Read I/Os. In Proc. of USENIX FAST, 2025.
+
+[45] Li Peng, Yuda An, You Zhou, Chenxi Wang, Qiao Li, Chuanning Cheng, and Jie Zhang. ScalaCache: Scalable User-Space Page Cache Management with SoftwareHardware Coordination. In Proc. of USENIX ATC, 2024.
+
+[46] Simon Peter, Jialin Li, Irene Zhang, Dan RK Ports, Doug Woos, Arvind Krishnamurthy, Thomas Anderson, and Timothy Roscoe. Arrakis: The Operating System is the Control Plane. In Proc. of USENIX OSDI, 2014.
+
+[47] Hongwei Qin, Dan Feng, Wei Tong, Yutong Zhao, Sheng Qiu, Fei Liu, and Shu Li. Better Atomic Writes by Exposing the Flash Out-of-Band Area to File Systems. In Proc. of ACM LCTES, 2021.
+
+[48] Yujie Ren, Changwoo Min, and Sudarsun Kannan. CrossFS: A Cross-Layered Direct-Access File System. In Proc. of USENIX OSDI, 2020.
+
+[49] SAMSUNG. Ultra-Low Latency with Samsung Z-NAND SSD. `https://www.samsung.com/us/labs/pdfs/collateral/Samsung_Z-NAND_Technology_Brief_v5.pdf`.
+
+[50] Junyi Shu, Ruidong Zhu, Yun Ma, Gang Huang, Hong Mei, Xuanzhe Liu, and Xin Jin. Disaggregated RAID Storage in Modern Datacenters. In Proc. of ACM ASPLOS, 2023.
+
+[51] Rajat Verma, Anton Ajay Mendez, Stan Park, Sandya Srivilliputtur Mannarswamy, Terence P Kelly, and Charles B Morrey III. Failure-Atomic Updates of Application Data in a Linux File System. In Proc. of USENIX FAST, 2015.
+
+[52] Zilong Wang, Layong Luo, Qingsong Ning, Chaoliang Zeng, Wenxue Li, Xinchen Wan, Peng Xie, Tao Feng, Ke Cheng, Xiongfei Geng, et al. SRNIC: A scalable architecture for RDMA NICs. In Proc. of USENIX NSDI, 2023.
+
+[53] Jiexiong Xu, Yiquan Chen, Yijing Wang, Wenhui Shi, Guoju Fang, Yi Chen, Huasheng Liao, Yang Wang, Hai Lin, Zhen Jin, et al. Lightpool: A NVMe-oF-Based High-Performance and Lightweight Storage Pool Architecture for Cloud-Native Distributed Database. In Proc. of IEEE HPCA, 2024.
+
+[54] Sujay Yadalam, Chloe Alverti, Vasileios Karakostas, Jayneel Gandhi, and Michael Swift. BypassD: Enabling Fast Userspace Access to Shared SSDs. In Proc. of ACM ASPLOS, 2024.
+
+[55] Shaoxun Zeng, Xiaojian Liao, Hao Guo, and Youyou Lu. Volley: Accelerating Write-Read Orders in Disaggregated Storage. In Proc. of ACM EuroSys, 2024.
+
+[56] Yuhong Zhong, Haoyu Li, Yu Jian Wu, Ioannis Zarkadas, Jeffrey Tao, Evan Mesterhazy, Michael Makris, Junfeng Yang, Amy Tai, Ryan Stutsman, et al. XRP: In-Kernel Storage Functions with EBPF. In Proc. of USENIX OSDI, 2022.
+
+[57] Diyu Zhou, Vojtech Aschenbrenner, Tao Lyu, Jian Zhang, Sudarsun Kannan, and Sanidhya Kashyap. Enabling High-Performance and Secure Userspace NVM File Systems with the Trio Architecture. In Proc. of ACM SOSP, 2023.
+
+</div>

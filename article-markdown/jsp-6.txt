@@ -1,0 +1,96 @@
+# JSP 隐式对象-JSP 笔记-6
+
+# 1. 关于 JSP 隐式对象
+
++  JSP 饮食对象是 web 容器加载的一组类的实例.
+
++ 它不像一般的 java 对象那样用 "new" 去获取实例, 而是可以直接在 jsp 页面的 java 程序片和表达式部分使用对象.
+
++  jsp 使用 java 定义的隐式对象来访问网页的动态内容.
+
++ 隐式对象的名称是 jsp 的保留字.
+
++  jsp 提供了一些隐式对象可简化开发.
+
+> 注: 这里我们主要体验这些 JSP 隐式对象的作用范围.
+
+1. 对象的作用域是可以访问对象的部分;
+2. JSP 页面中的隐式对象的作用域包括:
+ + page -- 再引用对象的 JSP 页面中提供对象.
+ + Request -- 提供在所有请求页面中可用的对象.
+ + Session -- 提供对象已访问给顶应用程序中的所有网页. 例如, 用户访问一个网站, 并通过访问其他链接打开网站中的其他页面. 网站中的所有网页形成一个应用程序作用域.
+3. 作用于通信对象和控制对象用于访问给定作用域中可用的所有对象.
+
+# 2. 四种隐式对象:
+
+1. 输入/输出对象:
+ + request
+ + response
+ + out
+2. 作用域通信对象:
+ + session
+ + application
+ + pageContext
+3. Servlet 对象
+ + page
+ + config
+4. 错误对象
+ + exception
+
+## 2.1 输入/输出对象:
+
+1. 控制页面的输入和输出
+2. 访问与所有请求和响应有关的数据
+3. 输入和输出对象包括 request, response 和 out
+
+## 2.2 request 对象
+
+客户端请求, 此请求会包含来自 GET/POST 请求的参数; 用户输入的数据用来保存在 Request 对象中, 用 javax.servlet.HttpServlet 来执行.`request对象的作用范围只在本页`, 跳转页面后之前的设置信息失效. 部分代码如下所示:
+```java
+<body>
+    <%
+	request.setAttribute("name","zhangsan") ;
+    request.setAttribute("password","123456") ;
+    //request.removeAttribute("name");
+    %>
+    <jsp:forward page="request1.jsp"/>
+	<a href="<%=path %>/first/request1.jsp">request1.jsp</a>
+  </body>
+```
+## 2.3 response 对象
+
+处理 jsp 生成的响应; 响发送给客户端; 实现 javax.servlet.http.HttpServletResponse 接口; jsp 引擎吧存放在 request 对象中的数据发到服务器端的组件, 组件收到这些个数据后进行相应处理; 返回一个 response 对象给 jsp 引擎, jsp 引擎再把 response 对象传给 jsp 页面, 这时的页面包含了定好的格式和从服务器端得到的数据.`response的作用范围仍然局限于本页面`.
+
+## 2.4 out 对象
+
+表示输出流 (注意不是 response.getWriter(), 因为这种是 PrintWriter 类型); javax.servlet.jsp.JspWriter 类的实例; 使用 write(), print(), 和 println() 方法; Write() 和 print() 方法的区别是 `Write只能输出和字符相关的东西,而print()可以输出各种那个数据类型`.
+
+# 3. 作用域通信对象
+
+## 3.1 session 对象
+
+Web 服务器为单个用户发送的多个请求创建会话; 存储有关用户会话的所有信息; javax.servlet.http.HttpSession 接口的实例;`session对象的作用范围在跳转页面后仍然有效`.
+
+## 3.2 application 对象
+
+表示 jsp 页面所属的应用程序; 应用程序的 jsp 页面组合起来形成一个应用程序, 适用范围最广的上下文状态. 它允许 jsp 页面的 servlet 与包括在同一应用程序中的任何 web 组件共享信息; javax.servlet.ServletContext 接口实例.`application对象的作用范围在跳转页面后失效`.
+
+## 3.3 pageContext 对象
+
+使用户可以访问页面作用域中定义的所有隐式对象; 他的作用范围是在同一页面; javax.servlet.jsp.PageContext 类的实例; 是 jsp 页面本身的上下文; 提供唯一一个 API 来管理具有不同作用域的属性; 在实现 jsp 自定义标记处理程序时使用的非常多;`pageContext对象的作用范围在跳转页面后仍然有效`.
+
+# 4. Servlet 对象
+
+JSP 引擎为每个 JSP 生成一个 Servlet; Servlet 的对象提供了访问 Servlet 信息的方法和变量; Servlet 对象包括: page 和 config.
+
+## 4.1 page 对象
+
+使用 page 对象可以访问 Servlet 类的所有变量和方法; java.lang.Object 类的
+
+## 4.2 page 对象
+
+存储在便宜 JSP 页面的过程中刚创建的信息; javax.servlet.ServletConfig 接口的实例; 提供了检索 Servlet 的初始化参数的方法;
+
+# 5. Exception 对象
+
+exception 对象用于处理 JSP 页面中的错误; exception 对象用于访问执行 JSP 的过程中引发的异常; exception 对象是 java.lang.Throwable 类的实例;

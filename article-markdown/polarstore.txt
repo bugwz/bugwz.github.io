@@ -1,0 +1,930 @@
+# 译 - PolarStore: High-Performance Data Compression for Large-Scale Cloud-Native Databases
+
+<div class="paper-shared">
+
+原论文 [PolarStore: High-Performance Data Compression for Large-Scale Cloud-Native Databases](https://www.usenix.org/conference/fast26/presentation/hu) 发表于 FAST 2026 (第 24 届 USENIX 文件与存储技术会议), 中文题名为 "PolarStore: 面向大规模云原生数据库的高性能数据压缩".
+
+云原生数据库可以通过压缩降低存储成本, 但软件压缩容易增加计算和空间管理开销, 存储设备中的硬件压缩又难以针对不同负载调整算法与输入大小. PolarStore 的思路是把软件, 设备和数据库访问路径放在一起设计:
+
+**方案设计**
+
+- 软件层选择压缩参数, 将数据压缩为按 4 KB 对齐的块; PolarCSD 再次压缩, 由设备内的 FTL 管理压缩后数据的位置.
+- 两层分工保留了软件压缩的灵活性, 也减轻了软件层的空间管理负担.
+
+**数据库 I/O 优化**
+
+- redo log 写入影响事务提交, 因此绕过压缩并写入高性能设备.
+- 页面读取在 lz4 与 zstd 之间权衡解压时间和读取量. 日志缓存不足时, 同一页面的 redo log 集中存放, 减少读取日志所需的 I/O 次数.
+
+**部署与验证**
+
+- **第一代 PolarCSD:** FTL 运行在主机上, 每块设备都需要占用主机的 CPU 和内存. 一台服务器接入多块设备后, 资源争用会导致慢 I/O; 主机侧驱动一旦出错, 还可能影响整台服务器.
+- **第二代 PolarCSD:** FTL 改由设备内置处理器运行, 不再与存储软件争用主机资源, 单块设备的故障也不会扩散到整台服务器. 论文还通过调整设备容量和映射结构, 在提高存储密度的同时控制 FTL 的内存开销.
+- **集群空间管理:** 不同数据的压缩率差异很大. 如果只按逻辑空间调度, 有些节点会先达到逻辑空间使用上限, 但物理空间还有富余; 另一些节点则可能相反. PolarStore 根据两种空间的占用情况迁移数据块, 让节点的可用容量得到更充分的利用.
+- 论文报告系统已管理超过 100 PB 数据. 启用完整方案的第二代集群压缩率达到 3.55, 每 GB 逻辑容量成本比未压缩 P5510 集群低约 60%; 在文中的 Sysbench 测试下, 性能与该集群相当.
+
+本文完整翻译其 FAST 2026 论文, 介绍压缩接口, 数据库关键 I/O 优化, 两代 PolarCSD 的部署经验和集群调度, 并保留实验图表, 算法及参考文献. PolarStore 面向云原生数据库的共享存储, 研究如何降低存储成本而不明显拖慢事务提交和页面读取. 软件压缩可以灵活选择算法和输入大小, 但要承担计算与空间管理开销; 存储设备中的硬件压缩能卸载这些工作, 又受固定输入大小和算法限制. 系统因此采用双层压缩: 软件层将数据压缩为按 4 KB 对齐的块, PolarCSD 在设备内再次压缩, 并由 FTL 管理压缩后数据的位置. 对直接影响数据库性能的 I/O, redo log 写入绕过压缩, 页面读取在 lz4 与 zstd 之间选择; 日志缓存不足时, 按页集中日志以减少读放大. 论文还总结第一代设备的主机资源争用和故障影响, 介绍第二代设备管理 FTL 的改进, 并通过感知压缩率的调度平衡集群的逻辑与物理空间. 据论文报告, 系统在 PolarDB 中管理超过 100 PB 数据. 启用完整方案的第二代集群达到 3.55 的压缩率, 每 GB 逻辑容量成本比所选未压缩 P5510 集群低约 60%; 在文中 Sysbench 测试下, 数据库性能与该对照集群相当.
+
+部署规模, 设备配置和性能结论均以论文发表时的条件为准. compression 译为压缩, compaction 保留英文, 指数据归并整理. 压缩率为压缩前大小与压缩后大小之比, 不等同于空间节省百分比.
+
+</div>
+
+# 0. 摘要
+
+In recent years, resource elasticity and cost optimization have become essential for RDBMSs. While cloud-native RDBMSs provide elastic computing resources via disaggregated computing and storage, storage costs remain a critical user concern. Consequently, data compression emerges as an effective strategy to reduce storage costs. However, existing compression approaches in RDBMSs present a stark trade-off: software-based approaches incur significant performance overheads, while hardware-based alternatives lack the flexibility required for diverse database workloads.
+
+近年来, 资源弹性和成本优化已成为关系数据库管理系统 (RDBMS) 的重要需求. 云原生 RDBMS 通过计算与存储分离提供弹性计算资源, 但存储成本仍是用户关注的重点. 因此, 数据压缩成为降低存储成本的一种有效手段. 然而, RDBMS 现有的压缩方案存在明显的取舍: 软件方案会带来较大的性能开销, 硬件方案又缺少适应多样化数据库负载所需的灵活性.
+
+In this paper, we present PolarStore, a compressed shared storage system for cloud-native RDBMSs. PolarStore employs a dual-layer compression mechanism that combines in-storage compression in PolarCSD hardware with lightweight compression in software. This design leverages the strengths of both approaches. PolarStore also incorporates database-oriented optimizations to maintain high performance on critical I/O paths. Drawing from large-scale deployment experiences, we also introduce hardware improvements for PolarCSD to ensure host-level stability and propose a compression-aware scheduling scheme to improve cluster-level space efficiency. PolarStore is currently deployed on thousands of storage servers within PolarDB, managing over 100 PB of data. It achieves a compression ratio of 3.55 and reduces storage costs by approximately 60%. Remarkably, these savings are achieved while maintaining performance comparable to uncompressed clusters.
+
+本文提出 PolarStore, 一套面向云原生 RDBMS 的压缩共享存储系统. PolarStore 采用双层压缩机制, 将 PolarCSD 中的硬件压缩与软件层的轻量级压缩结合起来, 兼取两者之长. 系统还针对数据库访问特点进行优化, 保障关键 I/O 路径的性能. 根据大规模部署经验, 我们改进了 PolarCSD 硬件, 以保障主机稳定性, 并提出感知压缩率的调度方案, 提高集群的空间利用率. PolarStore 已部署于 PolarDB 的数千台存储服务器, 管理超过 100 PB 的数据, 实现了 3.55 的压缩率, 将存储成本降低约 60%, 同时保持了与未压缩集群相当的性能.
+
+# 1. 引言
+
+Relational Database Management Systems (RDBMSs) are fundamental components of modern information technology infrastructure. In recent years, a growing number of applications have adopted cloud computing to address demands of resource elasticity and on-demand usage. Consequently, cloud service providers have developed comprehensive RDBMS solutions, such as AWS Aurora <sup>[2]</sup>, Azure Hyperscale <sup>[3]</sup>, and our production system, Alibaba PolarDB <sup>[4-7]</sup>. With the rapid expansion of data stored in the cloud, storage costs have become a significant concern for users.
+
+关系数据库管理系统 (Relational Database Management System, RDBMS) 是现代信息技术基础设施的重要组成部分. 近年来, 越来越多的应用转向云计算, 以满足资源弹性和按需使用的需求. 为此, 云服务商推出了完整的 RDBMS 解决方案, 包括 AWS Aurora <sup>[2]</sup>, Azure Hyperscale <sup>[3]</sup>, 以及我们的生产系统阿里云 PolarDB <sup>[4-7]</sup>. 随着云端数据规模迅速增长, 存储成本日益成为用户关注的问题.
+
+To address storage costs, data compression techniques have emerged as an intuitive solution <sup>[8-17]</sup>. Data compression approaches can be categorized into two main categories: software-based and hardware-based compression. Software-based compression utilizes CPU resources to execute compression algorithms and provide complex space management, while hardware-based compression offloads the compression tasks to specialized hardware. However, implementing data compression to achieve high space utilization in large-scale RDBMSs presents several challenges.
+
+数据压缩是降低存储成本的一种直接手段 <sup>[8-17]</sup>. 压缩方案主要分为软件压缩和硬件压缩两类. 软件压缩使用 CPU 执行压缩算法, 并承担复杂的空间管理工作; 硬件压缩则将压缩任务卸载到专用硬件. 不过, 要在大规模 RDBMS 中通过压缩实现较高的空间利用率, 仍面临若干挑战.
+
+Challenge#1: performance overhead of software-based compression. Modern RDBMS business scenarios, such as online e-commerce and real-time financial transactions, demand low I/O latency. However, software-based compression faces not only computational overhead from compression operations but also a fundamental challenge in managing the mapping between original and compressed data. Since the compressed data size varies with content, systems must maintain an index to locate compressed data and handle size changes during updates. This indexing mechanism presents a critical trade-off: while fine-grained indexing could significantly improve space utilization, it introduces complex management overhead that impacts performance. This trade-off manifests differently across various RDBMS architectures: B+-Tree-based systems suffer from inherent space fragmentation due to 4KB block alignment <sup>[18, 19]</sup>, while systems based on Log-Structured Merge-Trees (LSM-Tree) achieve a more compact data layout but incur substantial overhead from garbage collection <sup>[20-24]</sup>. Therefore, achieving both high space efficiency and low I/O latency remains a significant challenge.
+
+**挑战 1:** 软件压缩的性能开销. 在线电商, 实时金融交易等现代 RDBMS 业务要求较低的 I/O 延迟. 软件压缩不仅需要承担压缩计算开销, 还必须解决原始数据与压缩数据之间的映射管理问题. 压缩后的大小随内容变化, 因此系统需要维护索引来定位压缩数据, 并在更新时处理大小变化. 索引机制涉及一项关键取舍: 细粒度索引可以显著提高空间利用率, 却也会引入复杂的管理开销, 影响性能. 这种取舍在不同 RDBMS 架构中表现不同: 基于 B+ 树的系统因 4 KB 块对齐而存在固有的空间碎片 <sup>[18, 19]</sup>; 基于日志结构合并树 (LSM-tree) 的系统虽然能获得更紧凑的数据布局, 却要承担较大的垃圾回收开销 <sup>[20-24]</sup>. 因而, 同时实现高空间利用率和低 I/O 延迟仍是一个难题.
+
+Challenge#2: limited flexibility of hardware-based compression. Given the performance overhead of software-based compression, researchers and industry practitioners have turned to hardware-based solutions <sup>[25-30]</sup>. However, these approaches introduce new challenges in terms of flexibility. In-storage compression uses computational storage drives (CSDs) <sup>[25, 26]</sup>, which integrate computational capabilities to offload compression tasks to storage devices. However, CSDs are constrained by fixed 4KB input sizes due to NVMe compatibility requirements and compression algorithms that cannot be modified after production. Similarly, PCIe-attached FPGA <sup>[29]</sup> or CPU-based accelerators <sup>[30]</sup> are also limited to fixed algorithms. These limitations restrict the ability of RDBMSs to adapt key compression parameters (`i.e.`, compression algorithms and input sizes) for diverse workload patterns. While some data requires real-time processing with minimal latency, other infrequently accessed data could benefit from more complex algorithms with larger input sizes to achieve higher compression ratios. Therefore, it is beneficial to provide flexible compression solutions that can optimize storage efficiency for cold data while meeting the low-latency requirements of latency-sensitive workloads.
+
+**挑战 2:** 硬件压缩的灵活性有限. 为避免软件压缩的性能开销, 学术界和工业界开始探索硬件方案 <sup>[25-30]</sup>, 但这些方案又带来了灵活性方面的问题. 存储设备中的硬件压缩使用计算存储设备 (Computational Storage Drive, CSD) <sup>[25, 26]</sup>, 将计算能力集成到存储设备中, 承担压缩任务. 然而, 为兼容 NVMe, CSD 的输入大小固定为 4 KB, 压缩算法也在制造后无法更改. 类似地, 通过 PCIe 连接的 FPGA <sup>[29]</sup> 和 CPU 内的加速器 <sup>[30]</sup> 也只能使用固定算法. 这些限制使 RDBMS 难以根据不同负载调整压缩算法和输入大小等关键参数. 有些数据需要以极低延迟实时处理, 而访问不频繁的数据则适合使用更复杂的算法和更大的输入单元, 换取更高的压缩率. 因此, 压缩方案需要足够灵活, 既能提高冷数据的存储效率, 又能满足延迟敏感负载的要求.
+
+To address these challenges, we propose PolarStore, a storage system for RDBMSs that co-designs hardware and software to achieve both high space utilization and low I/O latency. First, PolarStore implements a dual-layer compression mechanism that processes data in two stages: the software layer compresses data into 4 KB-aligned blocks, maintaining simple index management at the software level and providing flexible compression parameters (`i.e.`, input sizes and algorithms), while the hardware layer, PolarCSD, further compresses these blocks, leveraging the existing flash translation layer (FTL) to achieve byte-granularity indexing without additional software overhead. Second, we introduce several DB-oriented optimizations to overcome the compression overhead. These optimizations target two critical I/O paths that directly impact user-perceived latency: redo log writes during transaction commits and page reads upon in-memory buffer pool misses.
+
+为应对上述挑战, 我们提出 PolarStore, 通过软硬件协同设计, 同时实现高空间利用率和低 I/O 延迟. 首先, PolarStore 采用双层压缩机制, 分两个阶段处理数据: 软件层将数据压缩为按 4 KB 对齐的数据块, 使软件索引管理保持简单, 同时支持灵活的输入大小和压缩算法; 硬件层 PolarCSD 进一步压缩这些数据块, 借助现有闪存转换层 (Flash Translation Layer, FTL) 实现字节粒度索引, 无须增加软件开销. 其次, 我们针对数据库设计了多项优化, 以降低压缩带来的开销. 优化聚焦于直接影响用户感知延迟的两条关键 I/O 路径: 事务提交时的 redo log 写入, 以及内存缓冲池未命中时的页面读取.
+
+Challenge#3: stability and scalability of compression in large-scale deployment. Deploying data compression at scale in RDBMSs presents new operational challenges. At the host level, each server is equipped with 10~12 PolarCSD devices, and resource contention (`e.g.`, CPU and memory) or faults from software drivers can lead to host-level failures and performance fluctuations. At the cluster level, varying compression ratios across different users' data make it challenging to balance logical and physical space among storage nodes. To address these deployment challenges, we redesign the hardware based on our deployment experiences and implement a compression-aware scheduling mechanism to balance compression ratios across storage nodes, thereby ensuring both host-level stability and cluster-level space efficiency.
+
+**挑战 3:** 大规模部署中的稳定性与可扩展性. 在 RDBMS 中大规模部署数据压缩, 会遇到新的运维问题. 主机层面, 每台服务器配备 10-12 块 PolarCSD, CPU 和内存等资源的争用, 或软件驱动故障, 都可能导致整机故障和性能波动. 集群层面, 不同用户数据的压缩率各不相同, 难以平衡各存储节点的逻辑空间和物理空间使用情况. 为此, 我们根据部署经验重新设计硬件, 并引入感知压缩率的调度机制, 平衡各节点的压缩率, 从而保障主机稳定性和集群空间利用率.
+
+PolarStore is deployed across thousands of storage servers and numerous clusters within PolarDB. The total storage capacity has surpassed 100 PB, achieving approximately 60% storage cost reduction with a compression ratio of 3.55. Comparative experiments with the clusters without data compression demonstrate that PolarStore maintains high performance with negligible degradation.
+
+PolarStore 已部署于 PolarDB 的多个集群, 覆盖数千台存储服务器. 总存储规模超过 100 PB, 压缩率达到 3.55, 存储成本降低约 60%. 与未启用数据压缩的集群相比, PolarStore 仍保持较高性能, 性能下降可以忽略不计.
+
+<div class="paper-shared">
+
+<span class="paper-lang-en" lang="en">Footnote 1: See official document <sup>[1]</sup> for details on enabling compression feature.</span>
+
+<span class="paper-lang-zh" lang="zh-CN">脚注 1: 启用压缩功能的具体方法参见官方文档 <sup>[1]</sup>.</span>
+
+</div>
+
+In summary, this paper makes the following contributions:
+
+本文的贡献如下:
+
+PolarStore, a shared storage system that leverages a hardware-software co-design for efficient compression.
+
+提出共享存储系统 PolarStore, 通过软硬件协同设计实现高效压缩.
+
+A set of DB-oriented techniques that achieve high space efficiency without sacrificing the low I/O latency of critical operations.
+
+提出一组面向数据库的优化技术, 在保障关键操作低 I/O 延迟的同时, 实现较高的空间利用率.
+
+Valuable insights gained from the large-scale deployment in both CSD hardware design and cluster management, along with some practical solutions to address the encountered challenges.
+
+总结大规模部署在 CSD 硬件设计和集群管理方面带来的经验, 并针对实际遇到的问题给出可行的解决方案.
+
+This paper is organized as follows. §2 introduces cloud RDBMSs and analyzes current compression approaches in RDBMSs and their challenges. §3.1 presents our dual-layer compression design and database-oriented optimizations. §4 discusses challenges encountered in large-scale deployments and our corresponding solutions. Finally, §5 comprehensively evaluates PolarStore's space utilization and performance, including an ablation study of individual techniques.
+
+本文其余部分安排如下: 原文第 2 节介绍云数据库, 分析现有 RDBMS 压缩方案及其挑战; 原文第 3.1 节介绍双层压缩设计和数据库专项优化; 原文第 4 节讨论大规模部署中的问题及解决办法; 原文第 5 节全面评估 PolarStore 的空间利用率和性能, 并通过消融实验分析各项技术的贡献.
+
+# 2. 背景与动机
+
+This section first introduces the architecture of PolarDB, followed by a review of compression approaches in RDBMSs to reveal the motivation for developing PolarStore.
+
+本节先介绍 PolarDB 的架构, 再回顾 RDBMS 中的压缩方案, 说明设计 PolarStore 的动机.
+
+## 2.1 PolarDB 的架构
+
+The storage-compute separation architecture has been widely adopted by leading cloud-native RDBMSs, including AWS Aurora <sup>[2]</sup>, Azure Hyperscale <sup>[3]</sup>, and Alibaba PolarDB <sup>[4-6]</sup> as illustrated in Figure 1. In this architecture, each database instance comprises a single read-write node (RW) responsible for handling both read and write requests, multiple read-only nodes (RO) dedicated to processing read-only queries, and a shared storage system. For write operations, the RW node retrieves the necessary pages from the shared storage, generates redo logs, and subsequently transmits these logs to the corresponding storage nodes. The storage nodes, which provide redundancy and high availability, ensure the durability of these redo logs and asynchronously apply them to generate updated pages. To maintain transactional consistency, the RW node synchronizes transaction-related information in redo logs (`i.e.`, the log record of transaction begins and transaction commits) to the RO nodes. Each RO node parses these redo logs to generate readviews for read transactions and maintains a local LSN (LSN_i), representing the progress of log parsing. During read operations, RO nodes fetch required pages from storage nodes based on their LSN_i. In the background, storage nodes track the minimum LSN across all RO nodes LSN_min and apply redo logs up to this point. This design delegates page generation to storage nodes instead of having RW nodes generate and transmit pages, significantly reducing network bandwidth consumption while enabling instant startup of computing nodes during recovery or scaling operations.
+
+计算与存储分离架构已被多种主流云原生 RDBMS 采用, 包括 AWS Aurora <sup>[2]</sup>, Azure Hyperscale <sup>[3]</sup> 和阿里云 PolarDB <sup>[4-6]</sup>, 如图 1 所示. 在这一架构中, 每个数据库实例包含一个处理读写请求的读写节点 (RW), 多个专门处理只读查询的只读节点 (RO), 以及一套共享存储系统. 写入时, RW 节点从共享存储获取所需页面, 生成 redo log, 再将日志发送给相应存储节点. 存储节点提供冗余和高可用保障, 先将 redo log 持久化, 再异步应用日志, 生成更新后的页面. 为保证事务一致性, RW 节点将 redo log 中与事务相关的信息, 即事务开始和提交的日志记录, 同步给 RO 节点. 各 RO 节点解析这些日志, 为读事务生成读视图, 并维护一个本地日志序列号 LSN_i, 表示日志解析进度. 读取时, RO 节点根据自己的 LSN_i 向存储节点获取所需页面. 存储节点在后台跟踪所有 RO 节点的最小 LSN, 即 LSN_min, 并应用该位置之前的 redo log. 这样, 页面生成工作由存储节点承担, 无须由 RW 节点生成并传输页面, 既显著节省网络带宽, 又使计算节点能在恢复或扩缩容时立即启动.
+
+<div class="paper-shared">
+
+![PolarDB 的架构.](/assets/images/posts/polarstore/figure-01.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 1: Architecture of PolarDB.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 1: PolarDB 的架构.</span>
+
+Based on this architecture, cloud computing vendors provide flexible mechanisms of adjusting instance specifications (including CPU cores and memory of RW/RO nodes) based on dynamic use-case requirements, without any data migration overhead. This capability significantly reduces the cost of computing resources for users. However, storage costs remain a more important consideration for users, especially during periods of low activity. Therefore, we introduce data compression in our RDBMSs to reduce storage costs.
+
+基于这一架构, 云服务商可以根据业务需求动态调整实例规格, 包括 RW/RO 节点的 CPU 核数和内存, 而无须迁移数据, 从而显著降低用户的计算资源成本. 不过, 存储成本仍是用户更为关心的问题, 尤其是在业务低谷时段. 因此, 我们在 RDBMS 中引入数据压缩, 以降低存储成本.
+
+## 2.2 RDBMS 中的数据压缩
+
+Designing compression systems for RDBMSs requires careful consideration of the following two fundamental aspects.
+
+为 RDBMS 设计压缩系统时, 需要仔细考虑以下两个基本问题.
+
+Index granularity. The size of compressed data varies according to the content, even when the original data size is fixed. Therefore, systems must maintain an index to locate compressed data, and when the size changes (`e.g.`, due to updates), allocate new storage space and update the index accordingly. This indexing mechanism presents a critical trade-off between space utilization and performance. Large index granularity (`e.g.`, 4 KB-level) simplifies management but wastes storage space. For example, if a 16 KB page compresses to 1 KB, but the index granularity is 4 KB, 3 KB of space is wasted. Our experiments with a 408.37 GB dataset compressed using zstd show that 4KB index granularity consumes approximately 80.5% more space than byte-level index granularity (Figure 2a). However, while finer-grained indexing improves space efficiency, it introduces complex space management that degrades performance.
+
+**索引粒度.** 即使原始数据大小相同, 压缩后的大小也会因内容而异. 因此, 系统必须维护索引来定位压缩数据; 大小因更新等操作发生变化时, 还需要分配新的存储空间并更新索引. 这一机制需要在空间利用率和性能之间取舍. 较粗的索引粒度, 如 4 KB, 能简化管理, 却会浪费空间. 例如, 一个 16 KB 页面压缩后只有 1 KB, 如果索引粒度是 4 KB, 就会浪费 3 KB. 我们对一个 408.37 GB 数据集进行 zstd 压缩的实验表明, 采用 4 KB 粒度索引比采用字节粒度索引多占用约 80.5% 的空间 (图 2a). 但更细的索引粒度虽然提高了空间利用率, 也会引入复杂的空间管理, 降低性能.
+
+Flexibility in compression parameters. The compression ratio is influenced by both the input block size and the chosen compression algorithm. Larger blocks provide more opportunities to identify repeating patterns, thereby achieving better compression ratios. Our experiments demonstrate that 1 MB blocks achieve a compression ratio of 6.85, while 4 KB blocks achieves only 3.59 (Figure 2b). Similarly, for compression algorithms, more advanced algorithms like Zstandard (zstd) consistently outperform simpler ones like lz4 (Figure 2c). However, larger blocks and complex algorithms introduce performance overhead through I/O amplification and increased processing latency, respectively. An effective system therefore needs to dynamically adjust these parameters based on access patterns: employing larger input sizes and complex algorithms for infrequently accessed cold data, while utilizing smaller compression input sizes with simpler algorithms for hot data and data on critical paths. However, this presents another trade-off between space utilization and performance: while optimizing compression ratios, the flexibility in compression parameters introduces significant challenges for hardware acceleration implementation.
+
+**压缩参数的灵活性.** 压缩率受输入块大小和压缩算法共同影响. 较大的块更容易包含重复模式, 因而通常能获得更高的压缩率. 实验中, 1 MB 块的压缩率达到 6.85, 而 4 KB 块只有 3.59 (图 2b). 算法也有类似规律: Zstandard (zstd) 等更先进的算法, 压缩率始终优于 lz4 等简单算法 (图 2c). 但较大的块会带来 I/O 放大, 更复杂的算法会增加处理延迟. 因此, 系统需要根据访问模式动态调整参数: 对访问不频繁的冷数据使用更大的输入单元和更复杂的算法, 对热数据及关键路径上的数据使用更小的输入单元和更简单的算法. 这又形成了空间利用率与性能之间的取舍: 灵活调整压缩参数有助于提高压缩率, 却给硬件加速的实现带来了很大困难.
+
+<div class="paper-shared">
+
+![408.37 GB 数据集在不同索引粒度, 输入大小和算法下的压缩存储占用. 红线表示字节粒度索引, 16 KB 输入和 zstd 的组合, 压缩率为 5.24 倍.](/assets/images/posts/polarstore/figure-02.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 2: Compressed storage sizes of a 408.37GB dataset under different configurations. Including index granularity, input size, and algorithm. Red line: byte-level indexing, 16KB input size, and zstd, achieving 5.24× compression ratio.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 2: 408.37 GB 数据集在不同索引粒度, 输入大小和算法下的压缩存储占用. 红线表示字节粒度索引, 16 KB 输入和 zstd 的组合, 压缩率为 5.24 倍.</span>
+
+Current compression approaches in RDBMSs, whether software-based or hardware-based, fail to effectively balance these trade-offs between space utilization and performance.
+
+现有 RDBMS 压缩方案, 无论基于软件还是硬件, 都未能妥善平衡空间利用率与性能之间的这些矛盾.
+
+### 2.2.1 软件压缩
+
+We analyze three software-based compression approaches implemented at different layers: B+-Tree and LSM-Tree at the database level, and log-structured storage at the storage level. Although these approaches offer flexibility in compression parameters, they all struggle to balance space efficiency with the resulting index management overhead.
+
+我们分析了分属不同层次的三类软件压缩方案: 数据库层的 B+ 树和 LSM-tree 压缩, 以及存储层的日志结构存储压缩. 这些方案虽然支持灵活的压缩参数, 却都难以兼顾空间利用率和相应的索引管理开销.
+
+Compression in B+-Tree. Compression in B+-Trees ( A in Figure 3) is implemented through two distinct strategies. The first strategy integrates compression directly into the tree structure by mapping each 16 KB page to multiple 4 KB blocks based on the compressed page size. This approach handles updates by appending uncompressed data at the page's end and performs compression during page merge or split operations (`e.g.`, InnoDB's table compression feature <sup>[18]</sup>). The second strategy preserves the original tree structure while compressing pages prior to disk writes, utilizing file system hole-punching for space reclamation (`e.g.`, InnoDB's page compression feature <sup>[19]</sup>). However, B+-Trees suffer from inherent fragmentation, typically reserving approximately 20% to 50% of page space to accommodate future insertions <sup>[28]</sup>. Although this unused space can be compressed, the 4 KB block granularity for indexing the compressed data still causes fragmentation and leads to suboptimal space efficiency.
+
+**B+ 树中的压缩.** B+ 树压缩有两种实现方式 (图 3 中的 A). 第一种将压缩直接融入树结构, 根据压缩后的大小, 将每个 16 KB 页面映射到若干个 4 KB 块. 更新时, 将未压缩的数据追加到页尾, 在页面合并或分裂时再执行压缩, 例如 InnoDB 的表压缩 <sup>[18]</sup>. 第二种保留原有树结构, 在页面写盘前进行压缩, 并利用文件系统的打洞机制回收空间, 例如 InnoDB 的页压缩 <sup>[19]</sup>. 不过, B+ 树本身就存在碎片, 通常需要预留约 20%-50% 的页面空间, 以容纳后续插入 <sup>[28]</sup>. 这些未使用空间虽然可以压缩, 但压缩数据仍按 4 KB 粒度索引, 因而仍有碎片, 空间利用率并不理想.
+
+Compression in LSM-Trees. LSM-Trees ( B in Figure 3), exemplified by RocksDB <sup>[22]</sup>, LevelDB <sup>[23]</sup> and OceanBase <sup>[24]</sup>, integrate compression into their compaction mechanism. During compaction operations, the data is compressed before being written to new SSTables, then the system updates its index to track the compressed data blocks. While this approach achieves better space efficiency than B+-Trees by reducing fragmentation, it introduces substantial garbage collection overhead. This overhead not only costs CPU resources but also competes with normal operations for I/O resources <sup>[20, 34-36]</sup>.
+
+**LSM-tree 中的压缩.** RocksDB <sup>[22]</sup>, LevelDB <sup>[23]</sup> 和 OceanBase <sup>[24]</sup> 等 LSM-tree 系统将压缩融入 compaction 过程 (图 3 中的 B). compaction 时, 数据先压缩再写入新的 SSTable, 随后更新索引, 记录压缩数据块的位置. 与 B+ 树相比, 这一方式减少了碎片, 空间利用率更高, 但也带来了显著的垃圾回收开销. 这些开销不仅消耗 CPU, 还会与正常操作争用 I/O 资源 <sup>[20, 34-36]</sup>.
+
+Compression in log-structured block storage. Log-structured block storage systems ( C in Figure 3), such as Alibaba's Pangu <sup>[31, 32]</sup>, employ compression during segment compaction. While these systems encounter challenges similar to LSM-Trees, they suffer an additional performance penalty due to misalignment between compression units and database access units. When a database page spans multiple compressed units, accessing a single page requires multiple read and decompression operations.
+
+**日志结构块存储中的压缩.** 阿里云盘古 <sup>[31, 32]</sup> 等日志结构块存储系统在 segment compaction 时执行压缩 (图 3 中的 C). 除了面临与 LSM-tree 类似的问题, 这类系统还会因压缩单元与数据库访问单元不对齐而付出额外的性能代价. 当一个数据库页面跨越多个压缩单元时, 读取这个页面需要多次读取和解压.
+
+<div class="paper-shared">
+
+![云 RDBMS 中的数据压缩方案. 表 1 对这些方案进行了比较.](/assets/images/posts/polarstore/figure-03.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 3: Data compression approaches in cloud RDBMSs. The comparison of these approaches is shown in Table 1.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 3: 云 RDBMS 中的数据压缩方案. 表 1 对这些方案进行了比较.</span>
+
+### 2.2.2 硬件压缩
+
+Hardware-based approaches address performance overhead by offloading compression tasks to specialized accelerators, although this typically comes at the cost of reduced flexibility in compression input size and algorithm selection.
+
+硬件方案将压缩任务卸载到专用加速器, 以降低性能开销, 但通常会牺牲输入大小和算法选择的灵活性.
+
+In-storage compression. Computational storage devices (CSDs, D in Figure 3) integrate computational and memory resources within storage devices <sup>[26, 28, 33, 37-40]</sup>. They can offload both compression/decompression tasks and index management to in-storage components, with the latter handled by the flash translation layer (FTL). By extending the FTL to support non-aligned Physical Block Addresses (PBA) and leveraging existing garbage collection mechanisms, CSDs enable efficient, fine-grained indexing without software overhead. However, their in-storage compression is constrained by fixed 4KB compression input sizes (for NVMe compatibility) and immutable compression algorithms set during manufacturing, limiting their flexibility for dynamic data characteristics and access patterns.
+
+**存储设备中的硬件压缩.** 计算存储设备 (CSD, 图 3 中的 D) 将计算和内存资源集成到存储设备内部 <sup>[26, 28, 33, 37-40]</sup>, 不仅能够卸载压缩与解压任务, 还可通过闪存转换层 (FTL) 承担索引管理. 扩展 FTL, 使其支持未对齐的物理块地址 (PBA), 再复用已有的垃圾回收机制, 就能在不增加软件开销的情况下实现高效的细粒度索引. 不过, 为兼容 NVMe, 这种设备的压缩输入固定为 4 KB, 压缩算法也在制造时确定, 之后无法更改, 因此难以灵活适应数据特征和访问模式的变化.
+
+Dedicated compression accelerators. Various hardware accelerators exist for compression/decompression, including PCIe-attached FPGAs/ASICs <sup>[27, 29]</sup> and CPU-based accelerators such as Intel QAT <sup>[30]</sup>. While they effectively reduce computational overhead, they do not address the fundamental challenge of index management.
+
+**专用压缩加速器.** 压缩与解压可以使用多种硬件加速器, 包括通过 PCIe 连接的 FPGA/ASIC <sup>[27, 29]</sup>, 以及 Intel QAT 等 CPU 内的加速器 <sup>[30]</sup>. 它们能够有效降低计算开销, 却没有解决索引管理这一根本问题.
+
+In summary, as illustrated in Table 1, existing RDBMS compression approaches face different challenges: software-based approaches offer flexibility in compression parameters but incur performance overhead for byte-level indexing, while hardware-based approaches improve performance but lack adaptability to varying workloads. This limitation motivates us to develop a novel approach that combines the advantages of both software-based and hardware-based approaches.
+
+如表 1 所示, 现有 RDBMS 压缩方案各有局限: 软件方案的参数灵活, 却需要为字节粒度索引付出性能代价; 硬件方案改善了性能, 却难以适应不同负载. 因此, 我们希望设计一种兼具软硬件方案优势的新方法.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 1: Comparison of data compression approaches in cloud RDBMSs. Weaknesses highlighted in red.</span>
+
+| Compression approach | Input size | Index granularity | Algorithm |
+|:---|:---|:---|:---|
+| B+ tree | Flexible: 16 KB DB page | 4 KB file blocks | Flexible |
+| LSM-tree <sup>[22-24]</sup> | Flexible: 16 KB DB page | Bytes; GC overhead | Flexible |
+| Log-structured block storage | Flexible: 16 KB segment; I/O amplification | Bytes; GC overhead | Flexible |
+| In-storage compression | 4 KB LBA | Bytes | Inflexible |
+| Dedicated compression accelerators | - | - | Flexible |
+| PolarStore | Flexible: 16 KB DB page | 4 KB LBA ⇒ Bytes | Flexible |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 1: 云 RDBMS 压缩方案比较. 原表用红色标出不足, 此处在单元格中明确注明.</span>
+
+| 压缩方案 | 输入大小 | 索引粒度 | 算法 |
+|:---|:---|:---|:---|
+| B+ 树 <sup>[18, 19]</sup> | 灵活: 16 KB 数据库页 | 4 KB 文件块, 粒度受限 | 灵活 |
+| LSM-tree <sup>[22-24]</sup> | 灵活: 16 KB 数据库页 | 字节粒度, 有垃圾回收开销 | 灵活 |
+| 日志结构块存储 <sup>[31, 32]</sup> | 灵活: 16 KB segment, 有 I/O 放大 | 字节粒度, 有垃圾回收开销 | 灵活 |
+| 存储设备中的硬件压缩 <sup>[26, 28, 33]</sup> | 固定 4 KB LBA | 字节粒度 | 不灵活 |
+| 专用压缩加速器 <sup>[27, 29, 30]</sup> | - | - | 灵活 |
+| PolarStore | 灵活: 16 KB 数据库页 | 先 4 KB LBA, 再字节粒度 | 灵活 |
+
+</div>
+
+</div>
+
+# 3. PolarStore 的设计
+
+## 3.1 总体设计与核心思路
+
+In this paper, we propose PolarStore, a shared storage system for RDBMSs that achieves both high space utilization and high performance through two key ideas:
+
+本文提出面向 RDBMS 的共享存储系统 PolarStore, 通过以下两项核心设计, 同时实现高空间利用率和高性能.
+
+Dual-layer compression. PolarStore implements a novel dual-layer compression architecture that combines software compression with in-storage compression. The software layer compresses user data into 4 KB-aligned blocks, which are subsequently compressed by PolarCSD into byte-aligned blocks. This design effectively addresses two fundamental challenges:
+
+**双层压缩.** PolarStore 将软件压缩与存储设备中的硬件压缩结合起来. 软件层先把用户数据压缩为按 4 KB 对齐的数据块, 再由 PolarCSD 将其进一步压缩为按字节对齐的数据块. 这一设计解决了两个基本问题:
+
+For the granularity of the index, PolarStore achieves byte-level indexing granularity by leveraging the FTL's existing garbage collection mechanisms. This design eliminates additional space management overhead in software, as the software layer only needs to manage 4 KB-aligned blocks.
+
+索引粒度方面, PolarStore 利用 FTL 已有的垃圾回收机制实现字节粒度索引. 软件层只需管理按 4 KB 对齐的块, 因而无须承担额外的空间管理开销.
+
+For compression parameter flexibility, the software layer enables selection of compression input sizes and algorithms for different workloads.
+
+压缩参数方面, 软件层可以根据负载选择压缩输入大小和算法, 保留了必要的灵活性.
+
+DB-oriented optimizations. While compression operations inherently introduce computational latency to I/O operations, only two specific I/O operations directly impact user-perceived performance in RDBMSs: redo log writes and page reads. Redo log writes are critical during transaction commits, where storage nodes must persist log records and synchronize with replicas to ensure durability and high availability. Page reads become performance bottlenecks when compute nodes need to fetch pages absent from their buffer pools. Guided by these insights, PolarStore implements targeted optimizations for these critical operations, prioritizing their performance even at the cost of reduced efficiency in other noncritical operations. These optimizations include: utilizing high-performance devices to bypass compression for redo log writes (Opt#1), implementing an adaptive algorithm selection for accelerating page reads (Opt#2), and introducing a per-page log mechanism to reduce their read amplification (Opt#3).
+
+**针对数据库的优化.** 压缩操作必然会给 I/O 带来计算延迟, 但在 RDBMS 中, 直接影响用户感知性能的主要是两类 I/O: redo log 写入和页面读取. 事务提交时, 存储节点必须持久化日志, 并与副本同步, 以保证持久性和高可用性, 因此 redo log 写入至关重要. 当计算节点需要读取缓冲池中不存在的页面时, 页面读取就会成为性能瓶颈. 基于这些观察, PolarStore 优先保障这两类关键操作的性能, 即使为此需要降低其他非关键操作的效率. 具体包括: 使用高性能设备, 让 redo log 写入绕过压缩 (优化 1); 自适应选择压缩算法, 加快页面读取 (优化 2); 引入按页组织的日志, 降低页面读取的读放大 (优化 3).
+
+<div class="paper-shared">
+
+![PolarStore 总体设计. 两项创新分别是软硬件协同的双层压缩和数据库专项 I/O 优化 (Opt). 图中还展示了普通压缩模式下一个 16 KB 写请求的处理流程.](/assets/images/posts/polarstore/figure-04.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 4: Overview of PolarStore. There are two innovations: dual-layer compression with hardware-software co-designing and DB-oriented I/O optimizations (Opt). This figure also shows the workflow of a 16 KB write with normal compression.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 4: PolarStore 总体设计. 两项创新分别是软硬件协同的双层压缩和数据库专项 I/O 优化 (Opt). 图中还展示了普通压缩模式下一个 16 KB 写请求的处理流程.</span>
+
+The remainder of this section details its core components: the dual-layer compression mechanism in §3.2 and the three DB-oriented optimizations in §3.3.
+
+下文先介绍双层压缩机制 (原文第 3.2 节), 再介绍三项数据库专项优化 (原文第 3.3 节).
+
+## 3.2 双层压缩
+
+We present PolarStore's architecture through three key components: software design (§3.2.1), hardware implementation (§3.2.2), and the flexible compression interface (§3.2.3).
+
+我们从三个方面介绍 PolarStore 的架构: 软件设计 (原文第 3.2.1 节), 硬件实现 (原文第 3.2.2 节), 以及灵活的压缩接口 (原文第 3.2.3 节).
+
+### 3.2.1 软件层的轻量级压缩
+
+As illustrated in Figure 4, PolarStore's dual-layer compression architecture exposes a block interface to the upper layer, with write operations controlled by a compression mode flag. To demonstrate the design, consider a 16 KB write request workflow. Upon receiving such a request, the storage node (acting as the leader) first compresses the data into multiple 4 KB blocks (❶). For fault tolerance, PolarStore implements 3-way Raft replication, where the leader forwards the compressed data to two replica nodes (❷). The write request achieves commitment only after the data has been persisted on a majority of replicas. To ensure durability, both leader and follower nodes execute three steps: allocate space for compressed blocks (`❸.1`), write them to their CSDs (`❸.2`), and record index updates in their write-ahead logs (`❸.3`). After receiving sufficient acknowledgments from followers (`❸.4`), the leader updates its in-memory index cache to make the changes visible and signals completion to the upper layer (❹).
+
+如图 4 所示, PolarStore 的双层压缩架构向上层提供块接口, 并通过压缩模式标志控制写入行为. 以一个 16 KB 写请求为例: 作为主副本的存储节点收到请求后, 先将数据压缩为若干个 4 KB 块 (❶). 为实现容错, PolarStore 采用三副本 Raft 复制, 主副本将压缩后的数据发送给两个从副本 (❷). 只有多数副本将数据持久化后, 写请求才能提交. 为保证持久性, 主从副本都要执行三个步骤: 为压缩块分配空间 (`❸.1`), 将数据写入各自的 CSD (`❸.2`), 再将索引更新记入预写日志 (`❸.3`). 主副本收到足够数量的从副本确认 (`❸.4`) 后, 更新内存索引缓存, 使修改可见, 并向上层报告写入完成 (❹).
+
+PolarStore's space management architecture comprises two primary components: a space allocator and a hash table index. The space allocation mechanism operates at two levels: a centralized allocator manages space at 128 KB granularity for each storage device, while individual logical chunks employ bitmap allocators for fine-grained 4 KB space management. PolarStore implements a hash table index to maintain mappings between uncompressed 16 KB addresses and their corresponding compressed 4 KB addresses. While the global allocator persists its state through in-place updates, both the bitmap allocator and hash table index operate in memory. Their modifications are logged in the write-ahead log, which serves exclusively for recovery purposes.
+
+PolarStore 的空间管理主要由空间分配器和哈希表索引组成. 空间分配分为两级: 集中式分配器以 128 KB 为粒度管理各存储设备的空间, 各逻辑 chunk 则使用位图分配器, 以 4 KB 粒度管理细分空间. 哈希表索引维护未压缩的 16 KB 地址与对应压缩后 4 KB 地址之间的映射. 全局分配器通过原地更新持久化自身状态; 位图分配器和哈希表索引则驻留内存, 其修改写入预写日志, 这些日志仅用于恢复.
+
+### 3.2.2 存储设备中的硬件压缩: PolarCSD
+
+This part presents the design overview of PolarCSD, focusing on key components essential to understand the dual-layer compression mechanism. In §4.1, we discuss insights derived from our first-generation implementation that guided the evolution of our new-generation architecture.
+
+本节介绍 PolarCSD 的总体设计, 重点说明理解双层压缩所必需的组件. 原文第 4.1 节将讨论第一代实现的经验, 以及这些经验如何促成新一代架构的演进.
+
+PolarCSD exposes standard NVMe interfaces to the software layer and implements the gzip algorithm with compression level 5, which has been demonstrated to achieve optimal performance in hardware acceleration scenarios <sup>[29]</sup>. The space management system of PolarCSD extends the traditional page-mapping FTL architecture. While conventional page-mapping FTL maintains fixed-length (4 KB) mappings between Logical Block Addresses (LBA) and Physical Block Addresses (PBA), PolarCSD introduces variable-length index entries that support mappings from 4KB-aligned LBA to byte-level PBA. In our implementation, PolarCSD augments each mapping entry with 12-bit length and offset fields to specify compressed data positions within a 4 KB boundary. This enhancement adds 3 bytes to each index entry, increasing the memory footprint from the original 5 bytes (for the basic information of L2P mapping) to 8 bytes per entry.
+
+PolarCSD 向软件层提供标准 NVMe 接口, 硬件使用压缩级别为 5 的 gzip 算法; 已有研究表明, 这一设置在硬件加速场景下性能最佳 <sup>[29]</sup>. PolarCSD 的空间管理基于传统页映射 FTL 扩展而来. 传统 FTL 在逻辑块地址 (LBA) 和物理块地址 (PBA) 之间维护固定长度的 4 KB 映射; PolarCSD 则引入变长索引项, 支持从按 4 KB 对齐的 LBA 映射到字节粒度的 PBA. 具体实现中, 每个映射项增加两个 12 位字段, 分别记录长度和偏移, 用来表示压缩数据在 4 KB 边界内的位置. 这使每个索引项增加 3 字节, 从原本记录 L2P 基本映射信息所需的 5 字节增至 8 字节.
+
+To maintain compatibility, we set PolarCSD with a logical capacity of 7.68 TB, aligned with the standard capacity of mainstream enterprise SSDs. The physical NAND flash capacity is dimensioned based on compression ratios in our target workloads. Our comprehensive evaluation of the gzip algorithm (compression level 5), configured to process 4 KB-aligned inputs with byte-level output granularity, demonstrates an average compression ratio of 2.4 across diverse datasets. Based on this compression efficiency, PolarCSD is provisioned with at least 3.2 TB of physical NAND flash space to support the logical capacity of 7.68 TB and the 2.4 compression ratio.
+
+为保持兼容, 我们将 PolarCSD 的逻辑容量设为 7.68 TB, 与主流企业级 SSD 的标准容量一致. 物理 NAND 闪存容量则根据目标负载的压缩率确定. 我们对 gzip 级别 5 进行了全面评估: 输入按 4 KB 对齐, 输出采用字节粒度, 在多种数据集上的平均压缩率为 2.4. 因此, PolarCSD 至少配备 3.2 TB 物理 NAND 闪存, 以在 2.4 的压缩率下支撑 7.68 TB 逻辑容量.
+
+### 3.2.3 接口的灵活性
+
+Write interface. The storage layer extends its write interface with a flag field that supports three compression modes: normal compression, no compression, and heavy compression.
+
+**写接口.** 存储层在写接口中增加一个标志字段, 支持普通压缩, 不压缩和强压缩三种模式.
+
+Normal compression: Following the workflow presented in §3.2.1, this default mode mandates that I/O operations be aligned to database page boundaries (typically 16 KB or 8 KB). Any non-aligned operation automatically reverts to the no-compression mode.
+
+**普通压缩:** 这是默认模式, 遵循原文第 3.2.1 节的流程, 要求 I/O 与数据库页边界对齐, 页面通常为 16 KB 或 8 KB. 未对齐的操作会自动退回不压缩模式.
+
+No compression: This mode serves two specific scenarios: handling non-page-aligned I/O operations and processing user-designated uncompressed pages. The software bypasses compression and writes the data directly to PolarCSD. When writing to a part of a previously compressed range, PolarStore must decompress the existing data, allocate new storage space, and write the uncompressed data to PolarCSD.
+
+**不压缩:** 适用于未按页对齐的 I/O, 以及用户指定不压缩的页面. 软件层跳过压缩, 将数据直接写入 PolarCSD. 若写入范围只覆盖原有压缩数据的一部分, PolarStore 必须先解压已有数据, 分配新的存储空间, 再将未压缩数据写入 PolarCSD.
+
+Heavy compression: This mode is specifically designed to restore and compress a range of data (`i.e.`, archiving operations). Unlike other modes, this interface does not write new data to the storage. Instead, it processes the entire write range as a single compression unit and uses high-level compression configuration to achieve higher compression ratios. It first reads and decompresses any existing compressed pages within the range, then merges them into a single segment and recompresses this consolidated segment for optimal compression ratios. The compressed segment is stored contiguously, with each index entry in the hash table maintaining both the address of the compressed segment and the page offset within that segment. While this approach may introduce I/O amplification during random access, such overhead is negligible for archived and snapshot pages in databases, which are typically accessed sequentially during analytical processing and backup/recovery operations, and are infrequently accessed. A temporary buffer for decompressed segments effectively optimizes such sequential access patterns.
+
+**强压缩:** 专门用于重新组织并压缩一段已有数据, 例如归档. 与其他模式不同, 这一接口不向存储中写入新数据, 而是将整个写入范围作为一个压缩单元, 使用较高的压缩级别来提高压缩率. 它先读取并解压范围内已有的压缩页面, 将它们合并成一个 segment, 再整体重新压缩. 压缩后的 segment 连续存储, 哈希表中的每个索引项同时记录 segment 的地址和页面在其中的偏移. 这种方式可能增加随机访问的 I/O 放大, 但数据库中的归档页和快照页访问频率较低, 通常是在分析处理或备份恢复时顺序访问, 因而这部分开销很小. 用临时缓冲区保存解压后的 segment, 还能有效优化此类顺序访问.
+
+Read interface. Unlike the write interface, the read interface does not require additional parameters. The system maintains three essential attributes in each index entry: compression status, compression algorithm used, and segment information for heavily compressed pages. These attributes guide the system in determining the appropriate read range and decompression strategy during read operations.
+
+**读接口.** 读接口无须增加参数. 每个索引项保存三个必要属性: 是否压缩, 使用的压缩算法, 以及强压缩页面所属 segment 的信息. 读取时, 系统据此确定读取范围和解压方式.
+
+## 3.3 针对数据库的优化
+
+Building upon the architectural overview, we introduce three DB-oriented optimizations that minimize compression overhead by exploiting database-specific access patterns, with a focus on reducing the latency of redo writes and page reads. These optimizations include (Figure 4):
+
+在上述架构基础上, 我们利用数据库特有的访问模式, 提出三项优化来减少压缩开销, 重点降低 redo log 写入和页面读取的延迟 (图 4):
+
+(Opt#1) Utilizing high-performance devices to bypass compression for latency-sensitive redo log writes (§3.3.1)
+
+**优化 1:** 使用高性能设备, 让延迟敏感的 redo log 写入绕过压缩 (原文第 3.3.1 节).
+
+(Opt#2) Implementing adaptive algorithm selection between lz4 and zstd to balance compression ratios and read latency (§3.3.2)
+
+**优化 2:** 在 lz4 与 zstd 之间自适应选择, 平衡压缩率和读取延迟 (原文第 3.3.2 节).
+
+(Opt#3) Introducing a per-page log mechanism that leverages physical-logical space decoupling to reduce read amplification during page accesses (§3.3.3)
+
+**优化 3:** 利用逻辑空间与物理空间解耦的特性, 引入按页组织的日志机制, 减少页面访问的读放大 (原文第 3.3.3 节).
+
+### 3.3.1 redo log 写入绕过压缩
+
+Redo log persistence is critical for transaction commit latency. To minimize this latency, PolarStore bypasses all compression for redo logs: it employs the no-compression flag to skip software compression and leverages high-performance storage to avoid hardware compression. In our implementation, each server incorporates an Intel Optane SSD, which delivers superior and stable performance with limited space. Initially, these devices were dedicated to storing WAL for in-memory data structures (the allocator and index), and their usage has now been extended to include redo logs as well. The use of Optane SSDs for redo logs is a good match for their characteristics: the limited capacity of these devices is sufficient for redo logs, which are typically small and can be reclaimed after pages are flushed.
+
+redo log 的持久化是决定事务提交延迟的关键. 为尽量降低延迟, PolarStore 让 redo log 绕过所有压缩: 通过不压缩标志跳过软件压缩, 再使用高性能存储避开硬件压缩. 我们在每台服务器中配置一块 Intel Optane SSD, 它容量有限, 但性能高且稳定. 这些设备起初专门保存内存数据结构, 即分配器和索引的 WAL, 现在也用于存放 redo log. redo log 通常较小, 并可在页面刷盘后回收, 因而 Optane SSD 有限的容量足以容纳, 很适合这类用途.
+
+### 3.3.2 降低页面读取的 I/O 与解压延迟
+
+The I/O latency of page reads directly impacts query latency when requested pages are absent from the in-memory buffer pool. These page reads include two parts: storage read latency and decompression latency. To reduce these latencies, we introduce an adaptive algorithm selection mechanism. Our adaptive algorithm selection mechanism is motivated by two key observations.
+
+当所需页面不在内存缓冲池中时, 页面读取的 I/O 延迟会直接影响查询延迟. 页面读取包括存储读取和解压两个部分. 为降低这两部分延迟, 我们设计了自适应算法选择机制, 其依据是以下两项观察.
+
+First, conventional wisdom holds that zstd, despite its longer decompression times (Figure 5a), achieves superior compression ratios compared to lz4 (Figure 5b). In the algorithm layer, there is a simple trade-off between performance and compression ratios. However, as shown in Figure 5c, our comprehensive evaluation reveals an interesting phenomenon in the dual-layer compression setting: its compression advantage significantly diminishes from 58.9% at the algorithm level to merely 9.0% after hardware compression. This substantial reduction occurs because hardware gzip, which also employs Huffman encoding, can effectively further compress lz4's output (which lacks Huffman encoding) while gaining minimal additional compression on zstd's output (which already incorporates Huffman encoding). This observation reveals that: for some pages, using lz4 offers both lower decompression latency and a competitive compression ratio compared to using zstd.
+
+首先, 通常认为 zstd 虽然解压更慢 (图 5a), 却比 lz4 压缩率更高 (图 5b), 因此算法层面只需在性能和压缩率之间取舍. 然而, 双层压缩的评估揭示了另一种情况 (图 5c): zstd 在算法层面的压缩优势为 58.9%, 经过硬件压缩后, 优势却缩小到仅 9.0%. 原因是硬件 gzip 同样采用 Huffman 编码, 能够进一步有效压缩未使用 Huffman 编码的 lz4 输出; zstd 已经使用了 Huffman 编码, 留给 gzip 的进一步压缩空间很小. 这说明, 对某些页面而言, lz4 不仅解压延迟更低, 压缩率也能接近 zstd.
+
+<div class="paper-shared">
+
+![LZ4 与 Zstd 的性能和压缩率分析. (a) 解压延迟表明 zstd 计算开销更高. (b) 软件层面, zstd 的压缩率更高. (c) 双层压缩后, zstd 的压缩优势大幅缩小.](/assets/images/posts/polarstore/figure-05.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 5: Performance and compression ratio analysis of LZ4 and Zstd. (a) Decompression latency confirms zstd's higher computational cost. (b) At the software level, zstd offers a superior compression ratio. (c) However, in our dual-layer system, zstd's advantage is substantially diminished.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 5: LZ4 与 Zstd 的性能和压缩率分析. (a) 解压延迟表明 zstd 计算开销更高. (b) 软件层面, zstd 的压缩率更高. (c) 双层压缩后, zstd 的压缩优势大幅缩小.</span>
+
+Second, the 4 KB I/O alignment of compressed pages creates another powerful optimization opportunity. Even a marginal size reduction at the software layer from zstd can be enough to save an entire 4 KB I/O block. For instance, if lz4 compresses a 16 KB page to 4097 bytes (requiring 8 KB of I/O in data write/read) while zstd achieves 4096 bytes (requiring only 4 KB of I/O), the I/O savings in data read can easily outweigh zstd's higher decompression overhead. This observation demonstrates a counter-intuitive scenario where: for certain pages, using zstd can achieve a lower total page read latency than lz4.
+
+其次, 压缩页面的 I/O 必须按 4 KB 对齐, 这提供了另一项优化机会. zstd 即使只在软件层多压缩一点, 也可能节省整整一个 4 KB I/O 块. 例如, 同一个 16 KB 页面, lz4 压缩后为 4097 字节, 读写需要 8 KB I/O; zstd 压缩后为 4096 字节, 只需 4 KB I/O. 此时, 读取时节省的 I/O 开销就可能超过 zstd 增加的解压开销. 因而会出现一种看似反直觉的情况: 对某些页面, zstd 的页面读取总延迟反而低于 lz4.
+
+Taken together, these observations challenge the notion of a simple trade-off between latency and compression ratio in using lz4 or zstd. Instead, they reveal the potential for a "win-win" outcome: the compression algorithm is no longer a static choice between two competing algorithms, but a dynamic decision to pick the clear winner for each specific page. Therefore, PolarStore implements a page-level algorithm selection mechanism during page writes, as shown in Algorithm 1. It evaluates both algorithms' 4KB ceiling-aligned compressed sizes and decompression latencies (Line 6-8). If the ratio of saved data size (`i.e.`, the benefits of zstd) to increased decompression latency (`i.e.`, the overhead of zstd) exceeds a threshold (Line 15), PolarStore switches to zstd for this page; otherwise, it stays with lz4 to maintain low decompression overhead.
+
+这两项观察说明, 在 lz4 和 zstd 之间选择, 并不只是简单地用延迟换压缩率. 系统可以按页动态选择更合适的算法, 同时改善两者. 因此, PolarStore 在写页时执行页级算法选择, 如算法 1 所示. 它测量两种算法压缩后向上取整到 4 KB 的大小, 以及各自的解压延迟 (第 6-8 行). 如果节省的存储量, 即 zstd 的收益, 与新增的解压延迟, 即 zstd 的代价, 之比超过阈值 (第 15 行), 就为该页选择 zstd; 否则保留 lz4, 以减少解压开销.
+
+<div class="paper-shared">
+
+Algorithm 1: Selection of lz4 and zstd.
+
+算法 1: lz4 与 zstd 的选择. 保留原文行号, 注释附中文说明.
+
+```text
+ 1 Function page_compression(page):
+ 2     if CPU_utilization > 20% then
+ 3         ptr ← lz4()
+ 4         return "lz4", ptr
+ 5     else if update_percent > 30% then
+ 6         // lz4_sz, zstd_sz: 4 KB ceiling-aligned / 向上取整到 4 KB
+ 7         lz4_ptr, lz4_sz, lz4_lat ← lz4()
+ 8         zstd_ptr, zstd_sz, zstd_lat ← zstd()
+ 9
+10         // extra decompression latency of zstd: µs / zstd 额外解压延迟
+11         overhead ← zstd_lat - lz4_lat
+12         // saved storage space of zstd: bytes / zstd 节省的字节数
+13         benefit ← lz4_sz - zstd_sz
+14
+15         if benefit / overhead > 300 B/µs then
+16             return "zstd", zstd_ptr
+17         else
+18             return "lz4", lz4_ptr
+19     else
+20         ptr ← last_used_algorithm()
+21         return last_used_algorithm, ptr
+```
+
+</div>
+
+This threshold is set to 300 B/µs based on storage I/O characteristics: saving 4 KB of I/O typically reduces read latency by 12~14 µs, translating to approximately 300 B/µs. When zstd's storage savings per additional microsecond of decompression time exceed this threshold, the I/O latency reduction outweighs the increased decompression overhead, making zstd the better choice.
+
+根据存储 I/O 的特性, 这一阈值设为 300 B/µs: 每减少 4 KB I/O, 通常可降低 12-14 µs 的读取延迟, 折合约 300 B/µs. 当 zstd 每增加 1 µs 解压时间所节省的存储量超过该阈值时, I/O 延迟的减少就超过了解压延迟的增加, 此时选择 zstd 更有利.
+
+It is important to note that this selection occurs during page writes, which are out of the critical path of user queries. However, the process still consumes CPU resources, which must be carefully managed to avoid impacting overall system throughput. To minimize the selection overhead, this mechanism is triggered only in two cases: during initial page writes, or when the database layer estimates page updates exceed 30% based on the log size. Additionally, the selection process only runs when CPU utilization is low, ensuring that this selection does not become a performance bottleneck.
+
+算法选择发生在写页阶段, 不在用户查询的关键路径上, 但仍会消耗 CPU, 必须控制其开销, 以免影响整体吞吐量. 因此, 只有首次写页, 或数据库层根据日志大小估算页面更新比例超过 30% 时, 才会触发选择. 此外, 选择过程仅在 CPU 利用率较低时运行, 避免自身成为性能瓶颈.
+
+### 3.3.3 降低页面读取的尾延迟
+
+We leverage CSD's space decoupling feature to address the tail latency issue in page read operations.
+
+我们利用 CSD 的逻辑空间与物理空间解耦特性, 解决页面读取的尾延迟问题.
+
+For page reads, both the database buffer pool and storage software memory cache help avoid storage accesses and decompression overhead. However, when pages are not cached in memory, I/O becomes unavoidable. Three scenarios may occur: (i) the page exists but is not cached, (ii) the page does not exist but its redo logs are cached, and (iii) the page does not exist and some of its redo logs are not cached. The third case commonly occurs when a RO node's LSN falls behind due to high load or network issues, preventing the storage node from recycling redo logs and leading to cache overflow. While the first two cases require only a single page read, the third case suffers from read amplification, requiring multiple random reads to retrieve redo logs. As illustrated in Figure 6a, to generate page@6, the storage node must read both log1 and log3 from storage, which may reside in different 4KB address ranges. These scattered reads significantly contribute to slow tail latencies.
+
+数据库缓冲池和存储软件的内存缓存, 都能减少页面读取时的存储访问和解压开销. 但若页面未被缓存, I/O 就无法避免. 此时有三种情况: (i) 页面已存在, 但不在缓存中; (ii) 所需页面版本尚未生成, 但对应 redo log 在缓存中; (iii) 所需页面版本尚未生成, 且部分 redo log 不在缓存中. 第三种情况常见于 RO 节点因高负载或网络问题而出现 LSN 滞后, 导致存储节点无法回收 redo log, 日志缓存溢出. 前两种情况只需读取一次页面, 第三种却需要多次随机读取来获取 redo log, 从而产生读放大. 如图 6a 所示, 要生成 page@6, 存储节点必须从存储中读取 log1 和 log3, 而它们可能位于不同的 4 KB 地址范围. 这些分散读取是尾延迟较高的重要原因.
+
+Design with space decoupling. CSD decouples logical space allocation from physical space utilization, allowing software to manage logical space at 4 KB granularity while utilizing physical space more flexibly. This enables implementing sparse data structures without I/O amplification or space waste <sup>[26, 28]</sup>. PolarStore introduces a per-page log mechanism. The key is co-locating all redo logs of each page within a dedicated 4 KB log space when the log is evicted from the in-memory cache. As shown in Figure 6b, when the redo log is evicted from memory (this occurs before receiving a read request for page@6), the storage node pre-merges both log1 and log3 into the per-page log space. This allows retrieving all necessary logs in a single read, when the storage node receives the read request for page@6, significantly reducing read amplification and improving tail latency. This solution, allocating an additional 4 KB log space for each 16 KB page, is only feasible with CSD's space decoupling feature. Implementing such a design on conventional SSDs would incur approximately 25% space amplification.
+
+**利用空间解耦的设计.** CSD 将逻辑空间分配与物理空间使用解耦, 使软件可以按 4 KB 粒度管理逻辑空间, 同时更灵活地使用物理空间, 从而在不引入 I/O 放大和空间浪费的情况下实现稀疏数据结构 <sup>[26, 28]</sup>. PolarStore 因此引入按页组织的日志机制: 当日志从内存缓存淘汰时, 将同一页面的所有 redo log 集中到专属的 4 KB 日志空间中. 如图 6b 所示, 在 page@6 的读请求到达之前, 存储节点就会在日志淘汰时, 将 log1 和 log3 预先合并到该页的日志空间. 之后收到 page@6 的读请求, 只需一次读取就能获取全部所需日志, 显著减少读放大并改善尾延迟. 为每个 16 KB 页面额外分配 4 KB 日志空间的做法, 依赖于 CSD 的空间解耦特性; 若在传统 SSD 上实现, 会带来约 25% 的空间放大.
+
+<div class="paper-shared">
+
+![页面合成流程. (a) 传统方法的 redo log 分散, 导致读放大和较高尾延迟. (b) 按页组织日志的优化在后台预先集中日志, 使一次 I/O 即可取得合成页面所需的日志.](/assets/images/posts/polarstore/figure-06.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 6: Workflow of page consolidation. (a) Traditional method: scattered redo logs lead to read amplification and high tail-latency. (b) Per-page log optimization: proactively co-locating logs in the background enables page consolidation with a single I/O.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 6: 页面合成流程. (a) 传统方法的 redo log 分散, 导致读放大和较高尾延迟. (b) 按页组织日志的优化在后台预先集中日志, 使一次 I/O 即可取得合成页面所需的日志.</span>
+
+# 4. PolarStore 的大规模部署
+
+We initially deployed our system across 11 clusters with 500 hosts, containing a total of 6000 PolarCSD devices. Through this large-scale deployment, we identified two critical challenges: host-level stability and cluster-level resource utilization. In §4.1, we address the host-level stability challenge by summarizing lessons learned from the first generation hardware (PolarCSD1.0) and redesigning a new generation device (PolarCSD2.0). In §4.2, we tackle the cluster-level resource utilization challenge by introducing a compression-aware scheduling technique that effectively balances chunks with varying compression ratios across the cluster.
+
+最初, 我们在 11 个集群的 500 台主机上部署了共 6000 块 PolarCSD. 大规模部署暴露出两项关键问题: 主机稳定性和集群资源利用率. 原文第 4.1 节总结第一代硬件 PolarCSD1.0 的经验, 并通过重新设计 PolarCSD2.0 解决主机稳定性问题; 原文第 4.2 节引入感知压缩率的调度方法, 在集群内平衡压缩率不同的 chunk, 提高资源利用率.
+
+## 4.1 主机稳定性
+
+The first generation of PolarCSD was designed with an open-channel architecture (host-based FTL) <sup>[36, 41]</sup>, which offered advantages in rapid development and flexible space management. While we initially dedicated specific CPU cores to FTL tasks to minimize its impact on software performance, our long-term deployment of 12 devices per host revealed significant challenges in system stability and operational costs.
+
+第一代 PolarCSD 采用开放通道架构, FTL 运行在主机侧 <sup>[36, 41]</sup>, 便于快速开发和灵活管理空间. 起初, 我们为 FTL 任务分配专用 CPU 核, 以尽量减少对软件性能的影响. 但长期运行表明, 每台主机配置 12 块设备时, 系统稳定性和运维成本仍面临严重问题.
+
+### 4.1.1 主机稳定性方面的经验
+
+During an eighteen-month period, there were 26 occurrences of slow I/O (`i.e.`, exceeding 1 second) caused by PolarCSD1.0. Among these, 6 slow I/O events exceeded 10 seconds in latency and lasted for more than 10 minutes, adversely affecting the user's business and significantly increasing the maintenance overhead. These problems arise from two factors: resource contention and expanded fault domain for host-based FTL driver.
+
+在 18 个月内, PolarCSD1.0 共引发 26 次慢 I/O 事件, 即 I/O 延迟超过 1 秒. 其中 6 次事件的 I/O 延迟超过 10 秒, 且持续超过 10 分钟, 影响了用户业务, 也显著增加了维护开销. 问题主要来自两方面: 主机侧 FTL 的资源争用, 以及驱动故障影响范围扩大.
+
+Resource contention for host-based FTL. The host-based FTL consumes host memory and CPU resources. This overhead becomes more severe when supporting variable-length address mapping and multiple drives. We observed 12 occurrences of slow I/O caused by memory contention and 9 occurrences caused by CPU contention. Each PolarCSD1.0, with a logical capacity of 7.68TB, requires 15.36 GB (7.68 TB × 8B/4KB) of memory for FTL. With 12 devices per storage node, the total memory consumption reaches approximately 184.32 GB. This significant memory footprint causes resource pressure, triggering aggressive memory reclamation by the system that degrades application performance. Further, the host-based FTL for each PolarCSD1.0 requires approximately 2 dedicated physical CPU cores to maintain performance under high-pressure workloads. Consequently, each server needs 24 physical CPU cores, and these FTL threads may interfere with the original storage software, leading to I/O jitters.
+
+**主机侧 FTL 的资源争用.** FTL 会消耗主机内存和 CPU, 支持变长地址映射和多块设备后, 开销更为突出. 我们观察到 12 次由内存争用引发的慢 I/O, 以及 9 次由 CPU 争用引发的慢 I/O. 每块逻辑容量为 7.68 TB 的 PolarCSD1.0, FTL 需要 15.36 GB 内存, 即 7.68 TB × 8 B / 4 KB. 每个存储节点配备 12 块设备时, 总内存占用约为 184.32 GB. 大量内存占用造成资源压力, 触发系统激进的内存回收, 损害应用性能. 此外, 高负载下, 每块 PolarCSD1.0 的主机侧 FTL 大约需要 2 个专用物理 CPU 核才能保持性能. 因此每台服务器需要 24 个物理核, 这些 FTL 线程还可能干扰原有存储软件, 造成 I/O 抖动.
+
+Expanded fault domain. As a new product, the open-channel driver of PolarCSD contained some undiscovered bugs. When triggered by a single device, they could affect the entire server. Our observation showed that all 5 long-lasting slow I/O occurrences were caused by such kernel driver bugs.
+
+**故障影响范围扩大.** 作为新产品, PolarCSD 的开放通道驱动仍存在尚未发现的缺陷. 即使只有一块设备触发缺陷, 也可能影响整台服务器. 我们观察到的 5 次长时间慢 I/O 事件, 都由此类内核驱动缺陷引起.
+
+As a temporary solution to these problems, we had to disable software compression in our dual-layer compression design and limit the deployment to 10 devices per server, ensuring sufficient resources for the host-based FTL. However, this compromise reduced our storage density due to fewer devices per server (from 12 to 10) and the loss of software compression benefits.
+
+作为临时补救, 我们不得不关闭双层压缩中的软件压缩, 并将每台服务器的设备数限制为 10 块, 为主机侧 FTL 留出足够资源. 但设备数从 12 块减至 10 块, 再加上失去软件压缩的收益, 导致存储密度下降.
+
+### 4.1.2 解决方案: PolarCSD2.0
+
+Based on the lessons from PolarCSD1.0, we design a new generation CSD (PolarCSD2.0) that addresses the above stability issues through several key improvements:
+
+根据 PolarCSD1.0 的经验, 我们设计了新一代 PolarCSD2.0, 通过以下改进解决稳定性问题.
+
+First, PolarCSD2.0 abandons the open-channel architecture and reverts to conventional device-managed FTL, where the embedded ARM cores handle LBA-to-PBA (L2P) mapping and background operations. This return to traditional architecture eliminates the resource contention issues of host-based FTL and contains FTL failures within individual devices, preventing them from affecting the entire host system. Second, to improve storage density, we increase the NAND flash capacity in PolarCSD2.0 to 3.84 TB (using 4 TB NAND flash with 4% over-provisioning), enabling 20% more compressed data storage per device. Third, to maintain the overall compression ratio of 2.4 with this increased storage capacity, we optimize the FTL mapping structure to avoid additional memory consumption. To reduce FTL memory consumption, we redesigned the L2P mapping entry in PolarCSD2.0. While PolarCSD1.0 used an 8-byte entry, PolarCSD2.0 reduces this to 7 bytes. This memory saving is achieved by coarsening the physical offset granularity from a single byte to 16 bytes, which allows the required offset and length metadata to be encoded in 2 bytes instead of 3. This optimization effectively addresses the memory requirements from the increased storage capacity and allows us to expose 9.6 TB of logical space for each PolarCSD2.0 device. Finally, following the industry trend, PolarCSD2.0 adopts PCIe 4.0 to enhance I/O performance.
+
+首先, PolarCSD2.0 放弃开放通道架构, 回到由设备管理 FTL 的传统方式, 使用内置 ARM 核处理 LBA 到 PBA 的映射, 即 L2P 映射, 以及后台操作. 这既消除了主机侧 FTL 的资源争用, 也将 FTL 故障限制在单块设备内, 避免影响整机. 其次, 为提高存储密度, 我们将 NAND 闪存容量增至 3.84 TB, 即使用 4 TB NAND, 预留 4% 的超额配置空间, 使每块设备可多存储 20% 的压缩数据. 第三, 为在容量增加后维持 2.4 的整体压缩率, 又不额外增加内存, 我们重新设计了 FTL 的 L2P 映射项: 从 PolarCSD1.0 的 8 字节缩小为 7 字节. 具体方法是将物理偏移粒度从 1 字节放宽为 16 字节, 使偏移与长度元数据可用 2 字节表示, 而不是 3 字节. 这一优化满足了容量增加后的内存需求, 使每块 PolarCSD2.0 能向上层提供 9.6 TB 逻辑空间. 最后, PolarCSD2.0 采用 PCIe 4.0, 提高 I/O 性能.
+
+### 4.1.3 PolarCSD2.0 的评估
+
+We first conduct basic performance testing. For fair comparison, we use Intel P4510 (PCIe 3.0) and P5510 (PCIe 4.0) as the baseline for PolarCSD1.0 (PCIe 3.0) and PolarCSD2.0 (PCIe 4.0) respectively, matching their respective PCIe interfaces. Figure 7 presents the latency under workloads with different compression ratios. The results show that PolarCSD1.0 achieves lower write latency but higher read latency compared to P4510. We also observe that larger compression ratios lead to lower latencies, as less data needs to be written to or read from NAND flash.
+
+我们首先进行基础性能测试. 为公平比较, 按 PCIe 接口匹配基准设备: PolarCSD1.0 使用 PCIe 3.0, 对照 Intel P4510; PolarCSD2.0 使用 PCIe 4.0, 对照 Intel P5510. 图 7 展示了不同压缩率负载下的延迟. 相比 P4510, PolarCSD1.0 的写延迟更低, 但读延迟更高. 我们还观察到, 压缩率越高, 延迟越低, 因为需要读写 NAND 闪存的数据量更少.
+
+<div class="paper-shared">
+
+![不同压缩率下, PolarCSD 与标准 SSD 的平均延迟. 负载为 16 KB I/O, 队列深度为 1. 目标压缩率通过 FIO <sup>[42]</sup> 设置为 1.0, 2.0, 3.0 和 4.0.](/assets/images/posts/polarstore/figure-07.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 7: Average latency of PolarCSD and standard SSDs under different compression ratios. Workload: 16KB I/O, queue-depth=1. Target compression ratios: 1.0, 2.0, 3.0, 4.0 (configured via FIO <sup>[42]</sup>).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 7: 不同压缩率下, PolarCSD 与标准 SSD 的平均延迟. 负载为 16 KB I/O, 队列深度为 1. 目标压缩率通过 FIO <sup>[42]</sup> 设置为 1.0, 2.0, 3.0 和 4.0.</span>
+
+After large-scale deployment in our production environment, we observe significant improvements in system stability. First, there is no slow I/O caused by CPU/memory contention, and the failure of a single device does not impact the whole host. Further, the tail latency of PolarCSD2.0 is also significantly reduced. Figure 8 shows the latency distribution of these two generations of PolarCSD in our production environment during 7 days. We only show the percentage of I/Os with latency larger than 4ms in this figure, and we observe that only 7.91 × 10<sup>-7</sup> read and 1.05 × 10<sup>-6</sup> write latency of PolarCSD2.0 are larger than 4ms. In contrast, PolarCSD1.0 shows much higher percentages (2.9 × 10<sup>-5</sup> and 4.0 × 10<sup>-5</sup>, respectively), approximately 36.7 times and 38.8 times higher than PolarCSD2.0.
+
+在生产环境大规模部署后, 系统稳定性明显改善. 首先, 不再出现由 CPU 或内存争用引发的慢 I/O, 单块设备故障也不会影响整台主机. 此外, PolarCSD2.0 的尾延迟显著降低. 图 8 展示了两代设备在生产环境中连续 7 天的延迟分布, 只绘出延迟超过 4 ms 的 I/O 比例. PolarCSD2.0 中, 读写延迟超过 4 ms 的比例分别仅为 7.91 × 10<sup>-7</sup> 和 1.05 × 10<sup>-6</sup>; PolarCSD1.0 则分别为 2.9 × 10<sup>-5</sup> 和 4.0 × 10<sup>-5</sup>. 按原文报告, 后者约为前者的 36.7 倍和 38.8 倍.
+
+<div class="paper-shared">
+
+![生产环境中, 4-16 KB 读写操作的设备延迟分布, 仅展示延迟不低于 4 ms 的部分.](/assets/images/posts/polarstore/figure-08.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 8: Distribution of device latency (>=4ms) in production with 4~16KB READ and WRITE operations.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 8: 生产环境中, 4-16 KB 读写操作的设备延迟分布, 仅展示延迟不低于 4 ms 的部分.</span>
+
+## 4.2 集群级空间管理
+
+During our large-scale deployment, we discovered that the original data scheduling strategy fails to effectively handle compressed data, leading to suboptimal resource utilization.
+
+大规模部署过程中, 我们发现原有的数据调度策略无法有效处理压缩数据, 影响了资源利用率.
+
+### 4.2.1 集群资源利用率方面的经验
+
+Initially, our clusters employed a simple scheduling strategy based solely on logical space usage: new chunks were allocated to storage nodes with the lowest logical space usage. When a node's logical space usage exceeded the average usage w_avg by 10%, chunks would be migrated to nodes with the lowest logical space usage. Nodes exceeding 75% space usage (any of logical space usage or physical space usage) were blocked from receiving new chunks, and when all nodes reached this threshold, manual intervention was required to add new storage servers. During deployment, we identified two major limitations in our original space management:
+
+起初, 集群只根据逻辑空间使用量进行简单调度: 新 chunk 分配给逻辑空间使用量最少的节点; 某节点的使用量超过平均值 w_avg 的 10% 时, 就向使用量最少的节点迁移 chunk. 逻辑或物理空间使用率任一超过 75% 的节点, 都不再接收新 chunk. 当所有节点都达到这一阈值时, 需要人工添加存储服务器. 部署过程中, 我们发现原有空间管理有两项主要不足.
+
+Inaccurate physical space monitoring. The software can query devices for physical space usage, but the lack of TRIM operations leads to inaccurate measurements. When our software allocator frees space, it only updates space management metadata without actually releasing physical space via TRIM operations, and therefore devices remain unaware of these releases, causing reported physical space usage to exceed actual usage. After enabling TRIM operations upon space deallocation, the monitored physical space decreased by 3% on average.
+
+**物理空间监测不准确.** 软件可以查询设备的物理空间使用量, 但缺少 TRIM 操作会导致结果失真. 软件分配器释放空间时, 仅更新空间管理元数据, 没有通过 TRIM 真正释放物理空间. 设备不知道这些空间已被释放, 上报的占用量就会高于实际值. 在空间释放时加入 TRIM 后, 监测到的物理空间占用平均下降了 3%.
+
+Compression ratio imbalance. The original strategy failed to account for varying compression ratios across different chunks, leading to significant space waste. When the cluster became full, we observed an interesting phenomenon: some storage nodes reached their 75% logical space limit while their physical spaces remained underutilized, while other nodes showed the opposite pattern. Simply redistributing chunks between these two types of nodes could have increased the cluster's effective capacity without adding new servers. Our analysis of a full cluster running PolarCSD1.0 revealed the extent of this imbalance (Figure 9a): 12.1% of storage nodes had below-average compression ratios, wasting 1.72% of total logical space, while 78.6% had above-average ratios, wasting 9.17% of total physical space.
+
+**压缩率不均衡.** 原有策略没有考虑不同 chunk 的压缩率差异, 导致大量空间浪费. 集群被判定已满时, 有些节点的逻辑空间使用率达到了 75% 上限, 物理空间却仍有富余; 另一些节点则正好相反. 只要在这两类节点之间重新分配 chunk, 就可以在不增加服务器的情况下提高集群有效容量. 对一个已满的 PolarCSD1.0 集群的分析表明 (图 9a), 12.1% 的节点压缩率低于平均值, 浪费了总逻辑空间的 1.72%; 78.6% 的节点压缩率高于平均值, 浪费了总物理空间的 9.17%.
+
+### 4.2.2 解决方案: 感知压缩率的调度
+
+To balance both logical and physical space usage, we developed a compression-aware scheduling strategy. As shown in Figure 9b, storage nodes can be visualized on a two-dimensional plane with logical space (x-axis) and physical space (y-axis). Since the cluster allocates new chunks to nodes with the lowest logical space usage, most nodes are distributed between x = w_avg ± Δ, where w_avg is the average logical space usage. Our strategy aims to maintain compression ratios within a range [c_l, c_h], where c_l < c_avg < c_h and c_avg is the average compression ratio. These values divide the operational region into four zones: Zone A (high physical, low logical usage), Zone B (balanced usage, below average), Zone C (balanced usage, above average), and Zone D (low physical, high logical usage). For nodes in Zone A, PolarStore migrates chunks with minimum compression ratios to nodes in zones D, C, or B (in order of preference). Conversely, for nodes in Zone D, chunks with maximum compression ratios are migrated to nodes in zones A, B, or C.
+
+为同时平衡逻辑空间和物理空间使用量, 我们设计了感知压缩率的调度策略. 如图 9b 所示, 可将节点映射到以逻辑空间为横轴, 物理空间为纵轴的二维平面. 由于新 chunk 总是分配给逻辑空间使用量最少的节点, 大多数节点位于 x = w_avg ± Δ 之间, 其中 w_avg 是平均逻辑空间使用量. 调度目标是将压缩率维持在 [c_l, c_h] 区间, 满足 c_l < c_avg < c_h, c_avg 为平均压缩率. 这些边界将工作区域划分为四部分: A 区物理占用高, 逻辑占用低; B 区两者均衡且低于平均水平; C 区两者均衡且高于平均水平; D 区物理占用低, 逻辑占用高. 对 A 区节点, PolarStore 迁出压缩率最低的 chunk, 依次优先迁往 D, C, B 区; 对 D 区节点, 则迁出压缩率最高的 chunk, 依次优先迁往 A, B, C 区.
+
+<div class="paper-shared">
+
+![(a) 集群压缩率分布. (b) 感知压缩率的调度算法.](/assets/images/posts/polarstore/figure-09.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 9: (a) Distribution of compression ratio in a cluster, and (b) Compression-aware scheduling algorithm.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 9: (a) 集群压缩率分布. (b) 感知压缩率的调度算法.</span>
+
+### 4.2.3 生产集群中的调度结果
+
+The selection of c_l and c_h is a trade-off between the scheduling results and the number of scheduling tasks. Generally, lower c_l and higher c_h result in fewer tasks. We determine these parameters through offline simulations for each cluster, targeting the parameters completion within one day. We evaluated our strategy on two production clusters: C1 (using PolarCSD 1.0 without software compression) and C2 (using PolarCSD 2.0 with software compression). Figure 10a and Figure 10b show the distribution of logical and physical spaces in C1 before and after scheduling, while Figure 11a and Figure 11b show results for C2. After scheduling, storage nodes converged into a distinct quadrilateral region, with over 90% of nodes in C1 achieving compression ratios between 2.2 and 2.7, and 87.7% of nodes in C2 between 3.15 and 3.85, demonstrating effective compression ratio balance.
+
+c_l 和 c_h 的选择需要兼顾调度效果与任务数量. 通常, c_l 越低, c_h 越高, 任务就越少. 我们针对各集群进行离线模拟, 选择能在一天内完成调度的参数. 评估使用两个生产集群: C1 使用 PolarCSD1.0, 不启用软件压缩; C2 使用 PolarCSD2.0, 启用软件压缩. 图 10a 和 10b 分别展示 C1 调度前后的逻辑与物理空间分布, 图 11a 和 11b 展示 C2 的结果. 调度后, 节点收敛到一个清晰的四边形区域: C1 超过 90% 的节点压缩率在 2.2-2.7 之间, C2 有 87.7% 的节点在 3.15-3.85 之间, 表明该策略有效平衡了压缩率.
+
+<div class="paper-shared">
+
+![仅启用硬件压缩 (PolarCSD1.0) 的集群, 调度前后各存储实例的逻辑与物理空间对应关系.](/assets/images/posts/polarstore/figure-10.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 10: Logical-to-physical space mapping of storage instances before and after scheduling. Clusters with hardware-only compression (PolarCSD1.0).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 10: 仅启用硬件压缩 (PolarCSD1.0) 的集群, 调度前后各存储实例的逻辑与物理空间对应关系.</span>
+
+<div class="paper-shared">
+
+![启用双层压缩 (PolarCSD2.0 加软件压缩) 的集群, 调度前后各存储实例的逻辑与物理空间对应关系.](/assets/images/posts/polarstore/figure-11.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 11: Logical-to-physical space mapping of storage instances before and after scheduling. Clusters with dual-layer compression (PolarCSD2.0 and software compression).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 11: 启用双层压缩 (PolarCSD2.0 加软件压缩) 的集群, 调度前后各存储实例的逻辑与物理空间对应关系.</span>
+
+# 5. 评估
+
+In this section, we seek to answer the following questions:
+
+本节回答以下问题:
+
+What are the space savings and performance benefits of PolarStore in large-scale production deployments (§5.1)?
+
+PolarStore 在大规模生产部署中节省了多少空间, 性能如何 (原文第 5.1 节)?
+
+How much does each technique contribute to PolarStore's overall effectiveness (§5.2)?
+
+各项技术对 PolarStore 的整体效果分别贡献多少 (原文第 5.2 节)?
+
+How does PolarStore compare with existing software compression approaches (§5.3)?
+
+PolarStore 与现有软件压缩方案相比表现如何 (原文第 5.3 节)?
+
+## 5.1 集群级评估
+
+Our production environment consists of over 500 storage servers with more than 6000 first-generation computational storage devices (PolarCSD1.0) and over 1200 storage servers with over 14400 second-generation computational storage devices (PolarCSD2.0), respectively. We maintain two types of clusters: The first type, represented by cluster C1, uses PolarCSD1.0, where we had to disable software compression and two DB-oriented optimizations (`i.e.`, the selection mechanism of lz4/zstd and the per-page log mechanism) to mitigate resource contention issues. The second type, represented by cluster C2, uses PolarCSD2.0 with all techniques enabled. To evaluate the effectiveness of these two compressed clusters, we compare their space utilization and database performance with two normal clusters (N1 and N2) selected from our production environment. These normal clusters use contemporary Intel SSDs (P4510 in N1, P5510 in N2) and have identical hardware specifications (CPU, PCIe, and NICs) to C1 and C2 respectively. Detailed configurations are shown in Table 2.
+
+生产环境中, 第一代计算存储设备 PolarCSD1.0 部署于 500 多台存储服务器, 数量超过 6000 块; 第二代 PolarCSD2.0 部署于 1200 多台服务器, 数量超过 14400 块. 我们维护两类集群: 以 C1 为代表的第一类使用 PolarCSD1.0, 为缓解资源争用, 关闭软件压缩及两项数据库优化, 即 lz4/zstd 自适应选择和按页组织的日志; 以 C2 为代表的第二类使用 PolarCSD2.0, 启用全部技术. 我们从生产环境中选择两个普通集群 N1 和 N2, 比较空间利用率与数据库性能. N1 使用 Intel P4510, N2 使用 Intel P5510, CPU, PCIe 和网卡等硬件规格分别与 C1, C2 相同. 详细配置见表 2.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 2: Cluster configurations and space utilization.</span>
+
+| Configuration | N1 | C1 | N2 | C2 |
+|:---|:---:|:---:|:---:|:---:|
+| Software compression | - | - | - | Compression |
+| Hardware | P4510 | PolarCSD1.0 | P5510 | PolarCSD2.0 |
+| Opt#1: bypass redo | - | ✔ | - | ✔ |
+| Opt#2: lz4/zstd | - | ✘ | - | ✔ |
+| Opt#3: per-page log | - | ✘ | - | ✔ |
+| Scheduling | - | ✔ | - | ✔ |
+| NAND size | 3.84 TB | 3.20 TB | 7.68 TB | 3.84 TB |
+| Compression ratio | - | 2.35 | - | 3.55 |
+| Cost per GB, physical | 1 | 1.45 | 0.91 | 1.32 |
+| Cost per GB, logical | 1 | 0.62 | 0.91 | 0.37 |
+| CPU | Xeon Platinum 2.5 GHz | Xeon Platinum 2.5 GHz | Xeon Platinum 2.9 GHz | Xeon Platinum 2.9 GHz |
+| NIC | CX-4 (25 Gbps × 2) | CX-4 (25 Gbps × 2) | CX-6 (100 Gbps × 2) | CX-6 (100 Gbps × 2) |
+| PCIe | 3.0 | 3.0 | 4.0 | 4.0 |
+| Storage devices | 12 | 10 | 12 | 12 |
+| Performance layer | Intel P4800X | Intel P4800X | Intel P5800X | Intel P5800X |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 2: 集群配置与空间利用率. 勾号表示启用, 叉号表示未启用; 成本以 N1 每 GB 物理容量成本为 1.00 归一化.</span>
+
+| 配置 | N1 | C1 | N2 | C2 |
+|:---|:---:|:---:|:---:|:---:|
+| 软件压缩 | - | - | - | 启用压缩 |
+| 硬件 | P4510 | PolarCSD1.0 | P5510 | PolarCSD2.0 |
+| redo log 绕过压缩 | - | ✔ | - | ✔ |
+| 自适应选择 lz4/zstd | - | ✘ | - | ✔ |
+| 按页组织日志 | - | ✘ | - | ✔ |
+| 调度 | - | ✔ | - | ✔ |
+| NAND 容量 | 3.84 TB | 3.20 TB | 7.68 TB | 3.84 TB |
+| 压缩率 | - | 2.35 | - | 3.55 |
+| 每 GB 物理容量成本 | 1 | 1.45 | 0.91 | 1.32 |
+| 每 GB 逻辑容量成本 | 1 | 0.62 | 0.91 | 0.37 |
+| CPU | Xeon Platinum 2.5 GHz | Xeon Platinum 2.5 GHz | Xeon Platinum 2.9 GHz | Xeon Platinum 2.9 GHz |
+| 网卡 | CX-4 (25 Gbps × 2) | CX-4 (25 Gbps × 2) | CX-6 (100 Gbps × 2) | CX-6 (100 Gbps × 2) |
+| PCIe | 3.0 | 3.0 | 4.0 | 4.0 |
+| 存储设备数 | 12 | 10 | 12 | 12 |
+| 性能层 | Intel P4800X | Intel P4800X | Intel P5800X | Intel P5800X |
+
+</div>
+
+</div>
+
+### 5.1.1 空间利用率与成本分析
+
+The cluster C1, equipped with PolarCSD1.0, achieves a 2.35 compression ratio in production. Although the hardware cost of PolarCSD1.0 is 1.45 higher than the baseline Intel P4510 (normalized as 1.00) due to additional embedded memory and accelerators, the effective cost per GB of logical storage reduces to 0.62 after compression. The cluster C2, equipped with PolarCSD2.0 and dual-layer compression, demonstrates even better results. Through hardware optimization, PolarCSD2.0's relative cost reduces by 9% compared to PolarCSD1.0 (from 1.45 to 1.32). More importantly, with the addition of software compression, C2 achieves a significantly higher compression ratio of 3.55. This brings the effective cost per GB down to 0.37, representing about 60% reduction in storage cost compared to using Intel P5510 (0.91).
+
+使用 PolarCSD1.0 的 C1 集群在生产环境中达到 2.35 的压缩率. 由于增加了内置内存和加速器, PolarCSD1.0 的硬件成本是基准 Intel P4510 的 1.45 倍, 以 P4510 为 1.00 归一化. 但压缩后, 每 GB 逻辑存储的实际成本降至 0.62. 使用 PolarCSD2.0 和双层压缩的 C2 表现更好: 硬件优化将相对成本从 1.45 降至 1.32, 下降约 9%; 软件压缩则将压缩率进一步提高到 3.55. 最终每 GB 逻辑存储成本降至 0.37, 与 Intel P5510 的 0.91 相比, 存储成本降低约 60%.
+
+### 5.1.2 性能评估
+
+We use Sysbench <sup>[43]</sup> to evaluate database performance. The database compute instance runs with 8 cores and 32 GB memory, accessing data distributed across 8 storage nodes (48 chunks in total). The database size is configured to 480 GB with 60 GB data per storage node (120 GB with replication). Database requests are generated by a separate Elastic Compute Service (ECS) client using 16 threads. The limited memory configuration creates an I/O-bound environment, ideal for evaluating storage system compression/decompression performance. We evaluate throughput (Figure 12a), average latency (Figure 12b), and P95 latency (Figure 12c) across different workloads. While C1 (PolarCSD1.0) shows a 10% performance degradation compared to N1 (P4510), our latest C2 cluster (PolarCSD2.0) achieves performance parity with N2 (P5510), demonstrating the effectiveness of our hardware and software optimizations.
+
+我们使用 Sysbench <sup>[43]</sup> 评估数据库性能. 数据库计算实例配置为 8 核和 32 GB 内存, 数据分布在 8 个存储节点的 48 个 chunk 上. 数据库大小为 480 GB, 每个节点存放 60 GB 数据, 计入复制后为 120 GB. 请求由独立的弹性计算服务 (ECS) 客户端通过 16 个线程生成. 有限的内存使实验处于 I/O 瓶颈状态, 适合评估存储压缩与解压的性能. 我们在不同负载下测量吞吐量 (图 12a), 平均延迟 (图 12b) 和 P95 延迟 (图 12c). C1 相比 N1 性能下降约 10%, 而最新的 C2 已达到与 N2 相当的性能, 说明软硬件优化取得了效果.
+
+<div class="paper-shared">
+
+![整体性能. 使用 Sysbench <sup>[43]</sup>, 单客户端运行 16 个线程. 负载缩写: I 为插入, P-S 为点查, RO 为 OLTP 只读, RW 为 OLTP 读写, WO 为 OLTP 只写, U-I 为更新索引列, U-NI 为更新非索引列.](/assets/images/posts/polarstore/figure-12.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 12: Overall performance. Configurations: Sysbench <sup>[43]</sup>, 16 threads in a single client. Workloads: I: Insert, P-S: Point Select, RO: OLTP-Read-Only, RW: OLTP-Read-Write, WO: OLTP-Write-Only, U-I: Update-Index, U-NI: Update-Non-Index.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 12: 整体性能. 使用 Sysbench <sup>[43]</sup>, 单客户端运行 16 个线程. 负载缩写: I 为插入, P-S 为点查, RO 为 OLTP 只读, RW 为 OLTP 读写, WO 为 OLTP 只写, U-I 为更新索引列, U-NI 为更新非索引列.</span>
+
+## 5.2 各项技术的消融实验
+
+To quantify the contribution of each technique, we conduct ablation studies on both performance and space utilization. We run the baseline on N2 cluster with P5510 SSDs, while on C2 cluster we add optimization technique one at a time to evaluate its impact. For performance evaluation (Figure 13), we use the identical benchmark environments as described above. All experiments use Sysbench OLTP-Read-Write workload. For space utilization (Figure 14), we use N2's storage size as baseline and measure the relative compression ratios achieved in C2. We evaluate compression effectiveness using four production datasets that were dumped from user databases and restored in our experimental databases with permission.
+
+我们通过性能和空间利用率两方面的消融实验, 衡量各项技术的贡献. 基准运行于使用 P5510 SSD 的 N2 集群, C2 则逐项加入优化, 观察变化. 性能评估 (图 13) 沿用前述环境, 全部采用 Sysbench OLTP-Read-Write 负载. 空间利用率评估 (图 14) 以 N2 的存储占用为基准, 测量 C2 的相对压缩率. 所用的四个生产数据集, 均经用户许可从其数据库导出, 再恢复到实验数据库中.
+
+<div class="paper-shared">
+
+![各项技术对性能的影响. (a), (b) 为用户请求的关键指标; (c), (d), (e) 分别展示存储层各类 I/O 延迟, 用以对照用户侧性能与内部延迟的变化.](/assets/images/posts/polarstore/figure-13.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 13: Impact of techniques on performance. This figure contrasts user-level performance with internal I/O latency: (a) and (b) show key user-request metrics, while (c), (d), and (e) detail the components of I/O latency at the storage layer.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 13: 各项技术对性能的影响. (a), (b) 为用户请求的关键指标; (c), (d), (e) 分别展示存储层各类 I/O 延迟, 用以对照用户侧性能与内部延迟的变化.</span>
+
+Base hardware compression (PolarCSD). With only PolarCSD's hardware compression enabled, we observe compression ratios ranging from 2.12× to 3.84× across different datasets, but at the cost of 7.4% throughput reduction compared to P5510 (Figure 13a). This performance degradation stems from PolarCSD's higher read latency affecting page read operations (Figure 13d).
+
+**基础硬件压缩 (PolarCSD).** 仅启用 PolarCSD 硬件压缩时, 不同数据集的压缩率为 2.12-3.84 倍, 但相较 P5510, 吞吐量下降 7.4% (图 13a). 原因是 PolarCSD 较高的读延迟影响了页面读取 (图 13d).
+
+Dual-layer compression (+dual-layer). Adding software compression (using zstd by default) further improves compression ratios by 21.7%~50.3% but leads to a 19.6% throughput reduction compared to using hardware compression alone. This performance drop mainly occurs because compressing 16KB redo writes in the software layer slows down redo write operations, increasing their average latency (with 3-way replication and durability) from 59µs to 79µs, as shown in Figure 13c.
+
+**双层压缩 (+dual-layer).** 加入默认使用 zstd 的软件压缩后, 压缩率进一步提高 21.7%-50.3%, 但吞吐量相较仅使用硬件压缩又下降了 19.6%. 主要原因是软件层压缩 16 KB redo log, 拖慢了日志写入. 如图 13c 所示, 包含三副本复制和持久化的平均日志写延迟, 从 59 µs 升至 79 µs.
+
+Avoiding compression for log write (+bypass redo). By bypassing compression for redo writes, we reduce the throughput degradation to only 8.9% compared to hardware compression. Since redo logs are small and frequently recycled, this optimization maintains the compression ratio for user data.
+
+**redo log 写入绕过压缩 (+bypass redo).** 让 redo log 绕过压缩后, 相较仅使用硬件压缩, 吞吐量降幅缩小到 8.9%. redo log 体量小且回收频繁, 因而这项优化不会改变用户数据的压缩率.
+
+Low-latency I/O and decompression for page read via compression selection (+lz4/zstd). When we enable the algorithm selection between lz4 and zstd, system throughput improves significantly, approaching the baseline performance (only 2.1% lower as shown in Figure 13a). This improvement stems from our adaptive strategy that optimally balances I/O and decompression overhead: choosing lz4 when faster decompression is beneficial, and selecting zstd when its additional compression can reduce I/O operations. This optimization reduces average page read latency by approximately 9µs compared to using zstd exclusively. While this selection mechanism increases page write latency, as shown in Figure 13e, this overhead occurs in the background and does not directly impact user operations. Note that, in our evaluation, the update is always issue the algorithm re-selection, representing the worst-page write latency. And in real workloads, algorithm re-selection is unfrenquent, which does not bring high write latency. The impact on compression ratio is minimal. As shown in Figure 14, using compression selection only increases storage space by 0.7%~2.6% compared to using zstd exclusively. The distribution of pages compressed by zstd versus lz4 varies across different datasets, as shown in Table 3.
+
+通过算法选择降低页面读取的 I/O 与解压延迟 (+lz4/zstd). 启用 lz4/zstd 自适应选择后, 吞吐量明显提高, 接近基准, 仅低 2.1% (图 13a). 策略会权衡 I/O 与解压开销: 解压速度更重要时选 lz4, zstd 额外节省的空间足以减少 I/O 时则选 zstd. 相较始终使用 zstd, 平均读页延迟降低约 9 µs. 算法选择虽然增加了写页延迟 (图 13e), 但发生在后台, 不直接影响用户操作. 实验中, 每次更新都会触发重新选择, 因此展示的是最坏情况下的写页延迟; 实际负载中重新选择并不频繁, 不会持续带来较高写延迟. 对压缩率的影响也很小: 相较始终使用 zstd, 算法选择仅使存储占用增加 0.7%-2.6% (图 14). 不同数据集采用 zstd 和 lz4 的页面比例见表 3.
+
+<div class="paper-shared">
+
+![各项技术对空间利用率的影响.](/assets/images/posts/polarstore/figure-14.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 14: Impact of techniques on space utilization.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 14: 各项技术对空间利用率的影响.</span>
+
+<div class="paper-shared">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 3: Distribution of selected compression algorithms (zstd vs. lz4) across different database workloads.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 3: 不同数据库负载下所选压缩算法 (zstd 与 lz4) 的分布.</span>
+
+译者注: 数值按原表保留, Wiki 列合计为 99.9%.
+
+<div class="paper-table paper-lang-en" lang="en">
+
+| Algorithm | Finance | F&B | Wiki | Air Transport |
+|:---|---:|---:|---:|---:|
+| zstd | 73.1% | 41.3% | 52.4% | 51.6% |
+| lz4 | 26.9% | 58.7% | 47.5% | 48.4% |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+| 算法 | 金融 | 餐饮 | 维基 | 航空运输 |
+|:---|---:|---:|---:|---:|
+| zstd | 73.1% | 41.3% | 52.4% | 51.6% |
+| lz4 | 26.9% | 58.7% | 47.5% | 48.4% |
+
+</div>
+
+</div>
+
+Reducing the tail latency for page read via per-page log. To evaluate the effectiveness of our per-page log design under insufficient log cache conditions, we set up a two-node experiment: a read-write (RW) node and a read-only (RO) node, with the RO node intentionally lagging approximately 1s behind in LSN synchronization. This setup prevents log recycling at storage nodes and ensures log cache pressure. We direct OLTP write-only workloads to the RW node and read-only workloads to the RO node. As shown in Figure 15, we measure performance on the RO node with varying thread counts. With threads below 128, the per-page log optimization significantly reduces P95 latency by 28.9%~39.5% compared to the baseline. This improvement stems from reduced I/O amplification during page generation, as our design enables retrieving all necessary logs with a single read operation instead of multiple scattered reads. However, beyond 128 threads, the performance becomes CPU-bound at the RO node, where software queuing dominates the latency and diminishes the benefits of our I/O optimization.
+
+**通过按页组织日志降低读页尾延迟.** 为评估日志缓存不足时的效果, 我们配置一个 RW 节点和一个 RO 节点, 刻意让 RO 的 LSN 同步落后约 1 秒. 这样, 存储节点无法回收日志, 日志缓存持续承压. 向 RW 发送 OLTP 只写负载, 向 RO 发送只读负载, 并在不同线程数下测量 RO 的性能 (图 15). 线程数低于 128 时, 按页组织日志使 P95 延迟相较基准下降 28.9%-39.5%. 原因是生成页面时, 一次读取即可取得全部所需日志, 避免多次分散读取, 降低了 I/O 放大. 但线程数超过 128 后, RO 节点转为 CPU 瓶颈, 软件排队主导了延迟, I/O 优化的收益随之减弱.
+
+<div class="paper-shared">
+
+![启用按页组织日志的优化前后, RO 节点的 OLTP 只读性能.](/assets/images/posts/polarstore/figure-15.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 15: Performance of OLTP read-only (RO nodes) before and after using per-page log optimizations.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 15: 启用按页组织日志的优化前后, RO 节点的 OLTP 只读性能.</span>
+
+## 5.3 与其他方案的比较
+
+We compare PolarDB that enables compression <sup>[1]</sup> with two other popular databases that implement compression at the database layer: InnoDB with table compression <sup>[18]</sup> and MyRocks with compression enabled <sup>[20]</sup>. Figure 16 shows throughput and latency comparison using Sysbench OLTP-Read-Write workload. This experiment uses the same configurations as previous ones. PolarDB demonstrates superior performance over other systems. This is because InnoDB and MyRocks consume resources in compute nodes (which are billed to users) for both space management and compression/decompression operations. These approaches force users to make a trade-off between storage and computing resources, which does not truly reduce costs. In contrast, PolarStore implements compression at the shared storage layer, which offers two key advantages: first, compression becomes completely transparent to database users without consuming their compute resources. Second, by centrally managing resources used for compression across multiple users, cloud providers can potentially achieve better resource utilization and lower operational costs.
+
+我们将启用压缩的 PolarDB <sup>[1]</sup>, 与两种在数据库层实现压缩的常用系统比较: 开启表压缩的 InnoDB <sup>[18]</sup>, 以及开启压缩的 MyRocks <sup>[20]</sup>. 图 16 展示 Sysbench OLTP-Read-Write 下的吞吐量和延迟, 实验配置与前文相同. PolarDB 的性能优于其他系统. 原因是 InnoDB 和 MyRocks 的空间管理及压缩解压都会消耗计算节点资源, 而这些资源向用户计费, 迫使用户在存储资源和计算资源之间取舍, 并未真正降低成本. PolarStore 则在共享存储层完成压缩, 有两项优势: 一是压缩对数据库用户完全透明, 不占用其计算资源; 二是云服务商可集中管理多个用户的压缩资源, 有机会提高资源利用率并降低运营成本.
+
+<div class="paper-shared">
+
+![与其他方案的端到端性能比较.](/assets/images/posts/polarstore/figure-16.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 16: End-to-end performance comparison with other approaches.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 16: 与其他方案的端到端性能比较.</span>
+
+# 6. 讨论
+
+This section discusses related research directions on compression in RDBMSs and alternative space-saving approaches.
+
+本节讨论 RDBMS 数据压缩的相关研究方向, 以及其他节省空间的方法.
+
+Related Directions on Data Compression. There are also some solutions can further improve data compression in RDBMSs. First, to improve compression ratios, we can leverage table-level information to generate shared dictionaries <sup>[44, 45]</sup> for pages within the same table. This approach improves compression ratios by exploiting schema-level semantics and reducing per-page metadata overhead. Second, we can optimize page layouts to facilitate dictionary construction. Database systems store structured data with well-defined field boundaries and type information. By leveraging these properties and incorporating specialized data encoding techniques, we can achieve substantially better compression ratios compared to general-purpose algorithms. Additionally, clustering data of the same column together <sup>[14, 46, 47]</sup> can enhance compression effectiveness by exploiting column-specific patterns. Third, estimation techniques <sup>[16]</sup> can enable rapid algorithm selection to better balance performance and compression ratios. Fourth, leveraging hardware acceleration and vector instructions available in modern CPUs <sup>[30, 48]</sup> can further improve compression/decompression performance.
+
+**数据压缩的相关方向.** 还有一些方法可以进一步改善 RDBMS 的数据压缩. 第一, 利用表级信息, 为同一张表的页面生成共享字典 <sup>[44, 45]</sup>, 借助模式层面的语义并减少每页元数据开销, 提高压缩率. 第二, 优化页面布局, 便于构建字典. 数据库中的结构化数据具有明确的字段边界和类型信息, 结合专门的数据编码技术, 可获得显著优于通用算法的压缩率. 将同一列的数据集中存放 <sup>[14, 46, 47]</sup>, 还能利用列特有的模式改善压缩效果. 第三, 通过估算技术 <sup>[16]</sup> 快速选择算法, 更好地平衡性能与压缩率. 第四, 利用现代 CPU 提供的硬件加速和向量指令 <sup>[30, 48]</sup>, 进一步提高压缩与解压性能.
+
+Alternative Space-Saving Approaches. Storage tiering <sup>[49-52]</sup> offers another approach to cost reduction. For instance, our system supports table-level archiving of cold data to object storage. Erasure coding (EC) <sup>[53-56]</sup> presents an alternative for reducing storage costs while maintaining reliability comparable to replication-based systems. However, EC is not currently suitable for our system's redo records and remains a future research direction. Further, data deduplication <sup>[57-65]</sup> can effectively reduce storage costs, but its applicability in RDBMSs is limited since data is typically stored at the record level, making exact page-level deduplication matches rare.
+
+**其他节省空间的方法.** 存储分层 <sup>[49-52]</sup> 是另一种降本手段. 例如, 我们的系统支持按表将冷数据归档到对象存储. 纠删码 (EC) <sup>[53-56]</sup> 可以在提供与多副本系统相近可靠性的同时降低存储成本, 但目前不适合系统中的 redo log, 仍有待后续研究. 数据去重 <sup>[57-65]</sup> 也能有效降低存储成本, 但在 RDBMS 中适用性有限: 数据通常按记录组织, 整个页面完全相同的情况很少.
+
+# 7. 结论
+
+This paper revisits data compression in RDBMS and presents PolarStore, a shared storage system with dual-layer compression architecture for large-scale cloud-native databases. The key contributions include a hardware/software co-designed compression mechanism that achieves both high space utilization and flexibility, database-oriented optimizations that maintain high performance on critical I/O paths, and practical solutions for large-scale deployment challenges. PolarStore has been deployed on thousands of nodes, serving tens of thousands of customers, and represents one of the largest known deployments of computational storage in production databases.
+
+本文重新审视 RDBMS 中的数据压缩问题, 提出面向大规模云原生数据库的共享存储系统 PolarStore, 采用双层压缩架构. 主要贡献包括: 兼顾空间利用率与灵活性的软硬件协同压缩机制; 保障关键 I/O 路径性能的数据库专项优化; 以及应对大规模部署问题的实用解决方案. PolarStore 已部署于数千个节点, 服务数万名客户, 是已知在生产数据库中规模最大的计算存储部署之一.
+
+# 8. 致谢
+
+We sincerely thank our shepherd Juncheng Yang and anonymous reviewers for their valuable feedback, which significantly improved this paper. We thank the PolarDB Infrastructure Team and Alibaba Infrastructure Service (AIS) Group for their support and contributions to this work.
+
+感谢论文指导人 Juncheng Yang 和匿名审稿人提出的宝贵意见, 帮助我们显著改进了论文. 感谢 PolarDB 基础设施团队和阿里巴巴基础设施服务 (AIS) 团队对本工作的支持与贡献.
+
+# 9. 参考文献
+
+<div class="paper-shared">
+
+[1] Enable the storage compression feature in PolarDB. [Online]. `https://www.alibabacloud.com/help/en/polardb/polardb-for-mysql/how-to-turn-on-storage-compression`.
+
+[2] Alexandre Verbitski, Anurag Gupta, Debanjan Saha, Murali Brahmadesam, Kamal Gupta, Raman Mittal, Sailesh Krishnamurthy, Sandor Maurice, Tengiz Kharatishvili, and Xiaofeng Bao. Amazon aurora: Design considerations for high throughput Cloud-Native relational databases. In ACM International Conference on Management of Data (SIGMOD '17), pages 1041-1052. ACM, 2017.
+
+[3] Panagiotis Antonopoulos, Alex Budovski, Cristian Diaconu, Alejandro Hernandez Saenz, Jack Hu, Hanuma Kodavalla, Donald Kossmann, Sandeep Lingam, Umar Farooq Minhas, Naveen Prakash, Vijendra Purohit, Hugh Qu, Chaitanya Sreenivas Ravella, Krystyna Reisteter, Sheetal Shrotri, Dixin Tang, and Vikram Wakade. Socrates: The new SQL server in the cloud. In International Conference on Management of Data (SIGMOD '19), pages 1743-1756. ACM, 2019.
+
+[4] Feifei Li. Cloud native database systems at alibaba: Opportunities and challenges. `Proc. VLDB Endow.`, 12(12): 2263-2272, 2019.
+
+[5] Zongzhi Chen, Xinjun Yang, Feifei Li, Xuntao Cheng, Qingda Hu, Zheyu Miao, Rongbiao Xie, Xiaofei Wu, Kang Wang, Zhao Song, Haiqing Sun, Zechao Zhuang, Yuming Yang, Jie Xu, Liang Yin, Wenchao Zhou, and Sheng Wang. CloudJump: Optimizing cloud databases for cloud storages. `Proc. VLDB Endow.`, 15(12): 3432-3444, aug 2022.
+
+[6] Wei Cao, Zhenjun Liu, Peng Wang, Sen Chen, Caifeng Zhu, Song Zheng, Yuhui Wang, and Guoqing Ma. PolarFS: An ultra-low latency and failure resilient distributed file system for shared storage cloud database. `Proc. VLDB Endow.`, 11(12): 1849-1862, aug 2018.
+
+[7] Zongzhi Chen, Xinjun Yang, Mo Sha, Feifei Li, Kang Wang, Zheyu Miao, Jie Xu, Jianfeng Wang, and Sheng Wang. Cloudjump ii: Optimizing cloud databases for shared storage. In ACM SIGMOD International Conference on Management of Data (SIGMOD '25), SIGMOD/PODS '25, page 336-349, New York, NY, USA, 2025. Association for Computing Machinery.
+
+[8] Gennady Pekhimenko, Chuanxiong Guo, Myeongjae Jeon, Peng Huang, and Lidong Zhou. TerseCades: Efficient data compression in stream processing. In USENIX Annual Technical Conference (USENIX ATC '18), pages 307-320. USENIX Association, jul 2018.
+
+[9] Xiaokang Hu, Fuzong Wang, Weigang Li, Jian Li, and Haibing Guan. QZFS: QAT accelerated compression in file system for application agnostic and cost efficient data storage. In USENIX Annual Technical Conference (USENIX ATC '19), pages 163-176. USENIX Association, jul 2019.
+
+[10] Daniel Reiter Horn, Ken Elkabany, Chris Lesniewski-Lass, and Keith Winstein. The design, implementation, and deployment of a system to transparently compress hundreds of petabytes of image files for a File-Storage service. In 14th USENIX Symposium on Networked Systems Design and Implementation (NSDI '17), pages 1-15. USENIX Association, mar 2017.
+
+[11] Bo Mao, Hong Jiang, Suzhen Wu, Yaodong Yang, and Zaifa Xi. Elastic data compression with improved performance and space efficiency for Flash-Based storage systems. In IEEE International Parallel and Distributed Processing Symposium (IPDPS '17), pages 1109-1118. IEEE, 2017.
+
+[12] W. Paul Cockshott, D. McGregor, Nikolaos Kotsis, and John Wilson. Data compression in database systems. In Ninth International Workshop on Database and Expert Systems Applications (DEXA '98), pages 981-990. IEEE, 1998.
+
+[13] Balakrishna R. Iyer and David Wilhite. Data compression support in databases. pages 695-704, 1994.
+
+[14] Meikel Pöss and Dmitry Potapov. Data compression in oracle. pages 937-947. Morgan Kaufmann, 2003.
+
+[15] Chuqing Gao, Shreya Ballijepalli, and Jianguo Wang. Revisiting B-tree compression: An experimental study. Proceedings of the ACM on Management of Data, 2(3): 1-25, 2024.
+
+[16] Danny Harnik, Ronen Kat, Dmitry Sotnikov, Avishay Traeger, and Oded Margalit. To zip or not to zip: Effective resource usage for Real-Time compression. In 11th USENIX Conference on File and Storage Technologies (FAST '13), pages 229-241, 2013.
+
+[17] Danny Harnik, Ety Khaitzin, Dmitry Sotnikov, and Shai Taharlev. A fast implementation of deflate. In Data Compression Conference (DCC '14), pages 223-232. IEEE, 2014.
+
+[18] InnoDB table compression. [Online]. `https://dev.mysql.com/doc/refman/8.4/en/innodb-table-compression.html`.
+
+[19] InnoDB page compression. [Online]. `https://dev.mysql.com/doc/refman/8.4/en/innodb-page-compression.html`.
+
+[20] Yoshinori Matsunobu, Siying Dong, and Herman Lee. MyRocks: LSM-Tree database storage engine serving facebook's social graph. `Proc. VLDB Endow.`, 13(12): 3217-3230, 2020.
+
+[21] Dongxu Huang, Qi Liu, Qiu Cui, Zhuhe Fang, Xiaoyu Ma, Fei Xu, Li Shen, Liu Tang, Yuxing Zhou, Menglong Huang, et al. TiDB: A Raft-based HTAP database. `Proc. VLDB Endow.`, 13(12): 3072-3084, 2020.
+
+[22] Compression in RocksDB. [Online]. `https://github.com/facebook/rocksdb/wiki/Compression`.
+
+[23] Compression in LevelDB. [Online]. `https://github.com/google/leveldb/blob/main/doc/index.md`.
+
+[24] Zhenkun Yang, Chuanhui Yang, Fusheng Han, Mingqiang Zhuang, Bing Yang, Zhifeng Yang, Xiaojun Cheng, Yuzhong Zhao, Wenhui Shi, Huafeng Xi, et al. Oceanbase: a 707 million tpmc distributed relational database system. Proceedings of the VLDB Endowment, 15(12): 3385-3397, 2022.
+
+[25] Ning Zheng, Xubin Chen, Jiangpeng Li, Qi Wu, Yang Liu, Yong Peng, Fei Sun, Hao Zhong, and Tong Zhang. Re-think data management software design upon the arrival of storage hardware with Built-in transparent compression. In 12th USENIX Workshop on Hot Topics in Storage and File Systems (HotStorage '20). USENIX Association, 2020.
+
+[26] Kecheng Huang, Zhaoyan Shen, Zili Shao, Tong Zhang, and Feng Chen. Breathing new life into an old tree: Resolving logging dilemma of B+-tree on modern computational storage drives. `Proc. VLDB Endow.`, 17(2): 134-147, oct 2023.
+
+[27] Monica Chiosa, Fabio Maschi, Ingo Müller, Gustavo Alonso, and Norman May. Hardware acceleration of compression and encryption in SAP HANA. `Proc. VLDB Endow.`, 15(12): 3277-3291, 2022.
+
+[28] Yifan Qiao, Xubin Chen, Ning Zheng, Jiangpeng Li, Yang Liu, and Tong Zhang. Closing the B+-tree vs. LSM-tree write amplification gap on modern storage hardware with Built-in transparent compression. In 20th USENIX Conference on File and Storage Technologies (FAST '22), pages 69-82. USENIX Association, 2022.
+
+[29] Jeremy Fowers, Joo-Young Kim, Doug Burger, and Scott Hauck. A scalable High-Bandwidth architecture for lossless compression on FPGAs. In IEEE 23rd Annual International Symposium on Field-Programmable Custom Computing Machines (FCCM '15), pages 52-59, 2015.
+
+[30] Intel QAT. [Online]. `https://www.intel.com/content/www/us/en/architecture-and-technology/intel-quick-assist-technology-overview.html`.
+
+[31] Weidong Zhang, Erci Xu, Qiuping Wang, Xiaolu Zhang, Yuesheng Gu, Zhenwei Lu, Tao Ouyang, Guanqun Dai, Wenwen Peng, Zhe Xu, et al. What's the story in EBS glory: Evolutions and lessons in building cloud block store. In 22nd USENIX Conference on File and Storage Technologies (FAST '24), pages 277-291, 2024.
+
+[32] Qiang Li, Qiao Xiang, Yuxin Wang, Haohao Song, Ridi Wen, Wenhui Yao, Yuanyuan Dong, Shuqi Zhao, Shuo Huang, Zhaosheng Zhu, et al. More than capacity: Performance-oriented evolution of pangu in alibaba. In 21st USENIX Conference on File and Storage Technologies (FAST '23), pages 331-346, 2023.
+
+[33] Xiang Chen, Tao Lu, Jiapin Wang, Yu Zhong, Guangchun Xie, Xueming Cao, Yuanpeng Ma, Bing Si, Feng Ding, Ying Yang, et al. HA-CSD: Host and SSD coordinated compression for capacity and performance. In IEEE International Parallel and Distributed Processing Symposium (IPDPS '24), pages 825-838. IEEE, 2024.
+
+[34] Gunhee Choi, Kwanghee Lee, Myunghoon Oh, Jongmoo Choi, Jhuyeong Jhin, and Yongseok Oh. A new LSM-style garbage collection scheme for ZNS SSDs. In 12th USENIX Workshop on Hot Topics in Storage and File Systems (HotStorage '20). USENIX Association, jul 2020.
+
+[35] Chen Luo and Michael J. Carey. LSM-based storage techniques: A survey. The VLDB Journal, 29(1): 393-418, 2020.
+
+[36] Youyou Lu, Jiwu Shu, and Weimin Zheng. Extending the lifetime of Flash-Based storage through reducing write amplification from file systems. In 11th USENIX Conference on File and Storage Technologies (FAST '13), pages 257-270, 2013.
+
+[37] Zhe Yang, Youyou Lu, Xiaojian Liao, Youmin Chen, Junru Li, Siyu He, and Jiwu Shu. λ-IO: A unified IO stack for computational storage. In 21st USENIX Conference on File and Storage Technologies (FAST '23), pages 347-362. USENIX Association, 2023.
+
+[38] Jian Zhang, Yujie Ren, Marie Nguyen, Changwoo Min, and Sudarsun Kannan. OmniCache: Collaborative caching for Near-storage accelerators. In 22nd USENIX Conference on File and Storage Technologies (FAST '24), pages 35-50. USENIX Association, feb 2024.
+
+[39] Dongup Kwon, Dongryeong Kim, Junehyuk Boo, Wonsik Lee, and Jangwoo Kim. A fast and flexible Hardware-based virtualization mechanism for computational storage devices. In USENIX Annual Technical Conference (USENIX ATC '21), pages 729-743. USENIX Association, 2021.
+
+[40] Wei Cao, Yang Liu, Zhushi Cheng, Ning Zheng, Wei Li, Wenjie Wu, Linqiang Ouyang, Peng Wang, Yijing Wang, Ray Kuan, Zhenjun Liu, Feng Zhu, and Tong Zhang. POLARDB meets computational storage: Efficiently support analytical workloads in Cloud-Native relational database. In 18th USENIX Conference on File and Storage Technologies (FAST '20), pages 29-41. USENIX Association, 2020.
+
+[41] Youyou Lu, Jiacheng Zhang, Zhe Yang, Liyang Pan, and Jiwu Shu. OCStore: Accelerating distributed object storage with Open-Channel SSDs. In 39th IEEE International Conference on Distributed Computing Systems (ICDCS '19), pages 271-281. IEEE, 2019.
+
+[42] Jens Axboe. Flexible I/O Tester. [Online], 2022.
+
+[43] Sysbench. [Online]. `https://github.com/akopytov/sysbench`.
+
+[44] Dominik Kempa and Nicola Prezza. At the roots of dictionary compression: String attractors. In 50th Annual ACM SIGACT Symposium on Theory of Computing (STOC '18), pages 827-840, 2018.
+
+[45] N. Jesper Larsson and Alistair Moffat. Off-line Dictionary-Based compression. Proceedings of the IEEE, 88(11): 1722-1732, 2000.
+
+[46] Alexander Slesarev, Evgeniy Klyuchikov, Kirill Smirnov, and George Chernishev. Revisiting data compression in Column-Stores. In 10th International Conference on Model and Data Engineering (MEDI '21), pages 279-292. Springer, 2021.
+
+[47] Daniel J. Abadi, Samuel Madden, and Miguel Ferreira. Integrating compression and execution in Column-Oriented database systems. In ACM SIGMOD International Conference on Management of Data (SIGMOD '06), pages 671-682. ACM, 2006.
+
+[48] Bulent Abali, Bart Blaner, John Reilly, Matthias Klein, Ashutosh Mishra, Craig B. Agricola, Bedri Sendir, Alper Buyuktosunoglu, Christian Jacobi, William J. Starke, et al. Data compression accelerator on IBM POWER9 and z15 processors: Industrial product. In 47th Annual International Symposium on Computer Architecture (ISCA '20), pages 1-14. IEEE, 2020.
+
+[49] Shucheng Wang, Ziyi Lu, Qiang Cao, Hong Jiang, Jie Yao, Yuanyuan Dong, and Puyuan Yang. BCW: Buffer-Controlled writes to HDDs for SSD-HDD hybrid storage server. In 18th USENIX Conference on File and Storage Technologies (FAST '20), pages 253-266, 2020.
+
+[50] Shengan Zheng, Morteza Hoseinzadeh, and Steven Swanson. Ziggurat: A tiered file system for Non-Volatile main memories and disks. In 17th USENIX Conference on File and Storage Technologies (FAST '19), pages 207-219, 2019.
+
+[51] Jorge Guerra, Himabindu Pucha, Joseph Glider, Wendy Belluomini, and Raju Rangaswami. Cost effective storage using extent based dynamic tiering. In 9th USENIX Conference on File and Storage Technologies (FAST '11), 2011.
+
+[52] Gong Zhang, Lawrence Chiu, and Ling Liu. Adaptive data migration in Multi-Tiered storage based cloud environment. In 3rd IEEE International Conference on Cloud Computing (CLOUD '10), pages 148-155. IEEE, 2010.
+
+[53] Ojus Thomas Lee, S. D. Madhu Kumar, and Priya Chandran. Erasure coded storage systems for cloud storage -- challenges and opportunities. In International Conference on Data Science and Engineering (ICDSE '16), pages 1-7. IEEE, 2016.
+
+[54] Jun Li and Baochun Li. Erasure coding for cloud storage systems: A survey. Tsinghua Science and Technology, 18(3): 259-272, 2013.
+
+[55] Xiaolu Li, Runhui Li, Patrick P. C. Lee, and Yuchong Hu. OpenEC: Toward unified and configurable erasure coding management in distributed storage systems. In 17th USENIX Conference on File and Storage Technologies (FAST '19), pages 331-344, 2019.
+
+[56] James S. Plank. T1: Erasure codes for storage applications. In 4th USENIX Conference on File and Storage Technologies (FAST '05), pages 1-74, 2005.
+
+[57] Danny Harnik, Ety Khaitzin, and Dmitry Sotnikov. Estimating unseen Deduplication -- from theory to practice. In 14th USENIX Conference on File and Storage Technologies (FAST '16), pages 277-290, 2016.
+
+[58] Kiran Srinivasan, Timothy Bisson, Garth R. Goodson, and Kaladhar Voruganti. iDedup: Latency-Aware, inline data deduplication for primary storage. In 10th USENIX Conference on File and Storage Technologies (FAST '12), pages 1-14, 2012.
+
+[59] Wen Xia, Yukun Zhou, Hong Jiang, Dan Feng, Yu Hua, Yuchong Hu, Qing Liu, and Yucheng Zhang. FastCDC: A fast and efficient Content-Defined chunking approach for data deduplication. In USENIX Annual Technical Conference (USENIX ATC '16), pages 101-114, 2016.
+
+[60] Zhuan Chen and Kai Shen. OrderMergeDedup: Efficient, Failure-Consistent deduplication on flash. In 14th USENIX Conference on File and Storage Technologies (FAST '16), pages 291-299, 2016.
+
+[61] Min Fu, Dan Feng, Yu Hua, Xubin He, Zuoning Chen, Wen Xia, Yucheng Zhang, and Yujuan Tan. Design tradeoffs for data deduplication performance in backup workloads. In 13th USENIX Conference on File and Storage Technologies (FAST '15), pages 331-344, 2015.
+
+[62] Qirui Yang, Runyu Jin, and Ming Zhao. SmartDedup: Optimizing deduplication for Resource-Constrained devices. In USENIX Annual Technical Conference (USENIX ATC '19), pages 633-646, 2019.
+
+[63] Jiawei Huang, Junru Li, Qing Wang, Lijie Wen, Youyou Lu, and Erci Xu. Cablecache: In-network request deduplication for key-value stores. In Proceedings of the 17th ACM Workshop on Hot Topics in Storage and File Systems (HotStorage'25), HotStorage '25, page 86-92, New York, NY, USA, 2025. Association for Computing Machinery.
+
+[64] Zhichao Cao, Shiyong Liu, Fenggang Wu, Guohua Wang, Bingzhe Li, and David H. C. Du. Sliding Look-Back window assisted data chunk rewriting for improving deduplication restore performance. In 17th USENIX Conference on File and Storage Technologies (FAST '19), pages 129-142, 2019.
+
+[65] Zhichao Cao, Hao Wen, Fenggang Wu, and David H. C. Du. SMRTS: A performance and Cost-Effectiveness optimized SSD-SMR tiered file system with data deduplication. In 2023 IEEE 41st International Conference on Computer Design (ICCD '23), pages 275-282. IEEE, 2023.
+
+</div>

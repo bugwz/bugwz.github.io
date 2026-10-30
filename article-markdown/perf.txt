@@ -1,0 +1,130 @@
+# Perf 与火焰图
+
+# 1. Perf
+
+Perf 是基于 Linux 2.6+系统的一款性能分析工具. 它可以用来分析应用程序和内核的性能问题, 从而全面理解应用程序中的性能瓶颈.
+
+```bash
+[root@bugwz ~]# perf --help
+
+ usage: perf [--version] [--help] [OPTIONS] COMMAND [ARGS]
+
+ The most commonly used perf commands are:
+   annotate        Read perf.data (created by perf record) and display annotated code
+   archive         Create archive with object files with build-ids found in perf.data file
+   bench           General framework for benchmark suites
+   buildid-cache   Manage build-id cache.
+   buildid-list    List the buildids in a perf.data file
+   data            Data file related processing
+   diff            Read perf.data files and display the differential profile
+   evlist          List the event names in a perf.data file
+   inject          Filter to augment the events stream with additional information
+   kmem            Tool to trace/measure kernel memory properties
+   kvm             Tool to trace/measure kvm guest os
+   list            List all symbolic event types
+   lock            Analyze lock events
+   mem             Profile memory accesses
+   record          Run a command and record its profile into perf.data
+   report          Read perf.data (created by perf record) and display the profile
+   sched           Tool to trace/measure scheduler properties (latencies)
+   script          Read perf.data (created by perf record) and display trace output
+   stat            Run a command and gather performance counter statistics
+   test            Runs sanity tests.
+   timechart       Tool to visualize total system behavior during a workload
+   top             System profiling tool.
+   probe           Define new dynamic tracepoints
+   trace           strace inspired tool
+
+ See 'perf help COMMAND' for more information on a specific command.
+```
+
+
+- `annotate`: 读取 perf record 生成的数据文件, 如果目标文件具有调试符号, 则源代码将与汇编代码一起显示, 如果对象中没有调试信息, 则会显示带注释的程序集;
+- `archive`: 根据 perf record 生成的数据文件记录的 build-id, 将所有被采样到的 elf 文件打包, 利用此压缩包, 可以在任何机器上分析数据文件中记录的采样数据;
+- `bench`: perf 中内置的 benchmark, 可对对系统性能进行摸底;
+- `buildid-cache`: 用来管理 perf 文件的 buildid 缓存, 每个 elf 文件都有独一无二的 buildid, buildid 被 perf 用来将 elf 文件和它的性能数据关联起来;
+- `build-list`: 列出数据文件中记录的所有 buildid;
+- `data`: 数据文件的相关处理;
+- `diff`: 对比两个数据文件的差异. 能够给出每个符号 (函数) 在热点分析上的具体差异;
+- `evlist`: 列出数据文件 perf.data 中所有性能事件;
+- `inject`: 过滤 perf record 的数据流, 并将其定向到标准输出, 在被分析代码中的任何一点, 都可以向事件流中注入其它事件;
+- `kmem`: 针对内核内存 (slab) 子系统进行追踪测量的工具;
+- `kvm`: 用来追踪测试运行在 KVM 虚拟机上的 Guest OS;
+- `list`: 查看当前系统支持的所有性能事件, 包括硬件性能事件, 软件性能事件以及检查点;
+- `lock`: 分析内核中的锁信息, 包括锁的争用情况, 等待延迟等;
+- `mem`: 分析内存存取情况;
+- `record`: 收集采样信息, 并将其记录在数据文件中, 随后可通过其它工具对数据文件进行分析;
+- `report`: 读取 perf record 创建的数据文件, 并给出热点分析结果;
+- `sched`: 针对调度器子系统的分析工具;
+- `script`: 执行 perl 或 python 写的功能扩展脚本, 生成脚本框架, 读取数据文件中的数据信息等;
+- `stat`: 执行某个命令, 收集特定进程的性能概况, 包括 CPI, Cache 丢失率等;
+- `test`: 对当前软硬件平台进行健全性测试, 可用此工具测试当前的软硬件平台是否能支持 perf 的所有功能;
+- `timechart`: 针对测试期间系统行为进行可视化的工具;
+- `top`: 可实时查看当前系统进程函数占用率情况;
+- `probe`: 关于 syscall 的工具;
+- `trace`: 用于定义动态检查点;
+
+
+
+## 1.1 使用示例
+
+按照 `每秒99次` 的采样频率对 `进程号为13294` 的进程进行 `持续30秒` 的性能分析, 并将结果记录在当前目录的 `perf.data` 文件中:
+
+```bash
+sudo perf record -F 99 -g -p 13204 --sleep 30
+```
+
+- `perf record`: 表示记录;
+- `-F 99`: 每秒 99 次采集;
+- `-g` : 采集符号;
+- `-p 13204`: 进程号, 即对哪个进程进行分析;
+- `sleep 30`: 持续 30 秒;
+
+
+
+监测 `进程号为10034` 的进程的函数占用率情况:
+
+```bash
+sudo perf top -p 10034
+```
+
+# 2. 火焰图
+
+[火焰图](https://github.com/brendangregg/FlameGraph) 是依据 perf 的分析结果而产生的一个 SVG 图片, 它是一种可视化堆栈跟踪样本的方法.
+
+- `x 轴`: 表示抽样的样本总体, 每个函数都被绘制成矩形, 其宽度相当于样本数, 宽度越大表示该函数被抽到的次数越多, 即执行的时间越长;
+- `y 轴`: 表示堆栈深度, 顶部是正在执行的函数, 下方是它的父函数, 火焰越高表示调用栈越深;
+
+## 2.1 将 perf 数据转换为火焰图
+
++ 下载火焰图项目, 需要用到项目的相关脚本:
+
+  ```bash
+  git clone https://github.com/brendangregg/FlameGraph.git
+  ```
+
++ 用 `perf script` 工具对 perf.data 进行解析:
+
+  ```bash
+  perf script -i perf.data > perf.unfold
+  ```
+
++ 将 `perf.unfold` 中的符号进行折叠:
+
+  ```bash
+  ./FlameGraph/stackcollapse-perf.pl perf.unfold > perf.folded
+  ```
+
++ 生成 svg 火焰图:
+
+  ```bash
+  ./FlameGraph/flamegraph.pl perf.folded > perf.svg
+  ```
+
+
+
+# 3. 参考链接
+
+- https://blog.csdn.net/qinglongzhan/article/details/89350195
+- http://www.ruanyifeng.com/blog/2017/09/flame-graph.html
+- https://segmentfault.com/a/1190000021465563

@@ -1,0 +1,891 @@
+# 译 - Cost-efficient Archive Cloud Storage with Tape: Design and Deployment
+
+<div class="paper-shared">
+
+原论文 [Cost-efficient Archive Cloud Storage with Tape: Design and Deployment](https://www.usenix.org/conference/fast26/presentation/wang) 发表于 FAST 2026 (第 24 届 USENIX 文件与存储技术会议), 中文题名为 "基于磁带的低成本云归档存储: 设计与部署". 这是一篇部署系统论文.
+
+磁带适合低成本保存长期归档数据, 但磁带库驱动器数量有限, 随机访问和频繁切换磁带的代价都很高. TapeOBS 围绕这些硬件约束设计云归档服务:
+
+**异步磁带池**
+
+- 读写请求先进入异步调度流程, 将数据批量组织后再写入磁带, 并结合纠删编码提供可靠性.
+
+**磁带库实现**
+
+- 专用驱动器减少不同任务相互干扰造成的频繁换带; 本地存储引擎避免在磁带上执行细粒度的元数据随机读.
+
+**部署规模**
+
+- 论文记录 TapeOBS 从 2022 年底逐步上线, 到 2024 年正式提供服务. 截至论文撰写时, 系统已存储数百 PB 的用户原始数据.
+
+TapeOBS 是华为云面向长期归档的磁带存储服务. 这篇 FAST 2026 部署系统论文关注的不只是磁带的低成本, 还包括驱动器数量有限, 换带耗时和随机读取缓慢给大规模服务带来的约束. 系统在磁带池前设置较小的 HDD 池: 用户写入先在 HDD 池中可靠保存, 再异步刷入磁带; 对象恢复也先从磁带异步复制到 HDD 池, 再由后者响应读取. 异步处理使系统能够按对象存活时间组织数据, 批量执行跨对象纠删编码, 并重排恢复请求, 减少垃圾回收开销以及换带和寻道次数. 在磁带库内部, TapeOBS 用 SSD 保存对象位置等元数据, 避免为了查找元数据而随机访问磁带; 同时将驱动器分给写入, 读取和内部维护等任务, 减少任务干扰造成的驱动器抖动. 论文还分析了生产负载, 容量利用率, 服务性能和磁带库故障. TapeOBS 从 2022 年底逐步上线, 2024 年正式向客户提供服务; 截至论文撰写时, 已保存数百 PB 用户原始数据. 这些设计与部署经验说明, 磁带归档服务的成本优势需要依靠异步调度, 数据布局和磁带库资源管理共同实现.
+
+部署规模, 产品代际和实验结果均以论文撰写时为准. restore 译为对象恢复, 与故障后的 EC 修复区分.
+
+译者校注: 原文第 4.1 节给出 "23.2 GB (80 s × 360 MB/s)", 但按十进制单位乘积应为 28.8 GB; 译文保留原值. 原文第 5.4 节将磁带池数据增长趋势指向图 12a, 图中对应面板实际为 12b, 这里保留原文引用并说明差异.
+
+</div>
+
+# 0. 摘要
+
+TapeOBS is an archive storage service offered by Huawei Cloud, which delivers high cost-efficiency by leveraging tape to store large volumes of archived data. Although tape boasts a low total cost of ownership, its inherent characteristics (`e.g.`, a limited number of drives within a tape library) pose unique challenges when developing a large-scale distributed storage system. To address these challenges, we take a holistic approach in designing TapeOBS. At the high level, we introduce a fully asynchronous tape pool, which supports data scheduling and erasure coding in a batched manner, aligning with the features of tape hardware. Within a tape library, we design a tape-tailored local storage engine and incorporate techniques such as dedicated drives to optimize performance. TapeOBS began its gradual rollout at the end of 2022 and officially started serving customers in 2024. As of this writing, TapeOBS has stored hundreds of petabytes of raw user data.
+
+TapeOBS 是华为云提供的归档存储服务, 利用磁带保存海量归档数据, 降低存储成本. 磁带的总拥有成本虽低, 但其固有特征, 如磁带库中驱动器数量有限, 给大规模分布式存储系统带来了独特挑战. 为此, 我们从整体上设计 TapeOBS. 在系统层面, 引入完全异步的磁带池, 支持批量数据调度和纠删编码, 以适应磁带硬件特性. 在磁带库内部, 设计面向磁带的本地存储引擎, 并采用专用驱动器等技术优化性能. TapeOBS 于 2022 年底开始逐步上线, 2024 年正式向客户提供服务. 截至本文撰写时, 已存储数百 PB 的用户原始数据.
+
+# 1. 引言
+
+Humans are producing data at an unprecedented pace, with an estimated 402.74 million terabytes generated daily in 2024 <sup>[3]</sup>. While much of this data is actively used, a significant portion, such as medical images, backup files, video materials, and logs, is rarely accessed but must still be retained for long periods. This requirement makes archive storage indispensable. Therefore, many cloud service providers, including Huawei Cloud <sup>[7]</sup>, AWS <sup>[5]</sup>, GCP <sup>[6]</sup>, and Alibaba Cloud <sup>[4]</sup>, offer archive storage services, which focus on long-term preservation and cost efficiency, offering a scalable solution for managing massive but rarely accessed data.
+
+人类正以前所未有的速度生成数据, 据估计, 2024 年每天产生 4.0274 亿 TB 数据 <sup>[3]</sup>. 其中很多数据会被频繁使用, 但医学影像, 备份文件, 视频素材和日志等大量数据很少被访问, 却必须长期保留, 这使归档存储不可或缺. 因此, 华为云 <sup>[7]</sup>, AWS <sup>[5]</sup>, GCP <sup>[6]</sup>, 阿里云 <sup>[4]</sup> 等云服务商都提供归档存储服务, 以长期保存和成本效率为重点, 为海量低频访问数据提供可扩展的管理方案.
+
+In this paper, we present the design and deployment of TapeOBS, a tape-based archive storage service that exposes object interfaces to customers. Before TapeOBS, Huawei Cloud had an HDD-based archive storage service. In pursuit of better cost efficiency, we aim to leverage tape, an old yet evolving storage technology, to provide our customers with a cheaper archive storage service. Compared with HDD, tape has a lower total cost of ownership (`e.g.`, >50% lower price and 2× longer lifetime), less CO2e emissions <sup>[30]</sup>, and a more clear technology roadmap <sup>[18]</sup>.
+
+本文介绍 TapeOBS 的设计与部署. 它是一种基于磁带的归档存储服务, 对客户提供对象接口. 在此之前, 华为云已有基于 HDD 的归档服务. 为进一步降低成本, 我们希望借助磁带这一历史悠久却仍在发展的技术, 提供更便宜的服务. 相比 HDD, 磁带的总拥有成本更低, 例如价格低 50% 以上, 使用寿命长一倍; 其二氧化碳当量排放也更少 <sup>[30]</sup>, 技术发展路线更清晰 <sup>[18]</sup>.
+
+However, building TapeOBS is not simply replacing HDDs with tapes. Physically, a distributed tape-based storage system is comprised of a set of tape libraries. A tape library typically hosts thousands of tapes and presents unique profiles. First, the tape library decouples tapes (which hold the stored data) and drives (which read and write data on tapes), and it operates with a low drive-to-tape ratio. For example, in TapeOBS, a tape library contains 1000 tapes but only 4 drives, and each drive can deliver 360MB/s. Second, mounting a tape to a drive is time-consuming (taking around 80 seconds in our platform), which involves tasks like rewinding and unloading the previous tape, loading the target tape, and the physical movement of the robotic accessor. If a drive frequently switches between different tapes (a phenomenon we call drive thrashing), we cannot fully exploit its raw performance. Finally, although a tape supports random reads, the tape requires wind/rewind to locate data, inducing considerable seek time. The above understanding of tapes motivates us to take a holistic approach in designing TapeOBS.
+
+但构建 TapeOBS 并非简单地把 HDD 换成磁带. 分布式磁带存储系统由多个磁带库组成, 每个库通常容纳数千盘磁带, 具有独特的性能特征. 首先, 保存数据的磁带与读写数据的驱动器相互分离, 驱动器与磁带的数量比很低. 例如 TapeOBS 的一个库有 1000 盘磁带, 却只有四个驱动器, 每个提供 360 MB/s 带宽. 其次, 将磁带装入驱动器很耗时, 在我们的平台上约需 80 秒, 涉及旧磁带回卷和卸载, 目标磁带装载, 机械手移动等操作. 若驱动器频繁切换磁带, 即我们所说的驱动器抖动, 就无法充分发挥原始性能. 最后, 磁带虽然支持随机读, 仍需通过卷带或回卷定位数据, 寻道时间很长. 这些特征促使我们从整体上设计 TapeOBS.
+
+At the high level, TapeOBS introduces a fully asynchronous tape pool, which means all reads and writes to tapes are asynchronous (`i.e.`, they do not need to be executed immediately). Specifically, in addition to the tape pool, TapeOBS also maintains a small HDD pool, whose capacity is about 4% of tapes in our production environment. The HDD pool acts as a temporary staging area for data. For user writes, TapeOBS first pushes data into the HDD pool in a highly available manner, and then flushes data to the tape pool asynchronously. By doing so, TapeOBS can handle workload bursts since the HDD pool has a larger aggregated write bandwidth than the tape pool. For user reads, by leveraging the hour-level SLA (service level agreement) of restoring archived objects, after receiving restore requests, TapeOBS asynchronously copies objects from the tape pool to the HDD pool. The objects in the HDD pool can then serve user read requests.
+
+在系统层面, TapeOBS 引入完全异步的磁带池, 即对磁带的全部读写都不必立即执行. 除磁带池外, 系统还维护一个较小的 HDD 池, 生产环境中容量约为磁带池的 4%, 用作临时数据暂存区. 用户写入先以高可用方式进入 HDD 池, 再异步刷入磁带池. HDD 池的总写带宽更高, 因而能够吸收突发负载. 用户读取则利用归档对象恢复的小时级服务等级协议 (SLA): 收到恢复请求后, 异步将对象从磁带池复制到 HDD 池, 再由后者响应读取.
+
+The asynchrony brings a crucial benefit: we can schedule a large amount of data to/from the tape pool in a bulky manner, to align with the features of tape hardware. First, TapeOBS groups objects in the HDD pool based on their lifetime, moving objects with a similar lifetime to the same tape via log-structured writes. This mitigates the garbage collection overhead of the tape pool, since objects on the same tape are likely to be deleted simultaneously. Without the HDD pool as a persistent write buffer, performing lifetime-based data placement on tapes would be difficult. This difficulty arises from the limited number of drives and the time-consuming drive switches, which makes it unfeasible to maintain an immediately writable tape for each lifetime group. To tolerate failures of tapes, TapeOBS adopts batched erasure coding (b-EC), which aggregates multiple objects to form inter-object stripes and dispatches them to different tape libraries. b-EC lowers the probability that an object spans many tape libraries, thus reducing the number of drives needed to restore it. Second, for restore requests, we reorder them to make neighboring requests have the same target tapes. By doing so, tape libraries will receive a stream of requests with physical locality, thus mitigating drive thrashing and reducing seek time.
+
+异步设计的重要收益是可以批量调度进出磁带池的数据, 适应硬件特征. 首先, TapeOBS 按存活时间对 HDD 池中的对象分组, 通过日志结构式写入, 将存活时间相近的对象放到同一盘磁带. 它们更可能同时被删除, 从而减少磁带池的垃圾回收开销. 如果没有 HDD 池充当持久化写缓冲, 很难实现这种放置: 驱动器有限, 切换磁带又耗时, 无法为每个生命周期分组维持一盘随时可写的磁带. 为容忍磁带故障, TapeOBS 使用批量纠删编码 (b-EC), 聚合多个对象形成跨对象条带, 再分发到不同磁带库. 这样能降低单个对象跨越多个库的概率, 减少恢复所需驱动器. 其次, 对恢复请求重排序, 让相邻请求指向同一盘磁带. 磁带库因而接收到具有物理局部性的请求流, 减少驱动器抖动和寻道.
+
+Within a tape library, TapeOBS designs a tape-tailored local storage engine. By utilizing two NVMe SSDs installed in each tape library, the storage engine eliminates random metadata accesses on tapes. Specifically, we build a simple SSD-based key-value store, which persistently maintains the metadata of PLogs (a basic unit to store objects). In this way, when fetching an object on tapes, we can obtain its physical location without touching the tapes. To tolerate failures of SSDs, we use two techniques: 1) creating a metadata partition on a tape and dumping metadata to it when the tape is full; 2) tagging a DIF (data integrity field) to every 4KB data block in tapes, to make the data self-recoverable.
+
+磁带库内部采用面向磁带的本地存储引擎, 利用两块 NVMe SSD 消除磁带上的随机元数据访问. 具体而言, 我们构建了简单的 SSD 键值存储, 持久保存 PLog (存储对象的基本单位) 的元数据. 获取对象时, 无需访问磁带即可确定其物理位置. 为容忍 SSD 故障, 采用两项措施: (1) 在磁带上创建元数据分区, 磁带写满时将元数据转存其中; (2) 为磁带上每个 4 KB 数据块附加数据完整性字段 (DIF), 使数据能够自行恢复其结构信息.
+
+To optimize the performance of accessing tapes, the local storage engine also includes a tape library scheduler, which conducts flow control and reordering for I/O requests. Beyond the scheduler, TapeOBS adopts a technique called dedicated drives, which statically allocates drives for different tasks, to avoid drive thrashing resulting from task interferences.
+
+为优化磁带访问, 本地引擎还包含磁带库调度器, 对 I/O 请求做流量控制和重排序. 此外, TapeOBS 采用专用驱动器, 将驱动器静态分配给不同任务, 避免任务相互干扰造成驱动器抖动.
+
+TapeOBS began its gradual rollout at the end of 2022 and officially started serving customers in 2024. As of the time of writing, TapeOBS has stored hundreds of petabytes of raw user data. We present workload characteristics and performance of TapeOBS in the production environments. Moreover, we also reveal the failures in tape libraries that TapeOBS experienced.
+
+TapeOBS 于 2022 年底开始逐步上线, 2024 年正式提供服务. 截至论文撰写时, 已保存数百 PB 用户原始数据. 本文介绍其生产负载特征和性能, 并披露部署中遇到的磁带库故障.
+
+# 2. 背景与动机
+
+In this section, we first provide the background of magnetic tape and tape library (§2.1). Then, we introduce archive storage service in the cloud (§2.2). Finally, we analyze why we build a tape-based archive storage service in addition to the existing HDD-based one, from a TCO perspective (§2.3).
+
+本节先介绍磁带及磁带库 (原文第 2.1 节), 再介绍云归档服务 (原文第 2.2 节), 最后从总拥有成本角度, 分析已有 HDD 归档服务后为何还要建设磁带服务 (原文第 2.3 节).
+
+## 2.1 磁带与磁带库
+
+Magnetic Tape. Magnetic tape is a type of storage medium that was introduced to computer systems back in the early 1950s <sup>[28]</sup>. Physically, tape is composed of a flexible plastic strip coated with a layer of magnetic material, which is typically housed in the form of cartridges (Note 1). Such a structure determines that tapes are sequentially accessed: tape drives wind and unwind tapes to store and retrieve data (using write/read heads) in a linear order.
+
+**磁带.** 磁带早在 20 世纪 50 年代初就进入了计算机系统 <sup>[28]</sup>. 它由涂有磁性材料的柔性塑料带组成, 通常封装为磁带盒 (注 1). 这一结构决定了其顺序访问特性: 驱动器通过卷带和放带, 用读写磁头按线性顺序存取数据.
+
+<div class="paper-shared">
+
+Note 1: In this paper, we use "a cartridge" and "a tape" interchangeably.
+
+注 1: 本文交替使用 "磁带盒" 与 "磁带".
+
+</div>
+
+Tape technology is still evolving in recent decades. Linear Tape-Open (LTO) <sup>[10, 25]</sup>, which is created collaboratively by HPE, IBM, and Seagate, is a widely-used open tape standard. The latest generation of LTO, `i.e.`, LTO-10, is released in May 2025. An LTO-10 tape can provide 30TB capacity and 400MB/s maximum access speed. IBM 3592 <sup>[8]</sup> is a series of enterprise-class tape formats and drives developed by IBM. The latest IBM 3592 product, `i.e.`, TS1170, released in 2023, is capable of 50TB capacity and 400MB/s access speed.
+
+近几十年磁带技术仍在发展. HPE, IBM, Seagate 共同创立的 Linear Tape-Open (LTO) <sup>[10, 25]</sup> 是广泛使用的开放磁带标准. 论文撰写时最新一代 LTO-10 于 2025 年 5 月发布, 单盘容量 30 TB, 最大访问速度 400 MB/s. IBM 3592 <sup>[8]</sup> 是 IBM 开发的企业级磁带格式及驱动器系列, 当时最新产品 TS1170 于 2023 年发布, 单盘容量 50 TB, 访问速度 400 MB/s.
+
+These modern tapes incorporate a range of advanced hardware features, including 1)  encryption: using encryption algorithms such as AES to protect data on tape; 2)  compression: leveraging lossless compression algorithms to reduce data size: for example, LTO-10 tapes are advertised as having a 2.5:1 compression ratio (thus, it can store 75TB compressed data), and 3)  partitioning: dividing the tape space into multiple independently writable partitions.
+
+现代磁带提供多种硬件功能: (1) 加密, 通过 AES 等算法保护带上数据; (2) 压缩, 使用无损算法减少数据量, 例如 LTO-10 宣称压缩比为 2.5:1, 压缩容量可达 75 TB; (3) 分区, 将磁带空间划成多个可独立写入的分区.
+
+The storage unit of a tape is the block, and its size can be set to a value permitted by the tape (`e.g.`, 64KB). The higher-level software can access data of a tape using the pair of ⟨partition id, block id⟩. To simplify its use, we can manage tapes using special file systems such as LTFS <sup>[32]</sup>.
+
+磁带的存储单位是块, 大小可设为设备允许的值, 如 64 KB. 上层软件通过 ⟨partition id, block id⟩ 访问数据. 也可使用 LTFS <sup>[32]</sup> 等专用文件系统, 简化磁带管理.
+
+Modern tapes (`e.g.`, LTO tapes) are append-only, which means that we cannot perform in-place updates to them. The reason behind this is similar to storage devices such as SMR HDDs <sup>[22]</sup>: these tapes use shingling with overlapped data tracks <sup>[25]</sup>, to achieve higher storage density; thus, in-place updates will destroy the adjacent data. The partitioning mechanism mentioned before can relax the append-only constraint. A guard area is reserved between partitions, so that writes to one partition do not affect another partition. In this way, each partition has a separate append point.
+
+LTO 等现代磁带仅支持追加写入, 不能原地更新. 原因与 SMR HDD <sup>[22]</sup> 类似: 它们使用磁道相互重叠的叠瓦式记录 <sup>[25]</sup> 提高密度, 原地更新会破坏相邻数据. 分区可放宽这一限制: 分区间预留保护区域, 对一个分区写入不会影响另一个, 因而每个分区都有独立的追加位置.
+
+Tape Library. Using tape libraries is a common way to deploy tape storage resources for enterprises or data centers. As shown in Figure 1, a typical tape library mainly includes a host of cartridges that hold data, multiple drives that can access tape data, and one robotic accessor that moves cartridges between storage slots and drives. A tape library can store several petabytes to hundreds of petabytes of data. For example, IBM Diamondback tape library <sup>[9]</sup> can accommodate 1584 cartridges, resulting in 46PB uncompressed storage capacity when using LTO-10 tapes.
+
+**磁带库.** 企业和数据中心通常通过磁带库部署磁带资源. 如图 1 所示, 典型磁带库包含大量磁带盒, 多个读写驱动器, 以及在存储槽位和驱动器之间搬运磁带的机械手. 单库容量可从数 PB 到数百 PB. 例如 IBM Diamondback <sup>[9]</sup> 可容纳 1584 盘磁带, 使用 LTO-10 时未压缩容量为 46 PB.
+
+<div class="paper-shared">
+
+![磁带库示例, 包括磁带盒, 驱动器和机械手. 图中机械手正在向驱动器装入磁带盒.](/assets/images/posts/tapeobs/figure-01.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 1: An example of the tape library. This figure shows components in a tape library, including tape drives, tape cartridges, and an accessor; the accessor is mounting a cartridge to a drive.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 1: 磁带库示例, 包括磁带盒, 驱动器和机械手. 图中机械手正在向驱动器装入磁带盒.</span>
+
+Despite placing a large number of cartridges, a tape library is equipped with a limited number of drives (`e.g.`, 4). This disparity is a double-edged sword. On the one hand, it dramatically reduces the costs of tape libraries, since drives are far more expensive than tapes. Yet, on the other hand, it creates a performance bottleneck: the drives limit the peak bandwidth provided by the tape library. Moreover, mounting a cartridge to a drive consumes a considerable amount of time (`e.g.`, from a few seconds to tens of seconds): before the accessor moves the cartridge to the drive and the drive loads it, the drive needs to rewind and unload the previous cartridge.
+
+磁带库虽然容纳大量磁带盒, 驱动器却很少, 如只有四个. 这有利也有弊: 驱动器远比磁带昂贵, 少配驱动器大幅降低成本; 但驱动器数量也限制了磁带库的峰值带宽. 此外, 装载一盘磁带需要数秒至数十秒: 在机械手搬入并装载新磁带前, 驱动器必须先回卷并卸载旧磁带.
+
+## 2.2 云归档存储服务
+
+The volume of data generated by businesses, governments, and individuals is growing at an unprecedented rate. A large portion of it is rarely accessed, but still needs to be preserved for future reference, legal reasons, or regulatory compliance. Examples include medical imaging data, backup data, video materials, and logs. Archive storage systems are tailored for such workloads and typically use HDDs or tapes to store massive data. Most cloud vendors provide archive storage services, such as Huawei Cloud <sup>[7]</sup>, AWS <sup>[5]</sup>, GCP <sup>[6]</sup>, and Alibaba Cloud <sup>[4]</sup>. Compared with on-premise solutions, cloud-based archive storage services enjoy the cloud's inherent advantages, such as automated lifecycle management, virtually unlimited scalability, and global accessibility.
+
+企业, 政府和个人生成的数据迅速增长. 其中大量数据很少访问, 却仍需为未来查阅, 法律要求或监管合规长期保存, 如医学影像, 备份, 视频素材和日志. 归档系统面向这类负载, 通常用 HDD 或磁带保存海量数据. 华为云 <sup>[7]</sup>, AWS <sup>[5]</sup>, GCP <sup>[6]</sup>, 阿里云 <sup>[4]</sup> 等均提供此类服务. 相比本地部署, 云归档具备自动生命周期管理, 近乎无限的扩展能力和全球可访问性等优势.
+
+Huawei Cloud mainly provides archive storage in its object storage service (OBS) <sup>[7]</sup>. Users upload the data they need to archive to OBS as objects. Unlike standard objects, archived objects do not allow real-time retrieval. Users must first submit a restore request to an archived object. Once the request is completed, a temporary copy of the object is made available, and users can then send a get request to access the content from this temporary copy. For example, TapeOBS offers two pricing tiers for restore requests: 1)  Expedited restore: 3-5 hours; 2)  Standard restore: 5-12 hours.
+
+华为云主要通过对象存储服务 OBS <sup>[7]</sup> 提供归档能力. 用户将待归档数据作为对象上传. 与标准对象不同, 归档对象不能实时获取, 必须先提交 restore 请求. 恢复完成后, 系统提供临时副本, 用户再通过 get 读取. 例如, TapeOBS 的恢复请求有两档价格: 加急恢复为 3-5 小时, 标准恢复为 5-12 小时.
+
+## 2.3 建设 TapeOBS 的动机
+
+Before building TapeOBS, Huawei Cloud already had an HDD-based archive storage service. We intended to provide a more cost-efficient archive storage service for our users, and therefore looked to tape. In terms of cost efficiency, tape has a clear advantage over HDD. First, tape has lower per GB costs: for example, according to the website `diskprices.com`, the price per GB of LTO-8/9 tapes is more than 50% lower than that of HDDs. Second, tape has a longer lifetime than HDD (10 years vs. 5 years), which means that we enjoy more infrequent hardware updates and accompanying data migration when using tapes. Third, tape-based storage systems consume much less energy than HDD-based ones; besides, when a cartridge resides in the storage location (rather than in the drive), it requires no power. Finally, tape offers higher storage density, which enables us to save a significant amount of data center floor space (44% in our case).
+
+建设 TapeOBS 之前, 华为云已有 HDD 归档服务. 为提供更经济的服务, 我们转向磁带. 磁带的成本优势很明确. 首先, 每 GB 价格更低: 按 `diskprices.com` 的数据, LTO-8/9 磁带比 HDD 低 50% 以上. 其次, 寿命更长, 为 10 年而非 5 年, 能减少硬件更换和随之而来的数据迁移. 第三, 磁带系统耗能更低, 磁带盒位于存储槽而非驱动器时无需供电. 最后, 更高的存储密度能节省机房面积, 在我们的场景中节省了 44%.
+
+Table 1 presents a TCO (total cost of ownership) comparison of tapes and HDDs. We calculate a 10-year TCO for tapes and HDDs, assuming an initial data volume of 100PB with a 50% annual growth. The tape-based solution has 2.68× lower CapEx (capital expenditures), which mainly includes the cost of hardware acquisition, and 16.11× lower OpEx (operational expenditures), which mainly consists of the cost of operations, maintenance, and energy consumption. Put together, the tape-based solution can have 4.95× lower TCO.
+
+表 1 比较磁带与 HDD 的总拥有成本 (TCO). 假设初始数据量 100 PB, 每年增长 50%, 计算十年成本. 磁带方案的资本支出 CapEx 主要是硬件采购, 为 HDD 的 1/2.68; 运营支出 OpEx 主要是运维和能耗, 为 HDD 的 1/16.11. 合计 TCO 为 HDD 的 1/4.95.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 1: TCO comparison of tapes and HDDs. TCO is the sum of CapEx (capital expenditures) and OpEx (operational expenditures).</span>
+
+| Metric | HDD |
+|:---|:---|
+| CapEx | 2.68× |
+| OpEx | 16.11× |
+| TCO | 4.95× |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 1: 磁带与 HDD 的 TCO 比较. TCO 为资本支出与运营支出之和.</span>
+
+| 指标 | Tape / HDD 与磁带之比 |
+|:---|:---|
+| 资本支出 | 2.68× |
+| 运营支出 | 16.11× |
+| 总拥有成本 | 4.95× |
+
+</div>
+
+</div>
+
+In addition to cost efficiency, tape has two other advantages that motivate us to build an archive storage service for it. First, using tapes can significantly reduce CO2e emissions <sup>[30]</sup>, which aligns with the Net Zero goal of Huawei Cloud. Second, there is a clear technology roadmap for tapes <sup>[18]</sup>: `e.g.`, from 2024 to 2034, the capacity of a cartridge will increase at an average rate of 32% per year. This gives us the confidence to invest in this technology for the long term.
+
+此外还有两点促使我们选择磁带. 一是可显著减少二氧化碳当量排放 <sup>[30]</sup>, 符合华为云净零排放目标. 二是技术路线清晰 <sup>[18]</sup>, 例如 2024 至 2034 年单盘容量预计年均增长 32%, 增强了长期投入的信心.
+
+# 3. TapeOBS 概览
+
+TapeOBS is an archive storage service tailored for tapes and deployed in Huawei Cloud. This section mainly describes the architecture and workflow of TapeOBS.
+
+TapeOBS 是部署于华为云, 面向磁带设计的归档服务. 本节介绍其架构与工作流程.
+
+## 3.1 持久化日志 PLog
+
+Before describing the architecture of TapeOBS, we first introduce PLog, a key concept in Huawei Cloud storage infrastructures. PLog is a basic unit for storing data and is append-only. We can invoke several interfaces to manipulate a PLog: we first create a new PLog with a maximum size, then append data to it or read data using an offset; when we seal the PLog, it becomes immutable and cannot be appended. A PLog is highly available because it internally employs replication or erasure coding. Each PLog has a 64-bit unique identifier, which is called plog-id in this paper.
+
+先介绍华为云存储基础设施中的关键概念 PLog. 它是仅允许追加的数据存储基本单位. 使用时先创建并指定最大容量, 然后追加数据或按偏移读取; seal 后即变为不可变状态, 不能再追加. PLog 内部使用副本或纠删码保证高可用, 每个拥有一个 64 位唯一标识, 本文称为 plog-id.
+
+## 3.2 架构
+
+Figure 2 presents the architecture of TapeOBS, which consists of four key components:
+
+图 2 展示 TapeOBS 的四个核心组件.
+
+<div class="paper-shared">
+
+![TapeOBS 架构, 包括服务层, 索引层, 持久化层和 DataBrain.](/assets/images/posts/tapeobs/figure-02.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 2: The architecture of TapeOBS. It includes a service layer, an index layer, a persistence layer, and DataBrain.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 2: TapeOBS 架构, 包括服务层, 索引层, 持久化层和 DataBrain.</span>
+
+Service Layer. The service layer provides OBS APIs and preprocesses user requests, including domain name resolution, authentication, and flow control. This layer embeds a PLog-Client, which is used for interacting with the persistence layer, to write/read object data to PLogs.
+
+**服务层.** 提供 OBS API, 预处理用户请求, 包括域名解析, 认证和流量控制. 内嵌 PLog-Client, 与持久化层交互, 将对象数据写入 PLog 或从中读取.
+
+Index Layer. The index layer translates the object semantics to PLog semantics. Specifically, it maintains the mapping from object ID to a set of triples ⟨plog-id, offset, size⟩. The mapping is kept in LSM-Tree-based key-value stores. We shard and replicate the mapping to a cluster of servers for high scalability and high availability.
+
+**索引层.** 将对象语义转换为 PLog 语义, 维护对象 ID 到一组 ⟨plog-id, offset, size⟩ 三元组的映射. 映射保存在基于 LSM-Tree 的键值存储中, 通过分片与副本分布到服务器集群, 保证扩展性和高可用.
+
+Persistence Layer. The persistence layer stores data in tapes using PLog abstraction and exposes the PLog interfaces to other layers. Moreover, it provides high availability for PLogs through distributed erasure coding (EC). The persistence layer knows nothing about objects and only deals with PLogs. The persistence layer is mainly composed of three parts:
+
+**持久化层.** 以 PLog 抽象将数据存到磁带, 对上层暴露 PLog 接口, 并通过分布式纠删码保证高可用. 它不感知对象, 只处理 PLog, 主要包括以下三部分.
+
+Tape Pool. The tape pool is responsible for persistently and reliably maintaining PLogs. The tape pool consists of a set of tape racks. Each rack has one head server and one tape library, which are connected by fibre channel. The head server manages the cartridges in the tape library by running a local storage engine. The head server is equipped with two 12-core CPUs, 128GB DRAM, and two 3TB NVMe SSDs for data caching. The head server is connected to two ToR switches via two 25Gbps NICs. Of note, unlike standard server racks, multiple tape racks (`e.g.`, 14) share two ToR switches. Table 2 presents the configurations of the tape library we use, which is equipped with 4 tape drives (each drive can deliver 360MB/s). The tape library provides a total uncompressed capacity of 10.24PB. Of note, we currently do not use the tape library's built-in compression. This is because: (1) most user data is encrypted, resulting in low compression ratios; and (2) for unencrypted data, we already perform compression at the service layer, which also helps reduce network traffic to the tape library.
+
+**磁带池.** 负责持久, 可靠地保存 PLog, 由多个磁带机架组成. 每个机架包含通过光纤通道连接的前端服务器与磁带库. 服务器运行本地引擎管理磁带盒, 配有两颗 12 核 CPU, 128 GB DRAM, 两块用于缓存的 3 TB NVMe SSD, 并通过两块 25 Gbps 网卡连接两台 ToR 交换机. 与标准服务器机架不同, 多个磁带机架, 如 14 个, 共用两台 ToR. 表 2 给出所用磁带库配置: 四个驱动器, 每个 360 MB/s, 总未压缩容量 10.24 PB. 我们没有启用磁带库内置压缩: 多数用户数据已加密, 可压缩性低; 未加密数据已在服务层压缩, 同时可减少网络流量.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 2: Configurations of the tape library in TapeOBS.</span>
+
+| Parameter | Value |
+|:---|:---|
+| Cartridges | 1000 |
+| Capacity per cartridge | 10742 GB |
+| Total capacity | 10.24 PB |
+| Drives | 4 |
+| Bandwidth per drive | 360 MB/s |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 2: TapeOBS 的磁带库配置.</span>
+
+| 参数 | 数值 |
+|:---|:---|
+| 磁带盒数 | 1000 |
+| 单盘容量 | 10742 GB |
+| 总容量 | 10.24 PB |
+| 驱动器数 | 4 |
+| 单驱动器带宽 | 360 MB/s |
+
+</div>
+
+</div>
+
+MDC. MDC (Metadata Controller) manages the critical configurations of the tape pool, including the topology information, the set of healthy tapes, and a table called partition view. These configurations are synchronized to a ZooKeeper cluster <sup>[24]</sup>. MDC monitors the health of tape racks using heartbeat detection. The partition view is crucial to the data distribution of PLogs. Each entry in the partition view is a key-value pair, where the key is partition id (`i.e.`, pt-id), and the value is a set of tapes from different racks; it means that these tapes will form an erasure coding (EC) group. There is a relationship between a PLog and its partition: pt-id = plog-id % N, where N is a pre-defined value. Leveraging the relationship, the MDC performs another task: allocating plog-id for the service layer and ensuring that the associated PLogs are stored in the specified partitions.
+
+MDC. 元数据控制器 MDC 管理磁带池关键配置, 包括拓扑, 健康磁带集合和分区视图, 并同步到 ZooKeeper 集群 <sup>[24]</sup>. MDC 通过心跳监控机架健康. 分区视图决定 PLog 的数据分布: 每项的键是分区 ID, 即 pt-id, 值是来自不同机架的一组磁带, 它们构成纠删码组. PLog 与分区满足 `pt-id = plog-id % N`, N 是预定义值. MDC 据此为服务层分配 plog-id, 保证对应 PLog 存入指定分区.
+
+HDD Pool. The HDD pool is used as a temporary staging area for data. When users issue restore requests to archived objects (recall §2.2), objects are copied from the tape pool to the HDD pool. After users obtain these objects by get requests, the temporary copy on the HDD pool will be freed. To simplify development, our HDD pool directly reuses Huawei Cloud's mature, off-the-shelf HDD-based OBS system, which provides object interfaces with high durability and availability. The capacity ratio of the tape pool to the HDD pool is approximately 100:4.
+
+**HDD 池.** 用作临时暂存区. 用户恢复归档对象时, 将其从磁带池复制到 HDD 池; 用户通过 get 获取后, 临时副本会被释放. 为简化开发, HDD 池直接复用华为云成熟的 HDD OBS 系统, 获得高持久性和高可用的对象接口. 磁带池与 HDD 池容量比约为 100:4.
+
+DataBrain. DataBrain is responsible for scheduling non-real-time tasks in TapeOBS, such as restore tasks and garbage collection tasks. The service layer and persistence layer report statistical information to DataBrain.
+
+DataBrain. 调度恢复, 垃圾回收等非实时任务. 服务层和持久化层向它上报统计信息.
+
+## 3.3 工作流程
+
+Here, we describe the workflow of writing and reading an object using examples, to show how the components in §3.2 interact with each other. We assume EC configuration of 4+2, `i.e.`, 4 data chunks and 2 parity chunks:
+
+下面以对象读写说明原文第 3.2 节组件如何协作, 假设使用 4+2 纠删码, 即四个数据块和两个校验块.
+
+Writing a 4MB object. 1)  The service layer creates a PLog by calling the PLog-Client, which returns a plog-id that equals 0xaabb. Note that the PLog-Client asks the MDC to allocate plog-ids. 2)  The service layer calls PLog append interface, passing in the 4MB object data and plog-id=0xaabb as parameters. 3)  Using plog-id=0xaabb, PLog-Client calculates the value of pt-id that equals 0xbb, as shown in Figure 3. 4)  PLog-Client queries the partition view and obtains the tapes in the associated EC group: tape-A - F; these tapes are located in different tape racks. Note that the partition view is maintained by the MDC but can be cached in the PLog-Client. 5)  PLog-Client divides the object evenly into four 1MB chunks (D0 - D3 in the figure) and generates two parity chunks (P0 and P1); then, it dispatches these chunks to tape-A - F, respectively. 6)  The local storage engines in tape racks store these chunks in sub-PLogs (Note 2). Here, we omit the data caching of NVMe SSDs for simplicity. Each storage engine records the physical addresses of local sub-PLogs, which are indexed by the plog-id (`i.e.`, 0xaabb). 7)  When PLog-Client receives completion messages from these six tape racks, it returns the result of PLog append call (in 2) ) to the service layer. The result contains the logical offset of the object in PLog (we term it as F here). F is equal to 4×k, where 4 is the number of data chunks and k is the offset of data chunks in sub-PLogs. 8)  Finally, the service layer inserts the mapping of {object ID ➞ ⟨0xaabb, F, 4MB⟩} to the index layer. The service layer can continue to append new objects to the PLog 0xaabb until it reaches its maximum size.
+
+**写入 4 MB 对象.** (1) 服务层调用 PLog-Client 创建 PLog, 返回 plog-id = 0xaabb; 该标识由 PLog-Client 向 MDC 申请. (2) 服务层调用 PLog append, 传入 4 MB 数据与 plog-id. (3) PLog-Client 据此计算 pt-id = 0xbb, 如图 3 所示. (4) 查询分区视图, 得到 EC 组中的 tape-A 至 tape-F, 分布于不同机架. 分区视图由 MDC 维护, 可缓存在客户端. (5) 对象均分为四个 1 MB 数据块 D0 至 D3, 生成 P0, P1 两个校验块, 分发至六盘磁带. (6) 各机架本地引擎将块存为 sub-PLog (注 2), 这里为简化说明省略 NVMe 缓存. 引擎记录本地 sub-PLog 物理地址, 以 plog-id 索引. (7) 六个机架均完成后, PLog-Client 向服务层返回 append 结果, 含对象在 PLog 中的逻辑偏移 F. F = 4 × k, 4 是数据块数, k 是块在 sub-PLog 内的偏移. (8) 服务层向索引层插入 {object ID → ⟨0xaabb, F, 4 MB⟩}. 此后可继续追加对象, 直至 PLog 达到最大容量.
+
+<div class="paper-shared">
+
+![向 TapeOBS 写入 4 MB 对象的示例. 假设采用 4+2 EC, 即四个数据块和两个校验块. 每个 PLog 包含六个 sub-PLog, 保存到不同机架的六盘磁带.](/assets/images/posts/tapeobs/figure-03.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 3: An example of writing a 4MB object to TapeOBS. Assuming an erasure coding (EC) configuration of 4+2: 4 data chunks and 2 parity chunks. Each PLog consists of six sub-PLogs, which are stored in tapes located in six different tape racks.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 3: 向 TapeOBS 写入 4 MB 对象的示例. 假设采用 4+2 EC, 即四个数据块和两个校验块. 每个 PLog 包含六个 sub-PLog, 保存到不同机架的六盘磁带.</span>
+
+<div class="paper-shared">
+
+Note 2: For simplicity, we call each portion of the PLog that resides on an individual tape a sub-PLog.
+
+注 2: 为便于表述, PLog 在单盘磁带上的部分称为 sub-PLog.
+
+</div>
+
+Reading the object. To read an object, the user should first issue a restore request to TapeOBS. The request will be scheduled by DataBrain and forwarded to the service layer. 1)  The service layer queries the index layer using the object ID as the key, obtaining the triple ⟨plog-id=0xaabb, offset=F, size= 4MB⟩. 2)  The service layer calls the PLog read interface; PLog-Client calculates pt-id and gets the EC group according to the partition view. 3)  PLog-Client sends requests to tape-A, B, C, and D, asking them to return 1MB data from the sub-PLogs (plog-id=0xaabb) with offset F/4. 4)  The local storage engines in tape racks locate the sub-Plogs' physical addresses and then read the data. 5)  After receiving four data chunks, the service layer splices them into a complete object and stages the object on the HDD pool.
+
+**读取对象.** 用户先提交 restore, 由 DataBrain 调度并转发到服务层. (1) 服务层用对象 ID 查询索引层, 获得 ⟨plog-id = 0xaabb, offset = F, size = 4 MB⟩. (2) 调用 PLog read, 客户端计算 pt-id, 按分区视图找到 EC 组. (3) 向 tape-A, B, C, D 发请求, 从 plog-id = 0xaabb 的 sub-PLog 内偏移 F/4 处各读 1 MB. (4) 本地引擎定位物理地址并读取. (5) 服务层收到四个数据块后拼成完整对象, 暂存到 HDD 池.
+
+Internal operations. In addition to writing and reading objects to react to users' requests, TapeOBS also involves some internal operations:
+
+**内部操作.** 除响应用户的对象读写, TapeOBS 还执行以下内部操作.
+
+Consistency Checking. Like many large-scale storage systems <sup>[13, 16, 31, 40]</sup>, TapeOBS protects user data with checksums: each 4KB data is tagged with a 4B checksum, which is validated each time the data is fetched (from DRAM, SSDs, or tapes). Since most objects are not accessed for a long time in archive storage workloads, TapeOBS adopts a background service to perform consistency checking, which reads data from tapes and takes two actions: 1) validating checksum for every 4KB data; 2) calculating EC parity chunks for every PLog and checking if they are the same as what's stored on tapes. Through this mechanism, we can detect data corruption caused by hardware issues and software bugs, `e.g.`, incorrect EC calculation due to CPU SDCs (silent data corruptions) <sup>[19, 37]</sup>.
+
+**一致性检查.** 与许多大规模存储系统一样 <sup>[13, 16, 31, 40]</sup>, TapeOBS 用校验和保护数据: 每 4 KB 附加 4 B 校验和, 每次从 DRAM, SSD 或磁带取出时都验证. 归档对象长期不被访问, 因此还有后台一致性检查, 从磁带读数据并执行两项检查: 验证每个 4 KB 的校验和; 重新计算每个 PLog 的 EC 校验块, 与磁带上的结果比较. 这能发现硬件问题或软件缺陷造成的损坏, 如 CPU 静默数据损坏 (SDC) 引起的 EC 计算错误 <sup>[19, 37]</sup>.
+
+EC Repair. Upon detecting tape crashes or data integrity issues, TapeOBS will perform an EC repair to reconstruct the data. It involves reading data from the surviving tapes in the EC group and writing recovered data to a new tape.
+
+**EC 修复.** 检测到磁带失效或数据完整性问题后, 从 EC 组的存活磁带读取数据, 重建并写入新磁带.
+
+Garbage Collection. As objects are deleted, tapes contain stale data. The append-only feature of tapes makes it necessary to reclaim space via garbage collection (GC). TapeOBS performs GC with an EC group (`i.e.`, a partition) as the unit. When selecting an EC group for GC, TapeOBS reads the valid objects, rewrites them to the system, and free tapes in the EC group.
+
+**垃圾回收.** 对象删除后, 磁带上会留下失效数据. 磁带只能追加, 因而需要 GC 回收空间. TapeOBS 以 EC 组, 即分区, 为单位回收: 读取有效对象并重新写入系统, 再释放组内磁带.
+
+# 4. TapeOBS 的关键设计
+
+We have described the overview of TapeOBS (§3), so that readers can understand how it works. In this section, we will further elaborate on several key designs of TapeOBS, focusing on how they optimize the performance of TapeOBS by keeping tape's characteristics in mind.
+
+前面已介绍总体架构和工作方式. 本节进一步说明关键设计, 重点分析如何结合磁带特性优化性能.
+
+## 4.1 设计原则
+
+TapeOBS follows three core design principles.
+
+TapeOBS 遵循三项核心原则.
+
+**1)** Minimizing drive thrashing in a tape library. In a tape library, the number of drives is much smaller than the number of cartridges. Therefore, if we want to access a cartridge (`i.e.`, a tape) but it resides in storage slots, the drive needs to rewind and unload the old cartridge, load the new one, and finally execute a seek to the target address. Moreover, the accessor moves these two cartridges between storage slots and drives. The whole process consumes about 80 seconds in our hardware platform. If a drive frequently switches to serve different tapes, which we call drive thrashing, it is difficult to fully exploit the drive's raw performance. For example, even if a drive switch is performed after every 23.2GB (`i.e.`, 80s × 360MB/s) of consecutive data is accessed, the effective drive bandwidth will drop by half. Therefore, we propose dedicated drives (§4.2) and batched erasure coding (§4.3), both aiming to minimize drive thrashing in a tape library.
+
+**1)** 尽量减少磁带库中的驱动器抖动. 驱动器远少于磁带盒, 若目标磁带在存储槽中, 驱动器必须先回卷卸载旧磁带, 再装载新磁带并寻道到目标位置, 机械手还要搬运两盘磁带. 我们的平台上整个过程约 80 秒. 若频繁切换, 很难发挥驱动器性能. 例如, 即使每连续访问 23.2 GB 后才切换一次 (原文给出 80 s × 360 MB/s), 有效带宽也会减半. 为此, 我们采用专用驱动器和批量纠删编码, 详见原文第 4.2, 4.3 节.
+
+**2)** Avoiding random reads within a tape. Even if we can guarantee that a drive will only access a certain cartridge for a relatively long period, we need to avoid random reads further. This is because random reads result in a lot of time spent on seek operations (`i.e.`, winding/rewinding tapes to specified locations). For example, in TapeOBS, writing/reading objects involves locating the physical locations of sub-PLogs, which can lead to considerable random metadata access on tapes, if not handled properly. Moreover, considering the internal structure of tapes which consists of multiple wraps, reducing time on seeking is non-trivial. We follow this principle by designing an efficient tape-tailored local storage engine (§4.5), which avoids fine-grained metadata operations on tapes and streamlines data operations via scheduling and flow control.
+
+**2)** 避免磁带内随机读. 即使驱动器长时间只访问一盘磁带, 仍需避免随机读, 否则卷带和回卷寻道会耗费大量时间. 例如对象读写需要定位 sub-PLog, 处理不当就会产生大量随机元数据访问. 磁带又由多条往返记录带道 (wrap) 构成, 减少寻道并不简单. 我们通过面向磁带的本地引擎, 避免带上细粒度元数据操作, 再用调度与流控优化数据访问, 详见原文第 4.5 节.
+
+**3)** Making reads and writes to tape pool asynchronous. The first two principles are proposed to reach the full performance potential of tape drives. Yet, we still face inherent performance limitations of the tape pool: restricted aggregated bandwidth due to limited drives. If the tape pool serves user requests synchronously, this restricted bandwidth will be exposed to users: `e.g.`, put requests of objects suffer from low throughput. To tackle it, TapeOBS repurposes the HDD pool used by restore as a persistent write buffer, and flushes data from the HDD pool to the tape pool asynchronously (§4.4). By doing so, all reads (`i.e.`, restore) and writes to the tape pool are asynchronous. This asynchrony also brings a crucial benefit for TapeOBS: we can schedule a large amount of data to/from the tape pool in a bulky manner, to realize specified goals such as 1) lowering GC overhead by lifetime-based classification, and 2) reducing drive thrashing and seeking by reordering restore requests.
+
+**3)** 磁带池读写全部异步化. 前两项原则旨在发挥驱动器性能, 但数量有限仍约束总带宽. 若同步响应用户, 限制就会直接暴露出来, 如对象 put 吞吐量偏低. TapeOBS 将原本用于恢复的 HDD 池兼作持久化写缓冲, 异步刷入磁带池, 使读 (恢复) 和写均异步执行. 这还允许批量调度大量数据, 如按生命周期分组以减少 GC, 重排恢复请求以减少换带和寻道, 详见原文第 4.4 节.
+
+## 4.2 专用驱动器
+
+TapeOBS adopts dedicated drives to reduce drive thrashing. Specifically, we statically divide drives in a tape library into three groups: 1) write drives for serving object writes; 2) read drives for serving object reads; 3) internal drives for serving internal operations, including consistency checking, EC repair, and garbage collection. The reason behind our approach is the different access patterns of these operations. For writes, we can keep appending object data on a tape until it fills up (`i.e.`, log-structured approach). For reads, requests are issued by users and thus non-deterministic, so they inevitably need to access different tapes. For internal operations, the drive typically focuses on the same tape for a long time. If each drive serves all operations simultaneously, which we call shared drives, all drives will suffer from drive thrashing. In contrast, using dedicated drives, write drives and internal drives are capable of running at full speed without drive thrashing.
+
+TapeOBS 将库内驱动器静态分为三组: 写驱动器处理对象写入, 读驱动器处理对象读取, 内部驱动器执行一致性检查, EC 修复和 GC. 这是因为各操作的访问模式不同. 写入可采用日志结构, 持续追加一盘磁带直至写满; 读取由用户发起, 难以预知, 不可避免要访问不同磁带; 内部操作通常长时间处理同一盘磁带. 若所有驱动器共同处理全部操作, 即共享驱动器, 它们都会频繁换带. 使用专用驱动器后, 写和内部驱动器可避免这种抖动, 以全速运行.
+
+The next thing to consider is determining the number of different drives. We chose two drives as write drives, one as the read drive, and one as the internal drive (recall that our tape libraries have four drives each). This configuration prioritizes write requests over read requests, but it is reasonable since archive storage workloads typically involve significantly more writes than reads. Table 3 shows the configurations of dedicated drives in TapeOBS. Of note, when a tape library is full, the two write drives will transition into one read drive and one internal drive.
+
+接下来确定各类数量. 每库四个驱动器, 我们分配两个写, 一个读, 一个内部. 这偏向写入, 但符合归档负载写远多于读的特点. 表 3 给出配置. 磁带库写满后, 两个写驱动器分别转为一个读驱动器和一个内部驱动器.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 3: Dedicated drives in TapeOBS.</span>
+
+| Drive | Count | Operations |
+|:---|:---|:---|
+| Write | 2 | Object writes from users |
+| Read | 1 | Object reads from users |
+| Internal | 1 | Consistency checking, EC repair, GC |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 3: TapeOBS 专用驱动器配置.</span>
+
+| 驱动器 | 数量 | 操作 |
+|:---|:---|:---|
+| 写 | 2 | 用户对象写入 |
+| 读 | 1 | 用户对象读取 |
+| 内部 | 1 | 一致性检查, EC 修复, GC |
+
+</div>
+
+</div>
+
+Pin write drives to tapes. To make each drive always append data on the same tape, MDC allocates plog-id in the following way: according to the relationship between plog-id and pt-id (recall §3.2), MDC guarantees that for each tape library, only two (`i.e.`, the number of write drives) active partitions contain it, and allocates plog-ids that belong to these two partitions. In this way, a write drive will append a tape until it is full, then switch to the next one.
+
+**将写驱动器固定到磁带.** MDC 利用 plog-id 与 pt-id 的关系, 保证每个磁带库只属于两个活动分区, 数量等于写驱动器数, 并只分配这两个分区内的 plog-id. 这样, 一个写驱动器会持续追加同一盘磁带, 写满后才切换.
+
+Discussion. A primary limitation of dedicated drives is potential resource underutilization under dynamic workloads. We could enhance adaptability by reallocating drives for different operations at a coarse granularity (`e.g.`, hourly) based on workloads. Such a policy can improve drive utilization while still avoiding excessive drive thrashing.
+
+**讨论.** 专用驱动器的主要局限是动态负载下可能利用不足. 可以根据负载, 以小时等较粗粒度重新分配驱动器用途, 提高适应性, 同时避免过度换带.
+
+## 4.3 批量纠删编码
+
+In TapeOBS, tape racks are considered independent failure domains. TapeOBS leverages erasure coding (EC) to store data across different tape racks, ensuring failure tolerance and high availability. Compared to replication, EC has two pronounced advantages. First, EC has low storage redundancy: for EC configuration of m+n  --  m data chunks and n parity chunks, it can tolerate n failures with a storage redundancy (m+n)/m, which typically is less than 1.50. The low storage redundancy can save a lot of storage space, considering the immense amount of archived data. Second, low storage redundancy also means less data to write, thus reducing the write bandwidth consumption of tape drives. With a fixed n (`i.e.`, the capability of fault tolerance), we want to choose a large m for TapeOBS, to gain more benefits from EC.
+
+TapeOBS 将磁带机架视为独立故障域, 用跨机架 EC 保证容错与高可用. 相比副本, EC 有两个明显优势. 一是冗余低: m+n 配置含 m 个数据块和 n 个校验块, 可容忍 n 个故障, 冗余度为 (m+n)/m, 通常小于 1.50. 对海量归档数据, 这能节省大量空间. 二是写入数据更少, 减少磁带驱动器带宽消耗. 因此在容错能力 n 固定时, 我们希望采用较大的 m.
+
+However, in the earlier version of TapeOBS, a larger m will lead to a more severe drive thrashing for object reads. Recall Figure 3: the service layer translates a write to an object into a PLog append, which dispatches data chunks and parity chunks to different tape racks for high availability. Thus, fetching the object needs to read data from m tapes, consuming considerable drive resources. This inevitably introduces excessive drive switches when many objects on different partitions (`i.e.`, EC groups) need to be read.
+
+但早期 TapeOBS 中, m 越大, 对象读取引起的驱动器抖动越严重. 如图 3, 服务层将对象写入转换为 PLog append, 数据块和校验块分布到不同机架. 读取一个对象便需访问 m 盘磁带, 消耗较多驱动器资源. 若同时读取不同分区, 即不同 EC 组中的多个对象, 就会频繁换带.
+
+In principle, the solution is simple: using inter-object EC rather than intra-object EC, so that every object will be located on only one tape. Yet, there are engineering challenges here. Intuitively, we need to implement inter-object in the persistence layer: letting the persistence layer generate EC strips containing different objects. However, the persistence layer is unaware of object semantics, and injecting object semantics into it requires large-scale code refactoring and destroys clean boundaries between layers.
+
+原则上, 将对象内 EC 改为对象间 EC, 让每个对象尽量只位于一盘磁带即可解决. 但工程上并不简单: 直观做法是在持久化层生成包含不同对象的 EC 条带, 可该层本不感知对象语义. 加入对象语义需要大规模重构, 还会破坏清晰的分层边界.
+
+TapeOBS adopts a neat approach called batched erasure coding (`i.e.`, b-EC) to realize inter-object EC. Its key idea is to let the service layer aggregate objects with a single PLog append call. Figure 4 presents an example and the EC configuration is 4+2. The service layer first aggregates five objects (1.5GB total) in its memory. Then, it creates a PLog with a maximum size of 1.5GB. Finally, it invokes a single PLog append interface to append the aggregated 1.5GB data, and seals the PLog. By doing so, the 1.5GB data containing multiple objects is split horizontally into 4 data chunks, which then are spread across different tapes. As shown in the figure, for Object 1-4, each of them only exists on one tape; for Object 5, its data spans two tapes. Thus, fetching these objects will use fewer tape drives and trigger fewer drive switches. To implement b-EC, we only add a simple aggregation function to the service layer and modify the conversion between PLog offset and sub-PLog offsets in PLog-Client.
+
+TapeOBS 用批量纠删编码 b-EC 实现对象间 EC. 核心是服务层聚合多个对象, 再通过一次 PLog append 写入. 图 4 以 4+2 为例: 服务层先在内存聚合五个对象, 共 1.5 GB; 创建最大容量 1.5 GB 的 PLog; 一次性追加全部数据并 seal. 这些数据横向切成四个数据块, 分散到不同磁带. 对象 1-4 各只占一盘磁带, 对象 5 跨两盘, 因而读取所需驱动器和换带次数更少. 实现仅需在服务层增加简单的聚合功能, 并修改客户端中 PLog 与 sub-PLog 偏移的换算.
+
+<div class="paper-shared">
+
+![批量纠删编码 b-EC 示例. 假设 4+2 EC, 即四个数据块与两个校验块, 校验块位于 tape-E 和 tape-F. 六盘磁带位于六个不同机架. b-EC 让对象占用更少磁带, 减少读取时的驱动器抖动.](/assets/images/posts/tapeobs/figure-04.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 4: An example of batched erasure coding (b-EC). Assuming EC configuration of 4+2: 4 data chunks and 2 parity chunks (in TapeE and F). The six tapes are located in six different tape racks. With b-EC, an object in TapeOBS is stored on fewer tapes, thus reducing drive thrashing when fetching it.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 4: 批量纠删编码 b-EC 示例. 假设 4+2 EC, 即四个数据块与两个校验块, 校验块位于 tape-E 和 tape-F. 六盘磁带位于六个不同机架. b-EC 让对象占用更少磁带, 减少读取时的驱动器抖动.</span>
+
+b-EC has a drawback: it will increase the data needed for degraded reads. When a tape fails, TapeOBS runs EC repair. During the EC repair, if reading an object on the failed tape, we must reconstruct the object using other surviving data. For an object of size S, b-EC makes the data needed for the reconstruction increase from S to S×m. We believe this is acceptable, given the benefits of b-EC and the relatively low frequency of degraded reads.
+
+b-EC 的代价是降级读需要更多数据. 磁带故障后, 系统执行 EC 修复; 修复期间读取故障带上的对象, 必须从其他存活数据重建. 对大小为 S 的对象, b-EC 将重建所需数据从 S 增至 S × m. 考虑其收益及降级读发生较少, 我们认为可以接受.
+
+With b-EC, TapeOBS deploys the EC of 12+2, whose redundancy is 1.17. TapeOBS uses the Huawei-developed Low-Density Erasure Coding (LDEC) algorithm, an MDS (maximum distance separable) array code based on the XOR and Galois field multiplication.
+
+采用 b-EC 后, TapeOBS 部署 12+2 EC, 冗余度 1.17. 编码算法是华为开发的低密度纠删码 LDEC, 属于基于 XOR 和伽罗瓦域乘法的 MDS 阵列码.
+
+## 4.4 完全异步的磁带池与批量调度
+
+As described in §3.2, each tape pool is paired with an HDD pool. When users issue restore requests to TapeOBS, the associated objects are temporarily copied to the HDD pool, to serve the future get requests. Considering the hour-level SLA (service level agreement) of restore (recall §2.2), we can schedule restore requests asynchronously, to reduce thrashing and seeking of tape drives.
+
+每个磁带池配有 HDD 池. restore 将对象临时复制到 HDD 池, 供后续 get 使用. 恢复 SLA 为小时级, 因而可异步调度, 减少驱动器换带和寻道.
+
+We further repurpose the HDD pool as a persistent write buffer for write requests: write requests from users are first absorbed by the HDD pool, and then are digested to the tape pool. By doing so, we have a fully asynchronous tape pool, as shown in Figure 5: all writes and reads to it are asynchronous. This fully asynchronous design brings two advantages. First, it can handle workload bursts since the HDD pool has a larger aggregated bandwidth, albeit at a smaller capacity than the tape pool. Note that the HDD pool also uses the same configuration of EC to provide high availability. Second, it enables bulk scheduling between the two pools. Specifically, since the accesses to tapes are non-real-time, we can classify, group, and reorder a large number of objects according to scheduling strategies, achieving efficient bulk data transfer from/to tapes. TapeOBS uses DataBrain as the control plane of bulk scheduling. Next, we describe how TapeOBS performs bulk scheduling for object restore and writes, respectively.
+
+我们进一步让 HDD 池充当持久化写缓冲, 先吸收用户写入, 再移入磁带池, 形成图 5 的完全异步磁带池. 有两个收益: 一是 HDD 池虽小, 总带宽更高, 可吸收突发负载, 且使用相同 EC 配置保证高可用; 二是允许两池之间批量调度. 磁带访问不要求实时执行, 因此可将大量对象分类, 分组, 重排序, 高效批量传输. DataBrain 作为控制平面, 分别调度对象恢复和写入.
+
+<div class="paper-shared">
+
+![完全异步的磁带池与批量调度. 恢复时批量排序请求, 形成顺序访问, 减少换带; 写入时将存活时间相近的数据分组放到同一盘磁带, 降低 GC 开销.](/assets/images/posts/tapeobs/figure-05.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 5: Fully asynchronous tape pool with bulk scheduling. For object restore, we batch and sort requests to create sequential access patterns on tapes, mitigating drive thrashing. For object writes, data with similar lifetimes is grouped and written to the same tapes, reducing garbage collection overhead.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 5: 完全异步的磁带池与批量调度. 恢复时批量排序请求, 形成顺序访问, 减少换带; 写入时将存活时间相近的数据分组放到同一盘磁带, 降低 GC 开销.</span>
+
+Bulk Scheduling for Object Restore. For restore requests, the goal of bulk scheduling is reducing drive thrashing and seeking without violating SLA. Each restore request is first translated into a set of tasks ⟨ddl, pt-id, plog-id, offset, size⟩, where ddl is the deadline of the restore request (it is calculated according to SLA and is expressed in hourly granularity) and pt-id is obtained from plog-id. Note that these tasks are persistently stored to prevent failures. DataBrain schedules these tasks in the following way: 1) collecting all tasks having the minimum ddl to a pending set; 2) grouping the tasks in the pending set according to pt-id; 3) in each group, sorting tasks according to the increasing order of the pair ⟨plog-id, offset⟩; 4) dispatching tasks in the pending set to the tape pool one group at a time. In this way, each tape rack will receive a stream of read requests with physical locality, thus mitigating drive thrashing (by grouping tasks from the same partitions) and reducing seek time (by sorting tasks in the same PLogs using offset value).
+
+**对象恢复的批量调度.** 目标是在不违反 SLA 的前提下减少换带和寻道. 每个恢复请求转换为一组 ⟨ddl, pt-id, plog-id, offset, size⟩ 任务: ddl 是按 SLA 计算, 以小时表示的截止时间, pt-id 由 plog-id 得出. 任务持久保存以应对故障. DataBrain 依次执行: (1) 将 ddl 最小的全部任务收集到待处理集合; (2) 按 pt-id 分组; (3) 组内按 ⟨plog-id, offset⟩ 升序排列; (4) 逐组下发到磁带池. 同分区任务聚合可减少换带, 同 PLog 按偏移排序可减少寻道, 让各机架收到具有物理局部性的读请求流.
+
+Bulk Scheduling for Object Writes. For write requests, the goal of bulk scheduling is storing the objects with a similar lifetime in the same tape and thus lowering GC overhead. Currently, users can set expiration time for buckets or objects in TapeOBS; a bucket is a container for storing objects (like a directory in file systems). For an object, it is automatically deleted if the time since its last update is greater than the expiration time. With the expiration time, we can estimate the delete time for objects. DataBrain groups the objects in the HDD pool according to the delete time (uses 3 months as a grouping granularity). Then, it writes objects in the same group into the tape pool in a batch manner. By doing so, TapeOBS can ensure that a tape contains objects having a similar lifetime. Consequently, the GC overhead will be mitigated, since there is a high probability that the data on a tape will be deleted together, greatly reducing the amount of reading and rewriting of valid data during GC. Without the HDD pool as a persistent write buffer, performing lifetime-based data placement on tapes would be difficult. This is because the limited number of drives and time-consuming drive switches make it impossible to maintain an immediately writable tape for each lifetime group.
+
+**对象写入的批量调度.** 目标是把存活时间相近的对象放到同一盘磁带, 降低 GC 开销. 用户可为桶或对象设置过期时间, 桶相当于文件系统目录. 对象自最后更新起超过过期时长, 便会自动删除. 根据这一设置可估算删除时间. DataBrain 以三个月为粒度, 按预计删除时间分组 HDD 池内对象, 再分批写入磁带. 同盘数据更可能一起失效, 因而 GC 需要读取和重写的有效数据更少. 没有 HDD 池持久写缓冲就很难这样放置, 因为驱动器数量和换带耗时不允许为每组维持一盘随时可写的磁带.
+
+## 4.5 面向磁带的本地存储引擎
+
+Within a tape rack, TapeOBS runs a local storage engine on the head server. The storage engine is responsible for persistently storing sub-PLogs in the local tape library. Figure 6 shows its architecture, which consists of a Virtual Database (VDB), a Tape Library Scheduler (TLS), and a Tape Library Manager (TLM). TLM encapsulates the driver of the tape library: it can control the accessor and tape drives, as well as query the states of the tape library. Next, we introduce VDB and TLS, two tape-tailored components in the local storage engine.
+
+每个机架的前端服务器运行本地引擎, 将 sub-PLog 持久存到本地磁带库. 图 6 展示三个组件: 虚拟数据库 VDB, 磁带库调度器 TLS, 磁带库管理器 TLM. TLM 封装磁带库驱动, 控制机械手和驱动器, 查询库状态. 下面介绍针对磁带设计的 VDB 和 TLS.
+
+<div class="paper-shared">
+
+![面向磁带的本地引擎. VDB 保存 sub-PLog 元数据并缓存数据; TLS 通过读调度和流控优化请求; TLM 控制机械手和驱动器.](/assets/images/posts/tapeobs/figure-06.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 6: Tape-tailored local storage engine. Virtual Database (VDB): storing metadata of sub-PLogs and buffering data. Tape Library Scheduler (TLS): streamlining I/O requests to tapes by read scheduling and flow control. Tape Library Manager (TLM): controlling the accessor and tape drives.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 6: 面向磁带的本地引擎. VDB 保存 sub-PLog 元数据并缓存数据; TLS 通过读调度和流控优化请求; TLM 控制机械手和驱动器.</span>
+
+### 4.5.1 虚拟数据库 VDB
+
+VDB utilizes the two NVMe SSDs in the head server to create two storage areas: MetaStore and DataStore.
+
+VDB 使用前端服务器的两块 NVMe SSD, 建立 MetaStore 和 DataStore 两个存储区.
+
+MetaStore. MetaStore stores the metadata for all sub-PLogs in the tape rack. Each sub-PLog has a 256B metadata, which contains plog-id, tape offset, size, PLog state, etc. Since a PLog is typically gigabytes in size, MetaStore only needs less than 50GB of SSD space to maintain all the metadata for a 10PB tape library. By leveraging the MetaStore, we can obtain the physical location of a sub-PLog without touching the tape, thus avoiding random metadata accesses in tapes for reading sub-PLogs.
+
+MetaStore. 保存本机架全部 sub-PLog 的元数据, 每条 256 B, 包含 plog-id, 磁带偏移, 大小和 PLog 状态等. PLog 通常为 GB 级, 因而不足 50 GB SSD 空间即可维护一个 10 PB 磁带库的全部元数据. 读取 sub-PLog 时, 无需触碰磁带即可确定物理位置, 避免带上随机元数据访问.
+
+DataStore. DataStore is a persistent buffer upon the tape library. For sub-PLog writes, the data is first buffered in DataStore and then flushed to tapes; sub-PLog reads have an opposite direction.
+
+DataStore. 是磁带库之上的持久缓冲, 写入先进入其中再刷到磁带, 读取方向相反.
+
+Both MetaStore and DataStore are organized as key-value stores, with fixed-size keys and values. For MetaStore, the key is plog-id and the value is sub-PLog metadata. For DataStore, the key is ⟨plog-id, offset⟩ and the value is a fixed-size data slice (`e.g.`, 1MB). We design a simple key-value store by exploiting the property of fixed-size KVs, as shown in Figure 7. The key-value store pre-allocates two arrays in SSDs, `i.e.`, key array and value array, where each element is the same size as keys and values, respectively. A hash table in DRAM maintains the mapping from a key to the array index of the target KV. When inserting a KV, we first write the value and then the key.
+
+两者均为固定大小键和值的 KV 存储. MetaStore 的键是 plog-id, 值是 sub-PLog 元数据; DataStore 的键是 ⟨plog-id, offset⟩, 值为固定大小的数据切片, 如 1 MB. 利用这一特点, 我们设计图 7 的简单 KV 存储: 在 SSD 上预分配 key array 和 value array, 元素大小分别等于键和值的大小. DRAM 哈希表记录键到数组索引的映射. 插入时先写值, 再写键.
+
+<div class="paper-shared">
+
+![MetaStore 与 DataStore 使用的 SSD 键值存储. 键数组和值数组存放固定大小数据. 崩溃恢复时, 扫描键数组重建内存哈希表.](/assets/images/posts/tapeobs/figure-07.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 7: The SSD-based key-value store used by MetaStore and DataStore. The key array and value array store fixed-size data. Upon crash recovery, the in-memory hash table can be reconstructed by scanning the key array.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 7: MetaStore 与 DataStore 使用的 SSD 键值存储. 键数组和值数组存放固定大小数据. 崩溃恢复时, 扫描键数组重建内存哈希表.</span>
+
+The key-value store is crash-consistent for the following reasons. First, writing a key is atomic, since the keys in MetaStore and DataStore are smaller than 4KB. Second, the integrity of values can be validated: for MetaStore, the value is 256B and thus can be written atomically; for DataStore, each 4KB data in values has a DIF (data integrity field), which contains an 8B plog-id, the offset within the sub-PLog, and a 4B checksums (which we have mentioned in §3.3). Third, we can check whether there is a match between a key and a value, since the value stores information about the key. Finally, we can reconstruct the in-memory hash table by scanning the key array upon recovery.
+
+这一 KV 存储满足崩溃一致性, 原因有四点. 第一, 键小于 4 KB, 可以原子写入. 第二, 值可验证完整性: MetaStore 的值为 256 B, 可原子写入; DataStore 的值中每 4 KB 附带 DIF, 含 8 B plog-id, sub-PLog 内偏移和 4 B 校验和. 第三, 值中包含键信息, 可核对键值是否匹配. 第四, 恢复时扫描键数组即可重建内存哈希表.
+
+Flushing Sub-PLogs from VDB to Tapes. When receiving a seal request for a sub-PLog, a thread in the head server will flush the sub-PLog from the VDB to tapes: 1) it collects data slices that belong to the sub-PLog from DataStore. There is a DRAM-resident list for each sub-PLog that connects its data slices. 2) The thread appends the sub-PLog to the target tape (according to pt-id) by calling the TLS. 3) The thread deletes KV pairs of these data slices in DataStore and updates the metadata of the sub-PLog (including tape offset and sub-PLog state) in MetaStore.
+
+**从 VDB 刷入磁带.** 收到 sub-PLog 的 seal 请求后, 前端服务器线程执行三步: (1) 从 DataStore 收集该 sub-PLog 的数据切片, DRAM 中每个 sub-PLog 都有链表连接其切片; (2) 根据 pt-id 调用 TLS, 将 sub-PLog 追加到目标磁带; (3) 删除 DataStore 中这些切片的 KV, 更新 MetaStore 的磁带偏移和 sub-PLog 状态等元数据.
+
+Metadata Partition in Tapes. We create a metadata partition in every tape by leveraging the hardware partitioning features (recall §2.1). When a tape is full, the head server dumps the associated sub-PLog metadata from MetaStore to the metadata partition. The metadata partition can accelerate recovery in the presence of SSD failures: reconstructing the MetaStore from metadata partitions of tapes rather than scanning data in tapes and validating DIFs for all 4KB data.
+
+**磁带元数据分区.** 利用硬件分区能力, 为每盘磁带创建元数据分区. 磁带写满时, 将相应 sub-PLog 元数据从 MetaStore 转存其中. SSD 故障后可直接从这些分区重建 MetaStore, 无需扫描全部带上数据并逐个验证 4 KB 数据的 DIF, 从而加快恢复.
+
+### 4.5.2 磁带库调度器 TLS
+
+The tape library scheduler (TLS) streamlines the data access to tapes by read scheduling and flow control.
+
+TLS 通过读调度与流量控制优化磁带数据访问.
+
+Read Scheduling. Given a group of read requests that contains multiple sub-PLogs in the same tape (the group is sent by DataBrain; recall §4.4), TLS generates an access ordering of these sub-PLogs, to reduce seek time.
+
+**读调度.** DataBrain 下发的一个请求组包含同一磁带上的多个 sub-PLog. TLS 为它们生成访问顺序, 减少寻道, 参见原文第 4.4 节.
+
+A modern tape is composed of hundreds of wraps; these wraps are logically connected, as shown in Figure 8. Neighboring wraps have opposite access directions and tape drives must follow the directions. Such a structure makes accessing the tape in the order of logical blocks prone to a large number of unnecessary seeks. TLS adopts a simple SCAN algorithm to optimize accesses for a group of sub-PLogs: 1) For each sub-PLog, TLS calculates its physical position in the tape. Note that we pre-maintain the relationship between the tape's logical blocks and physical positions. 2) TLS divides sub-PLogs into two queues, based on the access directions of their wraps. 3) TLS sorts sub-PLogs in each queue according to their physical positions. 4) TLS executes the requests in one queue first, then in the other queue.
+
+现代磁带包含数百条在逻辑上相连的 wrap, 如图 8. 相邻 wrap 的访问方向相反, 驱动器必须遵循这一方向. 因此, 按逻辑块顺序访问可能产生大量多余寻道. TLS 使用简单的 SCAN 算法: (1) 根据预先维护的逻辑块与物理位置关系, 计算各 sub-PLog 位置; (2) 按所在 wrap 的方向分成两个队列; (3) 各队列按物理位置排序; (4) 先执行一个队列, 再执行另一个.
+
+<div class="paper-shared">
+
+![现代磁带由数百条 wrap 组成. BOT 表示磁带起始端, EOT 表示结束端.](/assets/images/posts/tapeobs/figure-08.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 8: A modern tape is composed of hundreds of wraps. BOT: beginning of tape; EOT: end of tape.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 8: 现代磁带由数百条 wrap 组成. BOT 表示磁带起始端, EOT 表示结束端.</span>
+
+Flow Control. During deploying TapeOBS, we found a performance anomaly on tape drives, which occurs frequently. Figure 9(a) presents such a case, where we collect the bandwidth of a write drive over 15 minutes. In the first 79 seconds, the drive has a stable performance: 335.94MB/s on average, close to the theoretical performance limit of 360MB/s. In the next 48 seconds, the drive's performance experienced severe fluctuations. Then, the bandwidth drops to half with 168.65MB/s on average; this process lasts 285 seconds.
+
+**流量控制.** 部署中我们发现驱动器经常出现性能异常. 图 9a 展示一次 15 分钟观测: 前 79 秒平均 335.94 MB/s, 接近 360 MB/s 理论上限; 随后 48 秒剧烈波动; 再降至平均 168.65 MB/s, 约为原来一半, 持续 285 秒.
+
+Through analysis, we think the reason is the unstable I/O request submission rate. There is a buffer in the tape drive, which is used to absorb data from the host. The drive writes data from the buffer to the tape using a constant speed (from a set of pre-defined speeds); the drive selects the speed via an internal algorithm. Yet, when TLS submits requests in a highly jittery manner (`i.e.`, 80~128s in Figure 9(a)), the drive may incorrectly estimate the speed of the host and choose a low speed, thus leading to performance degradation.
+
+分析表明, 原因可能是 I/O 提交速率不稳定. 驱动器用内部缓冲接收主机数据, 再以预定义速度集合中的某个恒定速度写入磁带, 速度由内部算法选择. 当 TLS 提交请求剧烈抖动, 如图 9a 的 80-128 秒, 驱动器可能低估主机供数速度, 选择较低速度, 导致性能下降.
+
+We use flow control to address the issue. Its key idea is aligning the speed of submitting requests with the speed of the drive. TLS reads the size of the drive buffer periodically and uses it to estimate the speed of the drive (we term it DS). TLS sends requests to a rate limiter, which adjusts the speed of submitting requests to DS. If there is less than 100MB of data to be submitted, TLS bypasses the rate limiter. In this way, we can avoid the drive selecting a mismatched speed. Figure 9(b) shows the bandwidth of the write drive after we apply flow control. The write drive delivers a stable bandwidth (336.53MB/s on average). Of note, about every 163 seconds, performance drops steeply by 1-2 seconds, this is because the drive head is switching to a new wrap by changing the direction (recall the tape structure in Figure 8).
+
+我们用流控让请求提交速度匹配驱动器速度. TLS 定期读取驱动器缓冲区大小, 估算速度 DS, 再通过限速器将提交速率调到 DS. 待提交数据不足 100 MB 时绕过限速器. 这样可避免驱动器选错速度. 图 9b 中带宽稳定在平均 336.53 MB/s. 大约每 163 秒仍会短暂下降 1-2 秒, 是磁头改变方向, 切换到下一条 wrap 所致, 参见图 8.
+
+<div class="paper-shared">
+
+![写驱动器带宽. (a) 无流控, 129-414 秒出现性能下降; (b) 使用流控, 带宽稳定, 平均为 336.53 MB/s.](/assets/images/posts/tapeobs/figure-09.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 9: The bandwidth of a write drive. (a): TLS issues requests to the drive without flow control: experiencing a performance degradation during 129s-414s. (b): TLS issues requests to the drive using flow control: the bandwidth is stable and the average is 336.53MB/s.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 9: 写驱动器带宽. (a) 无流控, 129-414 秒出现性能下降; (b) 使用流控, 带宽稳定, 平均为 336.53 MB/s.</span>
+
+# 5. TapeOBS 部署
+
+TapeOBS started its gradual rollout (`i.e.`, grayscale release) at the end of 2022 and officially began serving customers in 2024. Currently, TapeOBS is a single-AZ (availability zone) service, and is deployed across several clusters, with each cluster consisting of multiple tape pools. Of note, different tape pools in the same cluster can share a service layer, an index layer, and the DataBrain; but each tape pool has a dedicated MDC to manage partitions, which means a tape pool is a basic deployment unit. Each tape pool is equipped with 14 tape racks, resulting in a total capacity of 140PB. TapeOBS uses the erasure coding of 12+2 with 1.17 storage redundancy. The EC-encoded data  --  comprising 12 data chunks and 2 parity chunks  --  is distributed across the 14 tape racks. At the time of writing the paper, TapeOBS has stored hundreds of petabytes of raw user data (Note 3).
+
+TapeOBS 于 2022 年底开始灰度上线, 2024 年正式服务客户. 当时为单可用区服务, 部署于多个集群, 每集群有多个磁带池. 同集群的池可共享服务层, 索引层和 DataBrain, 但各有专用 MDC 管理分区, 因而磁带池是基本部署单位. 每池 14 个机架, 总容量 140 PB. 采用 12+2 EC, 冗余度 1.17, 将 12 个数据块和两个校验块分布到 14 个机架. 截至论文撰写时, 已保存数百 PB 用户原始数据 (注 3).
+
+<div class="paper-shared">
+
+Note 3: For commercial reasons, we are unable to disclose the exact storage capacity of TapeOBS.
+
+注 3: 出于商业原因, 论文未披露 TapeOBS 的确切存储容量.
+
+</div>
+
+In this section, we begin our analysis of TapeOBS by examining the distribution of object size (§5.1) and the ratios of object operations (§5.2), both of which exhibit a highly skewed pattern. Then, we choose a representative cluster to present its metrics such as capacity utilization and performance (§5.3, §5.4, and §5.5). Finally, we show failure characterization of tape libraries in TapeOBS's deployment (§5.6).
+
+下面先分析对象大小分布和操作比例, 两者均高度偏斜; 再选一个代表性集群, 展示容量利用率与性能; 最后分析生产部署中的磁带库故障, 对应原文第 5.1 至 5.6 节.
+
+## 5.1 对象大小分布
+
+We collect statistics about the size of the objects stored in TapeOBS. Figure 10 presents a CDF, where the x-axis represents object size and the y-axis shows the cumulative proportion of the total TapeOBS storage capacity occupied by objects smaller than or equal to that size. From the figure, we can make a clear observation: the object size exhibits a highly skewed pattern. Concretely, objects smaller than 500MB occupy 93.81% of TapeOBS's storage space; of these, 69.95% are objects in the 50-100MB range.
+
+图 10 展示对象大小的累积分布: 横轴是对象大小, 纵轴是小于等于该大小的对象所占容量, 相对于 TapeOBS 总容量的累计比例. 分布明显偏斜, 小于 500 MB 的对象占 93.81% 存储空间, 其中 50-100 MB 对象的占比为 69.95%.
+
+<div class="paper-shared">
+
+![TapeOBS 对象大小分布的 CDF, 分布高度偏斜.](/assets/images/posts/tapeobs/figure-10.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 10: The CDF of object size distribution in TapeOBS. The object size exhibits a highly skewed pattern.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 10: TapeOBS 对象大小分布的 CDF, 分布高度偏斜.</span>
+
+We also analyze all 44 buckets from our largest customer in TapeOBS by computing the average object size for each bucket and its proportion of the customer's total storage capacity, as shown in Figure 11. Among them, three buckets account for more than 10% of the total capacity: one with an average object size of 81.92MB accounts for 43.88%, another with 83.19MB accounts for 24.90%, and the third with 208.90MB accounts for 10.99% of the total capacity. There are relatively few large objects at the GB level: only one bucket has an average object size greater than 1000MB, `i.e.`, 1009.3MB; it accounts for 1.38% of the total capacity.
+
+我们还分析最大客户的全部 44 个桶, 计算各桶平均对象大小及其占客户总容量的比例, 如图 11. 三个桶容量占比超过 10%: 平均 81.92 MB 的桶占 43.88%, 平均 83.19 MB 的占 24.90%, 平均 208.90 MB 的占 10.99%. GB 级对象较少, 只有一个桶的平均值超过 1000 MB, 为 1009.3 MB, 容量占比 1.38%.
+
+<div class="paper-shared">
+
+![桶平均对象大小与容量占比. 每个点是一个桶; 横轴是平均对象大小 (MB), 纵轴是该桶占总容量的比例.](/assets/images/posts/tapeobs/figure-11.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 11: Buckets' average object size vs. Capacity proportion. Each point represents a bucket. The x-axis shows the bucket's average object size (in MB), and the y-axis indicates the bucket's proportion of total storage capacity</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 11: 桶平均对象大小与容量占比. 每个点是一个桶; 横轴是平均对象大小 (MB), 纵轴是该桶占总容量的比例.</span>
+
+## 5.2 对象操作比例
+
+Table 4 presents ratios of object-level operations (`e.g.`, write, read, and delete) for the five largest customers in TapeOBS, ranked by storage capacity in descending order from A to E. We can make two observations from the table.
+
+表 4 按容量从大到小列出五个客户 A 至 E 的写, 读, 删除比例, 可得两点观察.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 4: Ratios of different operations. We selected the five largest customers, ordered from A to E in descending data volume, with Customer A being the largest.</span>
+
+| Customer | Write | Read | Delete |
+|:---|:---|:---|:---|
+| A | 99.999888% | 0.000112% | 0% |
+| B | 99.325224% | 0.674776% | 0% |
+| C | 99.999872% | 0.000128% | 0% |
+| D | 100% | 0% | 0% |
+| E | 99.986719% | 0% | 0.013281% |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 4: 五个最大客户的操作比例, 按数据量从 A 至 E 降序排列, A 最大.</span>
+
+| 客户 | 写 | 读 | 删除 |
+|:---|:---|:---|:---|
+| A | 99.999888% | 0.000112% | 0% |
+| B | 99.325224% | 0.674776% | 0% |
+| C | 99.999872% | 0.000128% | 0% |
+| D | 100% | 0% | 0% |
+| E | 99.986719% | 0% | 0.013281% |
+
+</div>
+
+</div>
+
+First, the archive workload is heavily dominated by write operations, while read operations are extremely rare. Customer B has the highest read ratio, but even then, reads make up only 0.674776% of its total operations. For the largest customer, A, the read percentage is even more marginal at 0.000112%. Customers D and E have not issued any read requests at all, highlighting the typical access pattern of archival data: mostly writes, hardly any reads.
+
+第一, 写入占绝对多数, 读取极少. 客户 B 读取比例最高, 也只有 0.674776%; 最大客户 A 仅 0.000112%; D 和 E 从未发出读取请求. 这体现了归档数据的典型模式: 主要写入, 几乎不读.
+
+Second, delete operations are also very uncommon. Only Customer E has issued any delete requests, accounting for just 0.013281% of its total operations. This is because in TapeOBS, archived objects are usually removed automatically upon expiration, rather than by explicit user delete operations.
+
+第二, 显式删除也很少. 只有客户 E 发过删除请求, 占 0.013281%. 原因是归档对象通常到期自动移除, 无需用户主动删除.
+
+## 5.3 HDD 池与磁带池的利用率
+
+We select an active cluster from TapeOBS and count the space utilization of the tape and HDD pools over a 24-hour interval (`i.e.`, a day). Figure 12 shows the result. Of note, for the tape pool, we present the amount of data growth and express it as a percentage of the total capacity of the HDD pool. For Figure 12(a), we can observe that the utilization of the HDD pool fluctuates between 71.625% and 71.675%. In TapeOBS, the HDD pool is a staging area, to enable a fully asynchronous tape pool. The data in the HDD pool increases when 1) users commit write requests or 2) TapeOBS copies data from the tape pool to the HDD pool for serving restore requests. In contrast, when TapeOBS performs bulk data scheduling, moving objects from the HDD pool to the tape pool, the data in the HDD pool decreases. For Figure 12(b), we can observe that TapeOBS digests data at a relatively constant rate from the HDD pool to the tape pool.
+
+我们选一个活跃集群, 统计 24 小时空间利用率, 见图 12. 磁带池展示的是数据增长量, 以 HDD 池总容量的百分比表示. 图 12a 中, HDD 利用率在 71.625% 至 71.675% 间波动. 它作为暂存区, 在用户写入或磁带恢复数据进入时增长, 在批量移入磁带池时减少. 图 12b 表明数据以相对稳定的速度从 HDD 池移入磁带池.
+
+Currently, we set a capacity watermark of 75% for the HDD pool: by controlling the speed at which data is moved to tapes, we ensure that the HDD capacity does not exceed this watermark. We reserve a 25% HDD space for the following three reasons. First, the headroom can absorb unpredictable burst traffic triggered by users. Second, the space can be used for internal activities of the HDD pool, `e.g.`, EC repair upon HDD failures. Finally, this can avoid performance degradation of HDDs due to excessive utilization.
+
+我们将 HDD 池容量水位设为 75%, 通过控制移入磁带的速度避免超限. 预留 25% 有三个用途: 吸收不可预测的用户突发流量; 支持 HDD 故障后的 EC 修复等内部操作; 避免过高利用率导致 HDD 性能下降.
+
+<div class="paper-shared">
+
+![HDD 池与磁带池容量利用率. 磁带池展示数据增长量, 以 HDD 池总容量的百分比表示.](/assets/images/posts/tapeobs/figure-12.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 12: Capacity utilization of HDD pool and tape pool. Of note, for the tape pool, we present the amount of data growth and express it as a percentage of the total capacity of the HDD pool.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 12: HDD 池与磁带池容量利用率. 磁带池展示数据增长量, 以 HDD 池总容量的百分比表示.</span>
+
+## 5.4 HDD 池与磁带池的吞吐量
+
+We collect the real-time throughput of the HDD and tape pool over 24 hours (the same period as in §5.3). Figure 13 shows the results. It is important to note that, our performance capture tool counts the number of writing/reading an EC stripe performed by PLog-Client, not the number of calls to the PLog interfaces. In TapeOBS in the production environment, a stripe consists of twelve 512KB data chunks and two 512KB parity chunks (Note 4). In other words, in the figure, an append operation writes a stripe of (12+2) × 512KB data (`i.e.`, 7MB); a read operation reads a 12 × 512KB data (`i.e.`, 6MB).
+
+图 13 给出与原文第 5.3 节相同 24 小时内的实时吞吐量. 工具统计的是 PLog-Client 读写 EC 条带的次数, 而非 PLog 接口调用次数. 生产条带含 12 个 512 KB 数据块和两个 512 KB 校验块 (注 4). 因而图中一次 append 写入 (12+2) × 512 KB, 即 7 MB; 一次 read 读取 12 × 512 KB, 即 6 MB.
+
+<div class="paper-shared">
+
+Note 4: For a PLog append/read, the PLog-Client writes/reads data to/from tape and HDD pools using the stripe as the unit.
+
+注 4: PLog-Client 执行 append/read 时, 以条带为单位读写磁带池和 HDD 池.
+
+</div>
+
+As shown in Figure 13(a), during the 24 hours, the tape pool delivers write throughput between 39.67Kops/min and 148.79Kops/min, with an average value of 118.81Kops/min (`i.e.`, 7MB×118.81K = 831.67GB/min). Despite the jitter in the write throughput, when we accumulate on an hourly basis, we can find that the cumulative writes per hour are relatively stable: except for the 6th hour (6162.69Kops/h) and the 17th hour (5451.34Kops/h), the throughput in the remaining 22 hours is between 7052.58Kops/h and 7469.22Kops/h. This is consistent with Figure 12(a), which shows that the tape pool is increasing data at a relatively constant rate (A slightly downward slope occurs during the 17th hour, as can be observed more closely in the figure). Different from writes, the read throughput of the tape pool is low: up to 5.85Kops per minute in this 24-hour period. This also indicates that users have fewer restore requests in our archive workloads.
+
+图 13a 中, 磁带池写吞吐量为 39.67-148.79 Kops/min, 平均 118.81 Kops/min, 即原文所列 7 MB × 118.81 K = 831.67 GB/min. 尽管瞬时值波动, 按小时累计较稳定: 除第 6 小时的 6162.69 Kops/h 和第 17 小时的 5451.34 Kops/h 外, 其余 22 小时为 7052.58-7469.22 Kops/h. 这与原文所引图 12a 的稳定增长趋势一致, 第 17 小时可观察到轻微下降. 相比写入, 读取很少, 这一天最高仅 5.85 Kops/min, 说明归档负载中的恢复请求不多.
+
+From Figure 13(b), we can make two observations. First, the average write and read throughput of the HDD pool is 134.015Kops/min and 158.139Kops/min, respectively. The write throughput reflects primarily the speed at which users submit write requests (recall that restore requests are rare). The read throughput reflects primarily the speed at which TapeOBS moves data to the tape pool.
+
+图 13b 有两点值得注意. 第一, HDD 平均写和读吞吐量分别为 134.015 与 158.139 Kops/min. 写吞吐量主要反映用户提交速度, 因为恢复请求很少; 读吞吐量主要反映移入磁带池的速度.
+
+Second, the read throughput of the HDD pool is higher than the write throughput of the tape pool, this is because the HDD pool performs garbage collection (GC) in the background, inducing extra reads and writes. Like the tape pool, the HDD pool leverages append-only PLogs as the storage unit. As TapeOBS moves objects from HDDs to tapes using lifetime-based aggregation, the HDD pool has many PLogs containing garbage data. To ensure that the HDD pool utilization is below 75% (recall §5.3), TapeOBS performs GC: the service layer reads valid objects from old PLogs, writes them to new PLogs, and deletes old PLogs. As shown in Figure 13(b), the GC for the HDD pool is triggered periodically, resulting in periodic spikes in read throughput. During GC, the new PLogs are written to the HDD pool at a steady rate. There is no significant GC traffic in the tape pool, this is because through lifetime-based placement, in most cases we can directly delete all data in an EC group.
+
+第二, HDD 读吞吐量高于磁带池写吞吐量, 因为 HDD 后台 GC 会额外读写. HDD 池也使用仅追加的 PLog. 按生命周期聚合并迁往磁带后, HDD 上很多 PLog 留有垃圾数据. 为保持利用率低于 75%, 服务层读取旧 PLog 的有效对象, 写入新 PLog, 再删除旧 PLog. 图 13b 中周期性 GC 导致读吞吐量尖峰, 新 PLog 则以稳定速率写入. 磁带池没有明显 GC 流量, 因为按生命周期放置后, 通常可直接删除整个 EC 组的数据.
+
+<div class="paper-shared">
+
+![24 小时内磁带池和 HDD 池吞吐量. 一次 append 写入 (12+2) × 512 KB, 即 7 MB; 一次 read 读取 12 × 512 KB, 即 6 MB.](/assets/images/posts/tapeobs/figure-13.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 13: Throughput of the tape and HDD pool over 24 hours. In this figure, an append operation writes a stripe of (12+2) × 512KB data (`i.e.`, 7MB); a read operation reads a 12 × 512KB data (`i.e.`, 6MB).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 13: 24 小时内磁带池和 HDD 池吞吐量. 一次 append 写入 (12+2) × 512 KB, 即 7 MB; 一次 read 读取 12 × 512 KB, 即 6 MB.</span>
+
+## 5.5 磁带池写延迟
+
+TapeOBS adopts a tape-tailored local storage engine, which leverages local SSDs to buffer data and metadata persistently. Therefore, when all data and parity chunks arrive at SSD-resident DataStore in associated tape racks, the write operation for the tape pool is complete. We collect the latencies of writing a stripe to the tape pool and Figure 14 presents the latency CDF. The median latency and P99 latency are 18.51ms and 27.75ms, respectively. The network spends about 10ms of latency, since TapeOBS is using a kernel-level TCP/IP network stack. The DataStore consumes about 1-4ms for writing data and metadata to SSDs. The rest of the time is spent on the software logic of the service layer's PLog-Client, including calculating the parity chunks for EC, generating checksums for each 4KB, and memory copying.
+
+本地引擎利用 SSD 持久缓存数据和元数据. 所有数据块与校验块到达相应机架的 SSD DataStore, 就视为磁带池写入完成. 图 14 给出写入一个条带的延迟 CDF, 中位数 18.51 ms, P99 为 27.75 ms. 内核 TCP/IP 网络栈耗时约 10 ms, DataStore 写 SSD 数据与元数据约 1-4 ms; 其余用于服务层 PLog-Client 的软件逻辑, 包括 EC 校验计算, 每 4 KB 生成校验和以及内存复制.
+
+<div class="paper-shared">
+
+![写延迟 CDF. 每次操作写入一个 (12+2) × 512 KB, 即 7 MB 的条带.](/assets/images/posts/tapeobs/figure-14.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 14: The CDF of write latency. An operation writes a stripe of (12+2) × 512KB data (`i.e.`, 7MB).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 14: 写延迟 CDF. 每次操作写入一个 (12+2) × 512 KB, 即 7 MB 的条带.</span>
+
+## 5.6 磁带库故障特征
+
+During the deployment and operation of TapeOBS, we have recorded a total of 17 tape library-related failures. These statistics were collected over approximately 1.25 years since we officially launched customer-facing operations in 2024. Our current deployment consists of fewer than 200 tape libraries, a count influenced by the high storage density of 10PB per unit. For a detailed analysis, Table 5 presents these failures and their respective ratios.
+
+自 2024 年正式对外服务以来, 约 1.25 年内共记录 17 起磁带库相关故障. 每库密度达 10 PB, 当时部署规模不足 200 个库. 表 5 列出故障类型及比例.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 5: Failures characterization in tape libraries. Here we focus on tape library-related failures, rather than others such as network issues and storage device failures (`e.g.`, SSDs and tapes).</span>
+
+| ID | Failure | Ratio |
+|:---|:---|:---|
+| 1 | Drive software bugs | 4/17 |
+| 2 | Drive failures | 4/17 |
+| 3 | Drive does not recognize tapes | 4/17 |
+| 4 | Drive not found | 1/17 |
+| 5 | Robotic accessor is stuck | 2/17 |
+| 6 | Disconnection between head server and tape library | 2/17 |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 5: 磁带库相关故障, 不包括网络问题及 SSD, 磁带等存储介质故障.</span>
+
+| 编号 | 故障类型 | 比例 |
+|:---|:---|:---|
+| 1 | 驱动器软件缺陷 | 4/17 |
+| 2 | 驱动器故障 | 4/17 |
+| 3 | 无法识别磁带 | 4/17 |
+| 4 | 找不到驱动器 | 1/17 |
+| 5 | 机械手卡住 | 2/17 |
+| 6 | 前端服务器与磁带库断连 | 2/17 |
+
+</div>
+
+</div>
+
+For drive software bugs (1) ), we have encountered abnormal performance degradation during the execution of certain drives, which does not affect the system's availability, but requires updating the drive software.
+
+驱动器软件缺陷 (1) 表现为运行中异常性能下降, 不影响系统可用性, 但需要更新驱动器软件.
+
+When a drive cannot work (2)  3)  4) ), TapeOBS has different consequences depending on the tasks the drive performs. Recall that TapeOBS statically divides drives in a tape library into three groups (§4.2): 2 write drives, 1 read drive, and 1 internal drive. When the non-functional drive is a write drive, the write throughput of the tape pool will drop. When it is the read drive, restoring objects in the associated rack will be converted into degraded reads from other tape racks. When it is the internal drive, the performance of the tape pool is not affected, and internal operations require intervention from maintenance personnel (`e.g.`, install a new drive) to resume.
+
+驱动器无法工作 (2), (3), (4) 时, 影响取决于其用途. 每库两个写, 一个读, 一个内部驱动器. 写驱动器故障会降低磁带池写吞吐量; 读驱动器故障, 则从其他机架执行降级读来恢复相关对象; 内部驱动器故障不影响磁带池对外性能, 但内部操作需运维干预, 如安装新驱动器后才能恢复.
+
+In some cases, the entire tape library may be unable to function, such as when the robotic accessor is stuck (5) ) or when the head server is disconnected from the tape library (6) ). At this point, the tape pool is unable to perform write operations and uses degraded reads to serve read operations. Yet, TapeOBS still can handle write requests from users: the HDD pool will use its 25% unused space to absorb writes, which can create dozens of extra hours (recall Figure 12(b), the user write volume over 24 hours is less than 4% of the HDD pool's capacity), providing maintenance personnel with sufficient time to repair the tape library.
+
+机械手卡住 (5), 前端服务器与磁带库断连 (6) 等情况可能使整个库停摆. 此时磁带池不能写入, 读取通过降级读完成. 用户写入仍能继续: HDD 池用预留的 25% 空间吸收数据, 争取数十小时维修时间. 图 12b 显示, 24 小时用户写入量不足 HDD 总容量的 4%, 因而有较充足的修复余地.
+
+# 6. 相关工作
+
+We examine two aspects of related work, including tape-based storage systems and other archive storage systems.
+
+我们从磁带存储系统和其他归档系统两方面讨论相关研究.
+
+## 6.1 磁带存储系统
+
+If readers are interested, we refer them to a recent article from IBM <sup>[28]</sup>, which introduces modern tapes in detail, from hardware to software. LTFS <sup>[32]</sup> and HTPFS <sup>[38]</sup> are file systems designed for tapes. LTFS leverages the hardware partitioning to create a metadata area, and stores metadata with an XML format index. bLTFS <sup>[26]</sup> augments LTFS with a space-efficient binary index. TapeOBS stores sub-PLogs in tapes and uses a metadata partition to accelerate the recovery. GLUFS <sup>[27]</sup> integrates LTFS into GPFS, a distributed file system; it migrates data between disks and tapes according to data hotness. TapeOBS includes an HDD pool for bulk scheduling and object restoration. CloudDT <sup>[21]</sup> and DeduT <sup>[20]</sup> design data deduplication for tape libraries; TapeOBS currently does not support deduplication.
+
+IBM 的近期文章 <sup>[28]</sup> 从硬件到软件详细介绍现代磁带. LTFS <sup>[32]</sup> 和 HTPFS <sup>[38]</sup> 是磁带文件系统. LTFS 用硬件分区建立元数据区, 采用 XML 索引; bLTFS <sup>[26]</sup> 改用更省空间的二进制索引. TapeOBS 保存 sub-PLog, 用元数据分区加快恢复. GLUFS <sup>[27]</sup> 将 LTFS 接入分布式文件系统 GPFS, 按热度在磁盘与磁带间迁移数据; TapeOBS 则用 HDD 池支持批量调度和对象恢复. CloudDT <sup>[21]</sup>, DeduT <sup>[20]</sup> 研究磁带库去重, TapeOBS 目前不支持去重.
+
+Some works explore algorithms that reduce seek time on tapes by reordering requests <sup>[17, 23, 33, 34]</sup>. The advanced algorithms <sup>[23]</sup> take into account the overheads of both the longitudinal dimension (`i.e.`, the physical distance between blocks) and the latitudinal dimension (`i.e.`, switching between wraps). TapeOBS's scan algorithm only optimizes from the longitudinal dimension, and uses sub-PLogs as the basic unit. Quantum adopts an EC scheme for tapes called two-dimensional EC <sup>[2]</sup>, which uses both inter-tape and intra-tape EC to protect data. TapeOBS treats a tape as the basic unit of failure and does not consider partial failure of a tape.
+
+一些研究通过请求重排减少寻道 <sup>[17, 23, 33, 34]</sup>. 较先进算法 <sup>[23]</sup> 同时考虑纵向物理距离和横向 wrap 切换开销. TapeOBS 的扫描算法只优化纵向距离, 以 sub-PLog 为单位. Quantum 的二维 EC <sup>[2]</sup> 同时采用带内与带间纠删码保护数据. TapeOBS 则将整盘磁带作为故障单位, 不考虑局部失效.
+
+## 6.2 其他归档存储系统
+
+In addition to the tape, media such as HDD <sup>[14, 40]</sup>, glass <sup>[11, 12]</sup>, Blu-Ray disks <sup>[1]</sup>, and DNA <sup>[15, 29, 35, 36, 39]</sup> are also used to build archive storage systems. Alibaba leverages HM-SMR HDDs for archival-class object storage <sup>[40]</sup>. Microsoft's Silica saves archived data in the quartz glass <sup>[11]</sup>, which can offer lifetimes of over 1000 years. Meta uses Blu-Ray disks to store cold photos from its social media platforms <sup>[1]</sup>. DNA offers potential for ultra-high-density, long-term archive storage, but challenges like slow write speeds and technical complexity still need to be overcome <sup>[29, 36]</sup>. Recently, Brunmayr et al. devised a method to generate DNA motifs <sup>[15]</sup>, to enable faster and more cost-effective DNA synthesis; Zhou et al. proposed a DNA block device that uses SSD to decrease the metadata updating cost <sup>[39]</sup>.
+
+除磁带外, HDD <sup>[14, 40]</sup>, 玻璃 <sup>[11, 12]</sup>, 蓝光盘 <sup>[1]</sup>, DNA <sup>[15, 29, 35, 36, 39]</sup> 也用于归档. 阿里巴巴使用主机管理型 SMR HDD 提供归档对象存储 <sup>[40]</sup>. Microsoft Silica 将数据存入石英玻璃, 寿命可超过千年 <sup>[11]</sup>. Meta 用蓝光盘保存社交平台冷照片 <sup>[1]</sup>. DNA 有超高密度和长期保存潜力, 但写入慢, 技术复杂等问题仍待解决 <sup>[29, 36]</sup>. Brunmayr 等设计 DNA 基序生成方法, 加快合成并降低成本 <sup>[15]</sup>; Zhou 等提出用 SSD 降低元数据更新成本的 DNA 块设备 <sup>[39]</sup>.
+
+# 7. 结论
+
+We describe our journey in understanding, designing, and deploying TapeOBS, a tape-based archive storage service in Huawei Cloud. TapeOBS is built with three design principles:
+
+本文介绍了理解, 设计并部署华为云磁带归档服务 TapeOBS 的过程. 它遵循三项原则:
+
+**1)** Making reads and writes to a tape pool asynchronous;
+
+**1)** 磁带池读写异步化;
+
+**2)** Minimizing drive thrashing in a tape library; 3) Avoiding random reads within a tape. TapeOBS provides a cost-efficient solution for the cloud-based archive storage, and has stored hundreds of petabytes of raw user data.
+
+**2)** 尽量减少驱动器抖动; 3) 避免带内随机读. TapeOBS 为云归档提供了低成本方案, 已保存数百 PB 用户原始数据.
+
+# 8. 致谢
+
+We sincerely thank our shepherd Juncheng Yang and anonymous reviewers for their feedback and suggestions. The paper presents over three years of work by past and current members of several teams at Huawei Cloud Storage Service Product Dept, including Storage Platform Service Domain Program, Storage Service Architecture & Design Team, and Object Storage Service Domain Program. This work is supported by the National Key R&D Program of China (Grant No. 2024YFB4505201), the National Natural Science Foundation of China (Grant No. U22B2023, 62472242, 62332011), and the Young Elite Scientists Sponsorship Program by CAST (Grant No. 2023QNRC001).
+
+感谢论文指导人 Juncheng Yang 和匿名审稿人的反馈与建议. 本文汇集了华为云存储服务产品部多个团队现任及往届成员三年多的工作, 包括存储平台服务领域项目, 存储服务架构与设计团队, 对象存储服务领域项目. 本工作获国家重点研发计划 2024YFB4505201, 国家自然科学基金 U22B2023, 62472242, 62332011, 以及中国科协青年人才托举工程 2023QNRC001 资助.
+
+# 9. 参考文献
+
+<div class="paper-shared">
+
+[1] Inside Facebook's Blu-Ray Cold Storage Data Center. `https://www.datacenterfrontier.com/cloud/article/11431537/inside-facebook8217sblu-ray-cold-storage-data-center`, 2015.
+
+[2] LTO Technology and Two-dimensional Erasure-coded Long-term archival storage with RAIL Architecture. `https://www.snia.org/educational-library/lto-technology-and-two-dimensionalerasure-coded-long-term-archival-storagerail`, 2021.
+
+[3] Amount of Data Created Daily (2024). https: //explodingtopics.com/blog/data-generatedper-day, 2024.
+
+[4] Alibaba Cloud - Object Storage Service. `https://www.alibabacloud.com/en/product/object-storage-service`, 2025.
+
+[5] Amazon S3 Glacier storage classes. `https://aws.amazon.com/s3/storage-classes/glacier/`, 2025.
+
+[6] Google Cloud - Archive storage. https: //cloud.google.com/storage/docs/storageclasses#archive, 2025.
+
+[7] Huawei Cloud - Object Storage Service (OBS). `https://www.huaweicloud.com/intl/en-us/product/obs.html`, 2025.
+
+[8] IBM 3592 Tape Cartridge. `https://www.ibm.com/products/3592-tape-cartridge`, 2025.
+
+[9] IBM Diamondback Tape Library . https: //www.ibm.com/products/diamondback-tapelibrary, 2025.
+
+[10] Linear Tape-Open. `https://www.lto.org/`, 2025.
+
+[11] Patrick Anderson, Erika Blancada Aranas, Youssef Assaf, Raphael Behrendt, Richard Black, Marco Caballero, Pashmina Cameron, Burcu Canakci, Thales De Carvalho, Andromachi Chatzieleftheriou, Rebekah Storan Clarke, James Clegg, Daniel Cletheroe, Bridgette Cooper, Tim Deegan, Austin Donnelly, Rokas Drevinskas, Alexander Gaunt, Christos Gkantsidis, Ariel Gomez Diaz, Istvan Haller, Freddie Hong, Teodora Ilieva, Shashidhar Joshi, Russell Joyce, Mint Kunkel, David Lara, Sergey Legtchenko, Fanglin Linda Liu, Bruno Magalhaes, Alana Marzoev, Marvin Mcnett, Jayashree Mohan, Michael Myrah, Trong Nguyen, Sebastian Nowozin, Aaron Ogus, Hiske Overweg, Antony Rowstron, Maneesh Sah, Masaaki Sakakura, Peter Scholtz, Nina Schreiner, Omer Sella, Adam Smith, Ioan Stefanovici, David Sweeney, Benn Thomsen, Govert Verkes, Phil Wainman, Jonathan Westcott, Luke Weston, Charles Whittaker, Pablo Wilke Berenguer, Hugh Williams, Thomas Winkler, and Stefan Winzeck. Project Silica: Towards Sustainable Cloud Archival Storage in Glass. In Proceedings of the 29th Symposium on Operating Systems Principles, SOSP '23, page 166-181, New York, NY, USA, 2023. ACM.
+
+[12] Patrick Anderson, Richard Black, Ausra Cerkauskaite, Andromachi Chatzieleftheriou, James Clegg, Chris Dainty, Raluca Diaconu, Rokas Drevinskas, Austin Donnelly, Alexander L. Gaunt, Andreas Georgiou, Ariel Gomez Diaz, Peter G. Kazansky, David Lara, Sergey Legtchenko, Sebastian Nowozin, Aaron Ogus, Douglas Phillips, Antony Rowstron, Masaaki Sakakura, Ioan Stefanovici, Benn Thomsen, Lei Wang, Hugh Williams, and Mengyang Yang. Glass: A New Media for a New Era? In 10th USENIX Workshop on Hot Topics in Storage and File Systems (HotStorage 18), Boston, MA, July 2018. USENIX Association.
+
+[13] David F. Bacon. Detection and Prevention of Silent Data Corruption in an Exabyte-scale Database System. In The 18th IEEE Workshop on Silicon Errors in Logic - System Effects, 2022.
+
+[14] Shobana Balakrishnan, Richard Black, Austin Donnelly, Paul England, Adam Glass, Dave Harper, Sergey Legtchenko, Aaron Ogus, Eric Peterson, and Antony Rowstron. Pelican: A Building Block for Exascale Cold Data Storage. In 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI 14), pages 351-365, Broomfield, CO, October 2014. USENIX Association.
+
+[15] Samira Brunmayr, Omer S. Sella, and Thomas Heinis. DNA data storage: A generative tool for motif-based DNA storage. In 23rd USENIX Conference on File and Storage Technologies (FAST 25), pages 573-581, Santa Clara, CA, February 2025. USENIX Association.
+
+[16] Brad Calder, Ju Wang, Aaron Ogus, Niranjan Nilakantan, Arild Skjolsvold, Sam McKelvie, Yikang Xu, Shashwat Srivastav, Jiesheng Wu, Huseyin Simitci, Jaidev Haridas, Chakravarthy Uddaraju, Hemal Khatri, Andrew Edwards, Vaman Bedekar, Shane Mainali, Rafay Abbasi, Arpit Agarwal, Mian Fahim ul Haq, Muhammad Ikram ul Haq, Deepali Bhardwaj, Sowmya Dayanand, Anitha Adusumilli, Marvin McNett, Sriram Sankaran, Kavitha Manivannan, and Leonidas Rigas. Windows Azure Storage: a highly available cloud storage service with strong consistency. In Proceedings of the TwentyThird ACM Symposium on Operating Systems Principles, SOSP '11, page 143-157, New York, NY, USA, 2011. Association for Computing Machinery.
+
+[17] Carlos Cardonha and Lucas Villa Real. Online algorithms for the linear tape scheduling problem. In Proceedings of the International Conference on Automated Planning and Scheduling, volume 26, pages 70- 78, 2016.
+
+[18] Information Storage Industry Consortium. NSIC International Magnetic Tape Storage Technology Roadmap 2024. `https://insic.org/wp-content/uploads/2024/08/INSIC-International-MagneticTape-Storage-Technology-Roadmap-20241.pdf`, 2024.
+
+[19] Harish Dixit. Keytone: Silent data corruptions at scale. In 2023 IEEE 29th International Symposium on On-Line Testing and Robust System Design (IOLTS), pages 1-2, 2023.
+
+[20] Abdullah Gharaibeh, Cornel Constantinescu, Maohua Lu, Ramani Routray, Anurag Sharma, Prasenjit Sarkar, David Pease, and Matei Ripeanu. Dedupt: Deduplication for tape systems. In 2014 30th Symposium on Mass Storage Systems and Technologies (MSST), pages 1-11, 2014.
+
+[21] Abdullah Gharaibeh, Cornel Constantinescu, Maohua Lu, Anurag Sharma, Ramani R Routray, Prasenjit Sarkar, David Pease, and Matei Ripeanu. Clouddt: Efficient tape resource management using deduplication in cloud backup and archival services. In 2012 8th international conference on network and service management (cnsm) and 2012 workshop on systems virtualiztion management (svm), pages 169-173, 2012.
+
+[22] Weiping He and David H.C. Du. SMaRT: An Approach to Shingled Magnetic Recording Translation. In 15th USENIX Conference on File and Storage Technologies (FAST 17), pages 121-134, Santa Clara, CA, February 2017. USENIX Association.
+
+[23] Valentin Honoré, Bertrand Simon, and Frédéric Suter. An exact algorithm for the linear tape scheduling problem. In Proceedings of the International Conference on Automated Planning and Scheduling, volume 32, pages 151-159, 2022.
+
+[24] Patrick Hunt, Mahadev Konar, Flavio P. Junqueira, and Benjamin Reed. ZooKeeper: Wait-free Coordination for Internet-scale Systems. In 2010 USENIX Annual Technical Conference (USENIX ATC 10). USENIX Association, June 2010.
+
+[25] G. A. Jaquette. LTO: A better format for mid-range tape. IBM Journal of Research and Development, 47(4): 429- 444, 2003.
+
+[26] Klaus Birkelund Jensen and Brian Vinter. Binary index and journal embedding in the linear tape file system. In 2017 International Conference on Networking, Architecture, and Storage (NAS), pages 1-7, 2017.
+
+[27] Ioannis Koltsidas, Slavisa Sarafijanovic, Martin Petermann, Nils Haustein, Harald Seipp, Robert Haas, Jens Jelitto, Thomas Weigold, Edwin Childers, David Pease, and Evangelos Eleftheriou. Seamlessly integrating disk and tape in a multi-tiered distributed file system. In 2015 IEEE 31st International Conference on Data Engineering, pages 1328-1339, 2015.
+
+[28] Mark A. Lantz, Simeon Furrer, Martin Petermann, Hugo Rothuizen, Stella Brach, Luzius Kronig, Ilias Iliadis, Beat Weiss, Ed R. Childers, and David Pease. Magnetic Tape Storage Technology. ACM Trans. Storage, 21(1), January 2025.
+
+[29] Bingzhe Li, Nae Young Song, Li Ou, and David H.C. Du. Can we store the whole world's data in dna storage? In Proceedings of the 12th USENIX Conference on Hot Topics in Storage and File Systems, HotStorage '20, USA, 2020. USENIX Association.
+
+[30] Overland-Tandberg. Tape Sustainability - The new future of magnetic tape storage. `https://www.also.com/ec/cms5/media/documents/1010_central_1/pdf_16/wp_neo_tape_sustainability_emea.pdf`, 2023.
+
+[31] Satadru Pan, Theano Stavrinos, Yunqiao Zhang, Atul Sikaria, Pavel Zakharov, Abhinav Sharma, Shiva Shankar P, Mike Shuey, Richard Wareing, Monika Gangapuram, Guanglei Cao, Christian Preseau, Pratap Singh, Kestutis Patiejunas, JR Tipton, Ethan Katz-Bassett, and Wyatt Lloyd. Facebook's Tectonic Filesystem: Efficiency from Exascale. In 19th USENIX Conference on File and Storage Technologies (FAST 21), pages 217-231. USENIX Association, February 2021.
+
+[32] David Pease, Arnon Amir, Lucas Villa Real, Brian Biskeborn, Michael Richmond, and Atsushi Abe. The Linear Tape File System. In 2010 IEEE 26th Symposium on Mass Storage Systems and Technologies (MSST), pages 1-8, 2010.
+
+[33] O. Sandsta and R. Midtstraum. Analysis of retrieval of multimedia data stored on magnetic tape. In Proceedings International Workshop on Multi-Media Database Management Systems (Cat. No.98TB100249), pages 54- 63, 1998.
+
+[34] O. Sandsta and R. Midtstraum. Low-cost access time model for serpentine tape drives. In 16th IEEE Symposium on Mass Storage Systems in cooperation with the 7th NASA Goddard Conference on Mass Storage Systems and Technologies (Cat. No.99CB37098), pages 116-127, 1999.
+
+[35] Jiwu Shu. Data Storage Architectures and Technologies. Springer, 2024.
+
+[36] Christopher N. Takahashi, David P. Ward, Carlo Cazzaniga, Christopher D. Frost, Paolo Rech, Kumkum Ganguly, Sean Blanchard, Steve Wender, Bichlien Nguyen, and Jake Smith. Evaluating the risk of data loss due to particle radiation damage in a dna data storage system. Nature Communications, 15:8067, September 2024.
+
+[37] Shaobu Wang, Guangyan Zhang, Junyu Wei, Yang Wang, Jiesheng Wu, and Qingchao Luo. Understanding Silent Data Corruptions in a Large Production CPU Population. In Proceedings of the 29th Symposium on Operating Systems Principles, SOSP '23, page 216-230, New York, NY, USA, 2023. Association for Computing Machinery.
+
+[38] Xianbo Zhang, David Du, Jim Hughes, Ravi Kavuri, and Sun StorageTek. Hptfs: A high performance tape file system. In Proceedings of 14th NASA Goddard/23rd IEEE conference on Mass Storage System and Technologies. Citeseer, 2006.
+
+[39] Jiahao Zhou, Mingkai Dong, Fei Wang, Jingyao Zeng, Lei Zhao, Chunhai Fan, and Haibo Chen. Liquid-State drive: A case for DNA block device for enormous data. In 23rd USENIX Conference on File and Storage Technologies (FAST 25), pages 557-571, Santa Clara, CA, February 2025. USENIX Association.
+
+[40] Su Zhou, Erci Xu, Hao Wu, Yu Du, Jiacheng Cui, Wanyu Fu, Chang Liu, Yingni Wang, Wenbo Wang, Shouqu Sun, Xianfei Wang, Bo Feng, Biyun Zhu, Xin Tong, Weikang Kong, Linyan Liu, Zhongjie Wu, Jinbo Wu, Qingchao Luo, and Jiesheng Wu. SMRSTORE: A Storage Engine for Cloud Object Storage on HM-SMR Drives. In 21st USENIX Conference on File and Storage Technologies (FAST 23), pages 395-408, Santa Clara, CA, February 2023. USENIX Association.
+
+</div>

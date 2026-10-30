@@ -1,0 +1,76 @@
+# pptpd 搭建 VPN 服务器
+
+# 1. 正题
+
+1. 安装 pptpd
+  安装之前, 先更新一下源,`sudo apt-get update` 
+  然后安装:`sudo apt-get install pptpd`
+2. 配置内网 ip 策略
+  `sudo vim /etc/pptpd.conf` 
+  在文件中加入下面 2 行代码 (其实文件末尾有这段代码, 不过前面有注释, 你也可以直接去掉注释):
+  `localip 192.168.0.1
+  remoteip 192.168.0.234-238,192.168.0.245`
+>注意:
+>localip 自己服务器的 IP(pptpd 中设置的, 并不是你的服务器真正的 ip, 此处可以理解为使用路由器时, 路由器的管理 ip, remoteip 分配给客户端的 IP , 所有使用该 vpn 服务器都会获得该 ip 段内的一个 IP)
+
+3. 配置 dns
+  `sudo vim /etc/ppp/pptpd-options`   
+  在该文中加入下面 2 行, 也可以配置其他 dns:  
+  `ms-dns 8.8.8.8
+  ms-dns 8.8.4.4`
+4. 配置 VPN 帐号
+  `sudo vim /etc/ppp/chap-secrets`  
+  添加 vpn 账号, 服务器名, vpn 密码和 IP 限制, 一个帐号一行, 每个参数中间用空格间隔. 如:  `test * testpass *`
+5. TCP/IP 策略配置:
+  `sudo vim /etc/sysctl.conf`  
+  插入下面这一行代码 (下面该段代码这个文件中也有, 也可以取消注释, 我这里是取消注释), 保存并退出:  
+  `net.ipv4.ip_forward=1`  
+  然后使用下面这段代码, 可以看到出现的代码中出现刚才添加的或者取消注释的那段代码:  
+  `sudo sysctl -p`  
+>注意: 一定要注意 "-" 号的使用, 一定要注意, 下面也有很多, 遇到在提. 如果提示 `net.ipv4.ip_forward = 1`, 说明配置生效, 如下图所示:
+
+6. 开放网络端口
+  安装 iptables(已安装请忽略, 不知道安没安装, 那就再安一遍, 如果按了会提示)  
+  `sudo apt-get install iptables`  
+  然后开放 1723 端口:  
+  `sudo iptables -I INPUT -p tcp --dport 1723 -j ACCEPT`
+
+7. 配置 NAT 网络地址转换:
+  下面的更有意思, 记住哈, 所有的 "-" 号都有两个, 但是 interface 前面的 "-号" 只有一个, 还有就是下面代码中的 eth0 是你的网卡名称, 如果不知道你的网卡名称是什么, 请使用 ifconfig 命令查看一下你的网卡名称, 一定要注意, 如果你的 ubuntu 有多个网卡的话, 一定要查看对应网卡的对应 ip, 我这里因为有两个网卡, 一个拥有内网的 ip, 一个拥有外网的 ip, 当然了, 我肯定要使用外网的, 因此, 我使用的是 eth1, 截图如下 (一定要注意结合实际! !)  
+  `sudo iptables --table nat --append POSTROUTING --out-interface eth1 --jump MASQUERADE`
+
+8. 为确保系统重启后 VPN 可直接使用我们需要进行如下操作:
+>###1. 让之前配置的 iptables 信息保存并设置为开机启动:
+
+ - 创建存储 iptables 信息的文件:  
+    `touch /etc/iptables`
+ - 将上面的关于 iptables 的两个操作信息保存到该文件中:
+    `iptables-save > /etc/iptables`  
+ - 创建自启动配置文件, 并授予可执行权限:  
+    `touch /etc/network/if-pre-up.d/iptables`  
+    `chmod +x /etc/network/if-pre-up.d/iptables`
+ - 编辑自启动配置文件, 内容为启动网络时恢复的 iptables 配置信息:  
+    `vi /etc/network/if-pre-up.d/iptables`  
+    文件中内容为:  
+    `#!/bin/sh`  
+    `/sbin/iptables-restore < /etc/iptables`  
+ - 保存该信息后即可, 下面是 iptables 的两个命令解析:
+     + 保存 iptables 信息命令: iptables-save>/etc/iptables  
+     + 恢复 iptables 信息命令: iptables-restore </etc/iptables
+
+ >###2. 开机后自动开启 pptpd 服务:
+
+ - 在/etc/rc.local 文件的 exit 0 之前添加软件启动命令:  
+    `/etc/init.d/pptpd start`
+9. 最后重启 pptpd
+  `sudo /etc/init.d/pptpd restart`  
+  接下来就可以使用测试的用户名与密码连接你的 vpn 服务器了. 即使系统重启后, 我们任然可以直接使用 VPN.
+
+>###一个问题: 连接后部分网站无法访问解决方法
+
+在我们的使用过程中发现百度的相关网站无法访问, 当时也并未找到一些方法去解决, 昨日, 烫烫烫发来消息说原来是虚拟网卡的 MTU 值影响了部分网站的访问, 在他修改后确实成功访问百度, 所以贴出解决方案, 避免更多人苦恼 (我们是将虚拟网卡 `ppp0` 的 `MTU` 改为 `1400`).
+ - 临时修改方法:  
+    `ifconfig ppp0 mtu 1400`  
+ - (推荐) 永久修改方法:  
+    避免以后重启机器需重新配置, 打开 `/etc/ppp/ip-up` 文件, 并在 `exit 0` 前面 (如果没有 `exit 0` 的话, 就定位到文件末尾) 加上如下代码:
+    `/sbin/ifconfig $1 mtu 1400`

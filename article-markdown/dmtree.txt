@@ -1,0 +1,1009 @@
+# 译 - DMTree: Towards Efficient Tree Indexing on Disaggregated Memory via Compute-side Collaborative Design
+
+<div class="paper-shared">
+
+原论文 [DMTree: Towards Efficient Tree Indexing on Disaggregated Memory via Compute-side Collaborative Design](https://www.usenix.org/conference/fast26/presentation/wei) 发表于 FAST 2026 (第 24 届 USENIX 文件与存储技术会议), 中文题名为 "DMTree: 通过计算侧协同设计实现高效的内存解耦树索引". 论文获 Distinguished Artifact Award.
+
+内存解耦把计算与内存分成独立资源池, 但现有树索引让各计算服务器独立缓存索引, 容易消耗计算侧与内存侧之间的 RDMA 带宽和 IOPS. DMTree 改为让计算服务器协同完成部分索引工作:
+
+**协同定位**
+
+- 指纹定位从内存侧转到计算侧, 利用计算服务器之间的 RDMA 通信, 减少内存服务器承受的访问压力.
+
+**并发控制**
+
+- 锁操作也由计算侧协作处理, 同时保留树索引操作所需的一致性机制.
+
+**实验结果**
+
+- 论文在多种负载和配置下比较点查询, 插入, 更新与范围扫描, 报告 DMTree 均优于所选的现有内存解耦范围索引.
+
+DMTree 研究内存解耦架构中的树索引如何绕开内存服务器侧的 RDMA 瓶颈. 内存解耦让计算与内存独立扩展, 但现有范围索引常为每台计算服务器维护私有缓存, 导致多台机器重复访问内存侧, 消耗计算侧与内存侧之间的带宽和 IOPS. 这篇 FAST 2026 论文把部分定位与加锁工作转移到计算服务器之间协同完成. DMTree 使用指纹信息帮助定位数据, 让计算服务器优先利用彼此之间尚有余量的 RDMA 通信, 降低对内存服务器的重复访问压力; 锁操作的协同处理则需要配套的一致性机制, 以保证查询和更新能在并发环境中正确执行. 文章不仅描述主指纹表及其缓存副本的关系, 还分析点查询, 插入, 更新与范围扫描等操作的路径. 原型系统在多种负载和参数下与现有内存解耦范围索引比较, 论文报告上述操作均取得更好的性能. 这些结果以论文所用系统配置为限, 其核心思路是利用计算节点之间的资源来分担原本集中在内存侧的索引工作.
+
+primary fingerprint table 译为主指纹表, 与其缓存副本区分. 实验结论以论文配置为准.
+
+</div>
+
+# 0. 摘要
+
+Disaggregated memory (DM) separates computing and memory resources into distinct resource pools, enhancing resource utilization and scalability. However, this new architecture presents fundamental design challenges on range indexes. Existing works fail to achieve high performance: they either suffer from the network bandwidth bottleneck or are fragile due to high RDMA IOPS demands. The key reason is that they all follow a typical design paradigm that uses private compute-side caching, where each compute server holds a private cache space and aggressively consumes the bandwidth and IOPS between compute servers and memory servers.
+
+内存解耦 (Disaggregated Memory, DM) 将计算与内存拆分为独立资源池, 提高利用率和扩展性. 但这种架构给范围索引带来了根本性的设计挑战. 现有方案要么受网络带宽限制, 要么因 RDMA IOPS 需求过高而容易遇到瓶颈. 关键原因在于它们普遍采用计算侧私有缓存: 每台计算服务器独立缓存索引, 大量消耗计算服务器与内存服务器之间的带宽和 IOPS.
+
+We propose a new compute-side collaborative design. It offloads data locating and locking operations from memory servers to compute servers and thus fully utilizes unsaturated RDMA resources between compute servers to mitigate bottlenecks on memory servers. We implement a prototype called DMTree. Experiments show that DMTree outperforms existing state-of-the-art range indexes on DM for both point operations (`i.e.`, searches, inserts, and updates) and range operations (`i.e.`, scans) under various workloads and parameter settings.
+
+我们提出计算侧协同设计, 将数据定位与加锁操作从内存服务器移到计算服务器, 充分利用计算服务器之间尚未饱和的 RDMA 资源, 缓解内存侧瓶颈. 原型系统称为 DMTree. 实验表明, 在多种负载和参数下, DMTree 的点操作, 即查询, 插入, 更新, 以及范围扫描性能, 均优于现有先进的 DM 范围索引.
+
+# 1. 引言
+
+Disaggregated memory (DM) separates computing and storage resources into resource pools and thus enables exclusive scalability of these resources <sup>[7, 8, 13, 41]</sup>. A typical DM-based architecture consists of a compute pool and a memory pool. The servers in the compute pool (namely, compute servers) are equipped with massive CPUs but limited memory. The servers in the memory pool (namely, memory servers) are equipped with large memory but limited CPUs <sup>[14, 25, 49]</sup>. As this architecture can potentially improve resource utilization and provide isolated fault-tolerance <sup>[3, 48]</sup>, it has been a prominent topic in academic research and extensively explored in various applications, `e.g.`, databases and in-memory key-value stores <sup>[12, 15, 20, 21, 25, 27, 42, 43, 51, 56, 57]</sup>.
+
+DM 将计算与存储资源拆成资源池, 使其能够独立扩展 <sup>[7, 8, 13, 41]</sup>. 典型架构包含计算池与内存池: 计算服务器 CPU 资源丰富, 内存有限; 内存服务器内存容量大, CPU 有限 <sup>[14, 25, 49]</sup>. 这种架构有望提高资源利用率并实现故障隔离 <sup>[3, 48]</sup>, 因而受到广泛研究, 被用于数据库和内存键值存储等应用 <sup>[12, 15, 20, 21, 25, 27, 42, 43, 51, 56, 57]</sup>.
+
+Generally, in the DM architecture, communication between servers in different resource pools is conducted by a fast network (`e.g.`, RDMA) <sup>[2, 7, 12, 13, 27]</sup>. In particular, one-sided RDMA (remote direct memory access) allows compute servers to directly access disaggregated memory, bypassing the computing power of memory servers. This characteristic improves resource utilization and scalability, making one-sided RDMA a preferred design paradigm for applications such as key-value stores and databases <sup>[20, 42, 55, 56, 60]</sup>.
+
+不同资源池之间通常通过 RDMA 等高速网络通信 <sup>[2, 7, 12, 13, 27]</sup>. 尤其是单边远程直接内存访问, 让计算服务器绕过内存服务器 CPU, 直接访问远程内存. 这有利于资源利用和扩展, 成为键值存储及数据库等应用偏好的设计方式 <sup>[20, 42, 55, 56, 60]</sup>.
+
+Nevertheless, leveraging one-sided RDMA on DM brings several new challenges for index design. As advocated by various applications <sup>[5, 9, 26, 33]</sup>, indexes on DM should provide high performance not only for point search and write, but also for scan operations. To serve the two types of operations (`i.e.`, point and range operations), range indexes that maintain continuous ordered data so as to locate data efficiently have become promising candidates. To the best of our knowledge, many existing proposals have ported the legacy tree indexes (`e.g.`, B+-tree <sup>[22]</sup>, LSM-tree <sup>[39]</sup>, and ART <sup>[23]</sup>) as well as learned indexes to the DM architecture and introduced several new impressive optimizations <sup>[4, 25, 30, 32, 49, 50]</sup>.
+
+但单边 RDMA 也给索引带来新挑战. 许多应用不仅要求点查询和写入快, 也要求扫描高效 <sup>[5, 9, 26, 33]</sup>. 能连续保存有序数据范围, 高效定位数据的范围索引因此很有吸引力. 已有研究将 B+ 树 <sup>[22]</sup>, LSM 树 <sup>[39]</sup>, ART <sup>[23]</sup> 和学习索引移植到 DM, 并提出多种优化 <sup>[4, 25, 30, 32, 49, 50]</sup>.
+
+One subtlety is that all existing range indexes on DM follow a design paradigm that offloads a part of index operations to compute servers to minimize remote index retrieval overhead. For example, tree indexes on DM typically cache a private copy of their internal nodes on each compute server <sup>[32, 49, 59]</sup>. We refer to this approach as private compute-side caching, a design in which the cached copies are not shared among compute servers but are used exclusively to accelerate the traversal of internal nodes and locate the target leaf node in remote memory.
+
+现有 DM 范围索引有一个共同特点: 将部分索引操作卸载到计算服务器, 减少远程检索开销. 例如, 各计算服务器通常分别缓存树内部节点的私有副本 <sup>[32, 49, 59]</sup>. 我们称之为计算侧私有缓存: 缓存不在服务器间共享, 只用于加快内部节点遍历, 定位远程内存中的目标叶节点.
+
+Private compute-side caching presents a fundamental dilemma in the utilization of RDMA resources. Specifically, two distinct types of RDMA resources are impacted: computational resources required to process RDMA operations (measured by IOPS), and communication resources needed for data transfer (measured by bandwidth, Gbps). Existing studies prioritize optimizing the utilization of a specific resource but often result in significantly higher costs for another. For instance, range indexes with continuous range storage (`e.g.`, B+-tree and learned indexes) facilitate the continuous storage of a range of key-value entries and enable approximate localization of the entire range during point operations. However, they encounter a bandwidth bottleneck caused by read amplification <sup>[32]</sup>. Our experiments show that Sherman and ROLEX (the state-of-the-art B+-tree and learned index on DM) achieve 16.3-18.8% of the expected search performance due to the bandwidth issue (see §2.2.1). In contrast, range indexes optimized for precise key-value locating (`e.g.`, ART), which retrieve only the required key-value entry, encounter an IOPS bottleneck due to multiple RDMA requests needed to retrieve individual key-value entries during scans and inserts. Our experiments show that SMART (the state-of-the-art ART on DM) achieves only 35.5% of Sherman's scan performance, and its insert performance reaches only 35.8% of the expected insert performance due to the IOPS bottleneck (see §2.2.2).
+
+这种设计在 RDMA 资源利用上存在根本矛盾. RDMA 有两类资源: 处理操作的计算资源, 用 IOPS 衡量; 传输数据的通信资源, 用 Gbps 带宽衡量. 现有研究通常着重优化一种, 却增加另一种的消耗. 连续保存键值范围的 B+ 树和学习索引, 点操作只能先大致定位整个范围, 读放大因而造成带宽瓶颈 <sup>[32]</sup>. 实验中 Sherman 和 ROLEX 的查询性能只有理想值的 16.3%-18.8%, 详见原文第 2.2.1 节. ART 等精确定位索引只读取目标键值项, 但扫描和插入需要多次 RDMA, 又受 IOPS 限制. SMART 的扫描性能仅为 Sherman 的 35.5%, 插入性能仅为理想值的 35.8%, 详见原文第 2.2.2 节.
+
+Our observation is that combining the continuous storage of a range of key-value entries with precise data locating within a leaf node has the potential to balance the usage of RDMA resources (bandwidth and IOPS). An intuitive approach to realize this idea is to leverage a hashing or a fingerprint technique based on B+-tree, which is investigated by CHIME <sup>[31]</sup> and FP-B+-tree <sup>[38]</sup>, respectively. Conceptually, they ensure continuous storage of a range of key-value entries within their leaf nodes, addressing the IOPS bottleneck caused by multiple RDMA requests needed to retrieve individual key-value entries during scans. Meanwhile, hashing or fingerprint techniques ensure that only the required key-value entries are retrieved during point operations, mitigating the bandwidth bottleneck caused by read amplification.
+
+我们发现, 将连续范围存储与叶内精确定位结合, 有望平衡带宽和 IOPS. 直观方式是在 B+ 树上使用哈希或指纹, CHIME <sup>[31]</sup> 和 FP-B+-tree <sup>[38]</sup> 分别研究了这两种方法. 它们在叶节点内连续保存一段键值, 避免扫描时逐项发出 RDMA 的 IOPS 瓶颈; 又通过哈希或指纹让点操作只读取所需项, 缓解读放大造成的带宽瓶颈.
+
+However, simply applying these techniques to DM still encounters several challenges and easily leads to sub-optimal performance (`e.g.`, by 57.3% drop in search throughput of FP-B+-tree compared to the expected search performance, §2.4). Extra RDMAs needed for precise key-value locating and concurrency control on leaf nodes strain IOPS resources and exacerbate the IOPS bottleneck. Additionally, we find that RDMA network resources, including IOPS and bandwidth, on the compute servers are generally underutilized, as the network on the memory server is more prone to becoming a bottleneck and impeding computing tasks <sup>[18, 32]</sup>.
+
+但将这些方法直接用于 DM 仍有困难. 例如 FP-B+-tree 查询吞吐量比理想值低 57.3%, 见原文第 2.4 节. 精确定位和叶节点并发控制需要额外 RDMA, 加重 IOPS 压力. 同时我们发现, 计算侧带宽和 IOPS 通常利用不足, 因为内存服务器网络更容易先成为瓶颈, 限制计算任务继续推进 <sup>[18, 32]</sup>.
+
+Motivated by the above analysis, we propose DMTree, a DM-oriented tree index. Our key insight is to leverage the unsaturated RDMA resources on compute servers to alleviate the network bottlenecks on memory servers. DMTree proposes a compute-side collaborative design, including a compute-side collaborative cache and a collaborative concurrency mechanism to offload data locating and locking operations to compute servers, effectively alleviating network bottlenecks and achieving high performance for both point and range operations. Our contribution includes:
+
+因此, 我们提出面向 DM 的树索引 DMTree. 核心是利用计算侧未饱和的 RDMA 资源缓解内存侧网络瓶颈. 通过计算侧协同缓存与协同并发机制, 将定位和锁操作卸载到计算服务器, 同时提高点操作与范围操作性能. 主要贡献如下.
+
+We analyze the trade-offs of existing range indexes on DM and demonstrate their performance limitations due to either RDMA bandwidth bottleneck or IOPS bottleneck.
+
+分析现有 DM 范围索引的权衡, 说明 RDMA 带宽或 IOPS 瓶颈如何限制性能.
+
+We propose DMTree, which realizes the compute-side collaborative design. DMTree has two key design features: (i) a compute-side collaborative cache and (ii) a compute-side collaborative concurrency mechanism.
+
+提出 DMTree, 以计算侧协同缓存和计算侧协同并发机制实现协同设计.
+
+We implement a prototype of DMTree. Experiments show that DMTree achieves up to 5.7× higher throughput compared to state-of-the-art range indexes on DM.
+
+实现 DMTree 原型. 相比现有先进的 DM 范围索引, 实验中吞吐量最高达到其 5.7 倍.
+
+The source code of our DMTree prototype is available at: [DMTree](https://github.com/muouim/DMTree).
+
+原型代码见 [DMTree](https://github.com/muouim/DMTree).
+
+# 2. 背景与动机
+
+## 2.1 内存解耦
+
+Emerging disaggregated memory (DM) architecture separates computing and storage by dividing them into different resource pools. As DM can efficiently address resource provisioning inefficiencies in current data centers <sup>[13, 54]</sup>, it has become increasingly popular. We show an overview of a DM architecture in Figure 1. In a typical deployment, compute servers in the compute pool have multiple CPU cores (`e.g.`, 10s~100s) but limited memory (`e.g.`, 1~10 GB), while memory servers in a memory pool have large memory (`e.g.`, 100s~1000s GB) but limited CPU cores (`e.g.`, 1~2) <sup>[49]</sup>.
+
+DM 将计算与存储拆成不同资源池, 能缓解数据中心资源配置低效的问题 <sup>[13, 54]</sup>, 因而日益受到关注. 图 1 展示典型部署: 计算服务器有数十到数百 CPU 核, 但内存仅约 1-10 GB; 内存服务器有数百到数千 GB 内存, 但 CPU 仅约 1-2 核 <sup>[49]</sup>.
+
+<div class="paper-shared">
+
+![内存解耦架构.](/assets/images/posts/dmtree/figure-01.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 1: Architecture of disaggregated memory.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 1: 内存解耦架构.</span>
+
+Communication between compute and memory servers relies on fast remote-access interconnect techniques, such as RDMA and CXL <sup>[6, 16, 24]</sup>. Generally, RDMA offers two primitives: one-sided RDMA enables remote memory access without involving the remote server's CPU <sup>[12]</sup>; two-sided RDMA sends the request to the remote server, and the remote server processes the incoming request with CPUs on the memory server <sup>[10, 17]</sup>. Due to limited CPU resources in memory servers, one-sided RDMA is preferred to access the disaggregated memory directly <sup>[25, 32, 49, 60]</sup>.
+
+计算与内存服务器通过 RDMA, CXL 等快速远程访问互连通信 <sup>[6, 16, 24]</sup>. RDMA 通常有两类原语: 单边操作不需远端 CPU 参与 <sup>[12]</sup>; 双边操作把请求交给远端服务器, 由其 CPU 处理 <sup>[10, 17]</sup>. 内存侧 CPU 有限, 因而通常优先用单边 RDMA 直接访问远程内存 <sup>[25, 32, 49, 60]</sup>.
+
+Besides the choice of different primitives, RDMA resources are critical to the performance <sup>[32, 40]</sup>. In particular, Computation Resources (`i.e.`, IOPS) and Communication Resources (`i.e.`, bandwidth). IOPS refers to how many operations (including sending and receiving) an RDMA NIC can perform in one second. In contrast, Bandwidth refers to the maximum data transfer rate between servers via an RDMA NIC. Due to the separation of data storage and CPUs, DM systems necessitate numerous concurrent remote accesses for compute servers to retrieve data from memory servers. As a result, both IOPS and bandwidth can easily become the bottleneck <sup>[18, 32, 40]</sup>.
+
+除原语类型外, RDMA 资源也决定性能 <sup>[32, 40]</sup>. 计算资源用 IOPS 衡量, 表示 RNIC 每秒可完成的发送与接收操作数; 通信资源用带宽衡量, 表示服务器间最大数据传输速率. 数据和 CPU 分离后, 计算侧需要大量并发远程访问, 两类资源都容易成为瓶颈 <sup>[18, 32, 40]</sup>.
+
+## 2.2 现有 DM 范围索引分析
+
+Modern applications advocate indexes to support efficient searches, writes, and scans <sup>[5, 9, 33, 53]</sup>. Range indexes are particularly popular in these applications for their ability to handle all these operations efficiently. Existing range indexes on DM include variants of B+-tree, learned index, ART, and LSM-tree <sup>[25, 32, 49, 50]</sup>. Since the index is typically on the critical path of various applications, existing works highlight their benefits by evaluating the index in isolation. Although greatly optimized for concurrency and scalability, they present fundamental trade-offs in utilizing network resources.
+
+现代应用需要高效查询, 写入和扫描 <sup>[5, 9, 33, 53]</sup>, 范围索引能同时支持这些操作, 因而广受采用. DM 上已有 B+ 树, 学习索引, ART, LSM 树变体 <sup>[25, 32, 49, 50]</sup>. 索引通常位于应用关键路径, 所以研究常独立评估索引性能. 尽管并发和扩展性经过大量优化, 网络资源利用仍存在根本权衡.
+
+### 2.2.1 连续范围存储索引
+
+Range indexes with continuous range storage, such as B+-tree and learned indexes, maintain coarse-grained leaf nodes, store a certain range of key-value entries continuously within a node, and roughly locate this range during entry locating.
+
+B+ 树和学习索引采用较粗粒度叶节点, 将一段键值项连续保存在节点内, 定位时先大致找到这一范围.
+
+B+-tree. A B+-tree typically consists of multiple levels, as shown in Figure 2. The leaf nodes at the bottom level store key-value entries, while the internal nodes store key-pointers that are used to retrieve leaf nodes. To locate a key-value entry, the compute server traverses the multi-level tree from the root to the leaf, involving multiple rounds of RDMA requests.
+
+**B+ 树.** 如图 2, 树有多层, 底层叶节点保存键值项, 内部节点保存用于查找叶节点的键-指针对. 定位一项需要从根遍历到叶, 涉及多轮 RDMA.
+
+In DM architecture, multi-round network communication significantly affects index retrieval performance, even with an ultra-fast network. Existing proposals <sup>[32, 49, 59]</sup> minimize remote accesses by privately caching part of the index on each compute server, with these cached portions being inaccessible to other servers. For example, B+-tree caches the entire internal tree on the compute server. In the case of a cache hit, only a single RDMA request is needed to retrieve the leaf node stored remotely in the memory server.
+
+即便网络很快, 多轮通信仍明显影响检索. 已有方法在每台计算服务器私有缓存部分索引, 不对其他服务器开放, 以减少远程访问 <sup>[32, 49, 59]</sup>. 例如缓存完整内部树后, 命中时只需一次 RDMA 读取远程叶节点.
+
+Learned index. The learned index leverages machine learning models to analyze data distribution patterns and construct functions (`e.g.`, CDF) to predict the rough position of key-value entries, typically corresponding to multiple predicted leaf nodes. Unlike B+-tree, it caches the machine learning model on each compute server, eliminating the need to cache the entire internal tree. This approach helps reduce the consumption of limited cache resources on the compute servers.
+
+**学习索引.** 它用机器学习分析数据分布, 构建 CDF 等函数预测键值的大致位置, 通常对应多个候选叶节点. 计算服务器缓存模型而非完整内部树, 节省有限的缓存空间.
+
+Bandwidth bottleneck. The primary issue of B+-tree and learned index with private compute-side caching is the RDMA bandwidth bottleneck. Both structures store multiple key-value entries within each leaf node, meaning that accessing or modifying a single entry typically requires reading or writing the entire node. For example, in a B+-tree where each node contains 32 key-value entries, reading a single entry results in ≈32× read amplification <sup>[32]</sup>. This increases bandwidth consumption and exacerbates the network bottleneck.
+
+**带宽瓶颈.** 私有缓存下, B+ 树和学习索引的主要问题是 RDMA 带宽. 一个叶节点有多个键值项, 访问或修改一项通常需读写整个节点. 例如每节点 32 项, 查询一项会造成约 32 倍读放大 <sup>[32]</sup>, 加重网络压力.
+
+We evaluate the impact of the bandwidth bottleneck on the performance of both Sherman and ROLEX <sup>[25, 49]</sup> (`i.e.`, the state-of-the-art DM-optimized B+-tree and learned index). All experiments in this section are conducted on a cluster consisting of six compute servers and one memory server, as described in §5.1. For each baseline, the index is preloaded with one billion key-value entries, and 100 million operations are executed to evaluate performance. As shown in Figure 3a, both Sherman and ROLEX experience a performance bottleneck as client threads scale, primarily due to read amplification. Specifically, they achieve only 16.3-18.8% of the Expected Search performance, defined as reading a single key-value entry using one RDMA without read amplification.
+
+我们用 Sherman 和 ROLEX <sup>[25, 49]</sup> 评估这一影响. 本节实验采用六台计算服务器和一台内存服务器, 详见原文第 5.1 节. 每个基线预载十亿键值项, 执行一亿操作. 图 3a 中, 客户端线程增加后, 两者主要因读放大而遇到瓶颈, 只有理想查询性能的 16.3%-18.8%. 理想查询定义为一次 RDMA 读取一个键值项, 不发生读放大.
+
+### 2.2.2 精确键值定位索引
+
+Range indexes with precise key-value locating, such as ART, use fine-grained leaf nodes and store key-value entries separately in distinct nodes to perform precise entry locating.
+
+ART 等索引采用细粒度叶节点, 每个节点单独保存键值项, 实现精确定位.
+
+ART. As illustrated in Figure 2, unlike B+-tree, the Adaptive Radix Tree (ART) stores key segments in internal nodes along the search path rather than the entire key. Each internal node in ART contains an array of pointers linked to segments of the key, which direct to the next lower tree node. The leaf node of ART stores only a single key-value entry. When deployed on DM, ART also employs a private compute-side cache to store the internal tree on the compute server, thereby reducing remote memory accesses <sup>[32]</sup>.
+
+ART. 如图 2, 自适应基数树的内部节点保存键的片段, 而非完整键. 每个内部节点包含与键片段对应的指针数组, 指向下一层. 叶节点只有一个键值项. 部署在 DM 时, ART 也私有缓存内部树以减少远程访问 <sup>[32]</sup>.
+
+<div class="paper-shared">
+
+![DM 范围索引示例: B+ 树使用键-指针对构建内部树, 范围叶节点存储键值; ART 内部节点使用键片段, 每叶只存一个键值项.](/assets/images/posts/dmtree/figure-02.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 2: Exploring range indexes on DM: (1) B+-tree uses "key-pointer" along the search path to ultimately locate a range leaf node; (2) ART uses "segment key" along the path and locates a precise entry.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 2: DM 范围索引示例: B+ 树使用键-指针对构建内部树, 范围叶节点存储键值; ART 内部节点使用键片段, 每叶只存一个键值项.</span>
+
+IOPS bottleneck. Existing works <sup>[32]</sup> investigate ART as a substitute for B+-tree to address the bandwidth bottleneck, as ART stores only one key-value entry per leaf node, eliminating read amplification. However, the separate storage of key-value entries can exacerbate the IOPS bottleneck. For scan operations, multiple RDMAs are required to read a range of key-value entries stored separately in numerous small-sized leaf nodes, seriously increasing the consumption of IOPS resources. Moreover, for insert operations, when a new leaf node is inserted, a new key-pointer must be written to the internal node to retrieve this leaf node. The small-sized leaf nodes in ART cause frequent updates of internal nodes when inserting new key-value entries, exacerbating the IOPS bottleneck.
+
+**IOPS 瓶颈.** ART 每叶只有一项, 避免读放大, 因而被用来替代 B+ 树 <sup>[32]</sup>. 但分散存放又增加 IOPS: 扫描一段范围需要多次 RDMA 读取许多小叶节点; 插入新叶时还需向内部节点写入新的键-指针对. 小叶节点导致内部树频繁更新, 进一步加重 IOPS 压力.
+
+We show the impact of the IOPS bottleneck by evaluating the performance of SMART, the state-of-the-art ART index on DM. As shown in Figure 3b and 3c, SMART's scan performance is only 35.5% of Sherman's, primarily due to the IOPS bottleneck. Similarly, its insert performance reaches just 35.8% of the Expected Insert performance (which involves two RDMAs: one for searching empty tree slots and another for writing the key-value entry). This performance degradation is attributed to the additional RDMA requests required to update the internal tree during insert operations.
+
+我们用 SMART 评估 IOPS 瓶颈. 图 3b, 3c 中, 它的扫描性能仅为 Sherman 的 35.5%, 主要受 IOPS 限制. 插入性能也只有理想值的 35.8%; 理想插入包含两次 RDMA, 分别查找空槽与写入键值项. 插入时更新内部树所需的额外 RDMA 导致了这一差距.
+
+### 2.2.3 其他范围索引
+
+LSM-tree. The Log-Structured Merge tree (LSM-tree) is also a widely used range index. In disaggregated memory, it optimizes write operations by converting random writes into sequential writes, thereby reducing network overhead. LSM-tree organizes data into multiple levels, with key-value entries initially written to local-memory structures (`e.g.`, memtables) and periodically flushed to remote memory in larger, sequential blocks (`e.g.`, sstables). To minimize remote memory accesses, LSM-tree also uses a private compute-side cache to store key metadata, such as bloom filters and table indexes.
+
+**LSM 树.** 日志结构合并树也是常见范围索引, 通过把随机写转为顺序写减少 DM 网络开销. 数据按多层组织, 先进入本地 memtable, 再周期性以较大的顺序块, 如 SSTable, 刷入远程内存. 计算侧也私有缓存布隆过滤器, 表索引等元数据以减少远程访问.
+
+CPU bottleneck. In LSM-tree, sequentially written blocks to remote memory require periodic compaction to maintain index order <sup>[39]</sup>. These compaction tasks consume considerable RDMA resources as they involve reading large amounts of key-value entries from remote memory. dLSM <sup>[50]</sup>, the state-of-the-art DM-optimized LSM-tree, offloads compaction tasks to memory servers, effectively reducing RDMA resource consumption. However, in DM architecture, the limited CPU resources on the memory server can easily become a bottleneck, hindering overall performance.
+
+**CPU 瓶颈.** LSM 树需定期合并远程顺序数据块, 维持索引顺序 <sup>[39]</sup>. 合并读取大量远程数据, 消耗 RDMA. dLSM <sup>[50]</sup> 将合并卸载到内存服务器, 减少网络开销, 但内存侧有限的 CPU 又容易成为瓶颈.
+
+We investigate the impact of CPU bottleneck on the performance of dLSM, as shown in Figure 3b and 3d. Notably, dLSM demonstrates high update performance, even exceeding the Expected Update performance (which involves two RDMAs: one for reading the key-value entry and another for performing the update). This is because most Zipfian update operations can be efficiently handled within its local-memory structures without relying on RDMAs <sup>[50]</sup>, thanks to the sequential write feature of LSM-tree. However, when scaling client threads, dLSM's insert performance initially improves but eventually declines. This happens because the increasing number of concurrent insert operations accelerates the generation of compaction tasks on the memory server, overwhelming the limited computational resources (`e.g.`, a single CPU core on each memory server). The accumulated compaction tasks block concurrent writes, leading to a decline in insert performance (14.9%-41.4% of the expected performance), thus breaking the expected performance trade-offs.
+
+图 3b, 3d 展示 dLSM 的 CPU 瓶颈. 它的更新性能很高, 甚至超过需要两次 RDMA (读项, 写回) 的理想更新值, 因为 Zipfian 更新大多可在本地内存结构中处理, 无需 RDMA <sup>[50]</sup>. 但客户端线程增加时, 插入先升后降: 高并发插入加快合并任务生成, 压垮内存侧有限算力, 如单核 CPU. 堆积的合并阻塞并发写入, 使插入性能降至理想值的 14.9%-41.4%, 无法达到预期权衡.
+
+<div class="paper-shared">
+
+![现有范围索引在点操作和范围操作间的性能权衡. 使用六台计算服务器和一台内存服务器, 预载十亿项, 每次一亿操作, 配置见原文第 5.1 节.](/assets/images/posts/dmtree/figure-03.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 3: Performance trade-offs of existing range indexes for point and range operations on DM. Experiments use the default configuration of six compute servers and one memory server, with one billion preloaded key-value entries and 100 million operations per test (detailed in §5.1).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 3: 现有范围索引在点操作和范围操作间的性能权衡. 使用六台计算服务器和一台内存服务器, 预载十亿项, 每次一亿操作, 配置见原文第 5.1 节.</span>
+
+## 2.3 结合连续存储与精确定位
+
+To address bandwidth issues in B+-tree and learned index, as well as IOPS issues in ART index, previous studies have combined continuous range storage with precise key-value locating, including CHIME <sup>[31]</sup> and FP-B+-tree <sup>[28, 38]</sup>.
+
+为同时解决 B+ 树, 学习索引的带宽问题和 ART 的 IOPS 问题, CHIME <sup>[31]</sup> 与 FP-B+-tree <sup>[28, 38]</sup> 将连续范围存储与精确键值定位结合.
+
+CHIME. CHIME proposes a DM-optimized hybrid index that combines hashing techniques with tree-based indexing. Similar to B+-tree, CHIME stores a range of key-value entries contiguously within the leaf nodes and locates them through internal nodes. However, unlike B+-tree, CHIME employs hopscotch hashing within the leaf nodes to locate the requested key-value entry, reducing read amplification that would otherwise occur from accessing the entire leaf node.
+
+CHIME. 它结合哈希与树索引. 与 B+ 树一样, 在叶内连续保存键值范围, 通过内部节点定位; 不同的是叶内用 hopscotch hashing 定位目标项, 避免读取整个叶节点的放大.
+
+FP-B+-tree. FP-B+-tree introduces a fingerprinting technique based on B+-tree. As shown in Figure 4, each leaf node contains several key-value entries, along with a fingerprint table. This table consists of N fingerprints, each corresponding to a key-value entry (`i.e.`, each key typically has a unique fingerprint). In practice, fingerprints are one-byte hashes of the in-leaf keys, arranged sequentially, and are used for efficient iteration to locate the requested key-value entry.
+
+FP-B+-tree. 它在 B+ 树上引入指纹. 图 4 中每个叶节点保存多项键值及一张含 N 个指纹的表, 每个指纹对应一个键值项. 实际指纹是叶内键的单字节哈希, 顺序排列, 用于高效遍历定位目标项.
+
+<div class="paper-shared">
+
+![FP-B+-tree 结构.](/assets/images/posts/dmtree/figure-04.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 4: Structures of FP-B+-tree.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 4: FP-B+-tree 结构.</span>
+
+Performance analysis. By leveraging hashing or fingerprinting techniques, CHIME and FP-B+-tree reduce the average number of in-leaf probed keys to one, thereby minimizing read amplification and alleviating the bandwidth bottleneck for point operations. Moreover, their continuous range data structure mitigates the IOPS bottleneck by reducing RDMA requests, particularly by minimizing the need to read multiple small leaf nodes during scans. Performance evaluations presented in Figure 3 show that CHIME and FP-B+-tree improve search performance by 2.2-4.5× over Sherman and ROLEX, and enhance scan performance by 2.5× over SMART.
+
+**性能分析.** 哈希或指纹将叶内平均探测项数降至一, 减少读放大并缓解点操作带宽瓶颈. 连续存储又减少扫描时读取多个小叶节点的 RDMA, 缓解 IOPS 问题. 图 3 中, CHIME 和 FP-B+-tree 的查询性能为 Sherman 和 ROLEX 的 2.2-4.5 倍, 扫描性能为 SMART 的 2.5 倍.
+
+## 2.4 局限与机会
+
+Although CHIME and FP-B+-tree outperform other range indexes, deploying indexes that combine continuous range storage with precise key-value locating to achieve expected performance in DM still suffers from new challenges. These challenges are especially prominent in data locating and concurrency control during point operations. We demonstrate that naive approaches can lead to sub-optimal performance.
+
+虽然 CHIME 和 FP-B+-tree 优于其他索引, 在 DM 上结合连续存储与精确定位仍难以达到理想性能, 尤其是点操作的数据定位和并发控制. 直接移植这些方法仍会留下明显差距.
+
+Limitation#1: Extra RDMAs for precise K-V locating. First, to serve point operations, CHIME and FP-B+-tree rely on extra RDMAs for precise key-value locating. Specifically, during search operations, compared to the expected case (`i.e.`, using a single RDMA), FP-B+-tree incurs additional RDMA requests to access the fingerprint table before reading the key-value entries. Similarly, during insert operations, FP-B+-tree needs to read the fingerprint table to find an empty slot in the leaf node and update the table to retrieve the newly inserted key-value entry. CHIME also requires additional RDMA requests to handle hash collisions during inserts. In DM architecture, these extra RDMAs strain the limited IOPS resources, exacerbating the IOPS bottleneck. We demonstrate the impact of the IOPS bottleneck on the performance of CHIME and FP-B+-tree in Figure 3a and 3b. The FP-B+-tree's search performance is only half that of the expected search performance due to its doubled IOPS resource consumption. Meanwhile, the insert performance of CHIME and FP-B+-tree is only 23.9-45.4% of the expected insert performance.
+
+**局限 1:** 精确定位需要额外 RDMA. 相比一次 RDMA 的理想查询, FP-B+-tree 需先读指纹表再读键值项. 插入也需读表找空槽, 再更新指纹; CHIME 插入则需额外处理哈希冲突. 这些操作消耗有限 IOPS. 图 3a, 3b 中, FP-B+-tree 因 IOPS 消耗翻倍, 查询只有理想值一半; CHIME 和 FP-B+-tree 插入仅达理想值的 23.9%-45.4%.
+
+Limitation#2: Extra RDMAs for locking leaf tree node. Second, both CHIME and FP-B+-tree employ a locking mechanism for concurrency control during concurrent writes, requiring the corresponding leaf node to be locked when writing key-value entries to maintain correctness and to be unlocked after the write operations. Locking is typically done by changing the lock byte in the leaf node from 0 to 1 using RDMA_CAS while unlocking sets the lock byte back to 0 with RDMA_WRITE <sup>[31, 32, 49]</sup>. However, these operations consume a considerable amount of IOPS resources, severely impacting performance. As illustrated in Figure 3d, the update performance of CHIME and FP-B+-tree achieves only 48.1-61.8% of the expected update performance.
+
+**局限 2:** 叶节点锁需要额外 RDMA. 两者并发写时都需锁定叶节点, 写完解锁. 常见方式是用 RDMA_CAS 将锁字节从 0 改为 1, 再用 RDMA_WRITE 写回 0 <sup>[31, 32, 49]</sup>. 这些操作大量消耗 IOPS, 图 3d 中更新仅达理想性能的 48.1%-61.8%.
+
+Opportunity: Unsaturated RDMA resources on compute servers. For all existing range indexes in DM architecture, RDMA resources on compute servers are primarily used to communicate with memory servers. However, we find that RDMA resources between compute servers are always unsaturated. This is because network requests from multiple compute servers are aggregated on the memory server, and the memory server's network can more easily become the bottleneck <sup>[18, 32]</sup>, thus preventing further increase of requests from compute servers. As shown in Figure 5, we use the insert operations of the FP-B+-tree as a case study, multiple RDMAs for data locating and locking operations are aggregated on the memory server, creating an IOPS bottleneck (`i.e.`, M1 in the figure). At this time, the compute server's IOPS resources are underutilized (`i.e.`, C1-C6 in the figure).
+
+**机会:** 计算侧 RDMA 尚未饱和. 现有索引的计算侧 RDMA 主要用于访问内存服务器, 计算服务器之间资源却未用满. 多台计算服务器请求汇聚于内存侧, 后者网络更易先成为瓶颈, 限制进一步发请求 <sup>[18, 32]</sup>. 图 5 以 FP-B+-tree 插入为例: 定位和锁操作的 RDMA 汇聚到内存服务器 M1, 形成 IOPS 瓶颈, 此时计算服务器 C1-C6 的 IOPS 仍利用不足.
+
+<div class="paper-shared">
+
+![FP-B+-tree 插入时的 RDMA 资源消耗. C1-C6 为计算服务器, M1 为内存服务器.](/assets/images/posts/dmtree/figure-05.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 5: RDMA resource consumption of FP-B+-tree during inserts (C1-C6 for compute servers, M1 for the memory server).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 5: FP-B+-tree 插入时的 RDMA 资源消耗. C1-C6 为计算服务器, M1 为内存服务器.</span>
+
+# 3. DMTree 设计
+
+## 3.1 概览
+
+We present DMTree, a DM-oriented tree index that employs a compute-side collaborative design to alleviate the network bottlenecks by leveraging the underutilized RDMA resources on compute servers. Figure 6 depicts the system overview. To trade-off bandwidth and IOPS resources during point (`i.e.`, search, insert, and update) and scan operations, DMTree adopts the FP-B+-tree structure. Each tree node includes a pointer to its right sibling and multiple pointers to child nodes, allowing efficient node retrieval similar to the B+-tree <sup>[22, 49]</sup>. Each leaf node features a fingerprint table for index retrieval at the key-value entry level, eliminating the need to read entire tree nodes from the memory server during point operations.
+
+DMTree 利用计算侧未充分使用的 RDMA 缓解网络瓶颈, 图 6 展示系统概览. 为兼顾点查询, 插入, 更新与扫描的带宽和 IOPS, 它采用 FP-B+-tree 结构. 每个节点包含右兄弟指针和多个子节点指针, 类似 B+ 树 <sup>[22, 49]</sup>. 每个叶节点都有指纹表, 可按键值项粒度检索, 点操作无需从内存侧读取整个节点.
+
+Following a typical DM architecture (as described in §2.1), DMTree is stored and distributed among multiple memory servers. Each compute server maintains an index cache and accesses data from memory servers via one-sided RDMA operations. To address RDMA network bottlenecks on the memory server and achieve the expected performance for search, insert, update, and scan operations, DMTree introduces a compute-side collaborative design featuring two key innovations: a compute-side collaborative cache (§3.2) and a compute-side collaborative concurrency mechanism (§3.3).
+
+DMTree 分布于多台内存服务器. 计算服务器各自维护索引缓存, 通过单边 RDMA 访问数据. 为达到点操作和扫描的理想性能, 它采用两项计算侧协同设计: 协同缓存 (原文第 3.2 节) 与协同并发机制 (原文第 3.3 节).
+
+<div class="paper-shared">
+
+![DMTree 系统概览.](/assets/images/posts/dmtree/figure-06.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 6: System overview of DMTree.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 6: DMTree 系统概览.</span>
+
+## 3.2 将精确定位卸载到计算侧
+
+DMTree offloads the data location operations to compute servers, reducing network bottlenecks caused by the additional RDMA requests needed for precise key-value locating.
+
+DMTree 将数据定位放到计算服务器, 减少精确键值定位的额外 RDMA 给内存侧造成的压力.
+
+### 3.2.1 计算侧协同缓存
+
+Based on our analysis in §2.4, precise key-value locating involves two key steps: multi-level traversal of the internal tree and key-value identification within leaf nodes. To optimize this, DMTree integrates its private internal tree cache with a shared storage for leaf fingerprint tables.
+
+精确定位包含两步: 多层内部树遍历, 以及叶内键值识别. DMTree 因而将私有内部树缓存与共享叶指纹表存储结合.
+
+Private internal cache. DMTree maintains a private index cache on each compute server to store the internal tree. This private internal cache effectively reduces remote memory accesses and experiences minimal thrashing, as internal nodes are infrequently updated. Internal nodes are modified only when adding or deleting leaf nodes (`i.e.`, a key-pointer must be inserted or deleted to facilitate leaf node retrieval). Due to the large size of leaf nodes in DMTree, such updates occur rarely. For example, a leaf node with 32 key-value slots requires 32 insert operations to fill before splitting and generating a new leaf node, making updates to internal nodes infrequent.
+
+**私有内部缓存.** 每台计算服务器私有缓存内部树, 有效减少远程访问. 内部节点只有在增删叶节点, 需要增删键-指针对时才更新, 因而缓存抖动较少. DMTree 叶较大, 更新不频繁: 例如含 32 个槽的叶需要 32 次插入填满后才会分裂出新叶.
+
+To simplify cache consistency management, DMTree only caches the bottom-level internal nodes while locally constructing the upper-level nodes. When internal nodes are updated, only the modified bottom-level nodes are synchronized. Corresponding upper-level nodes are updated locally.
+
+为简化一致性管理, DMTree 只缓存最底层内部节点, 上层节点在本地构建. 内部树变化时只同步修改过的底层节点, 相应上层节点本地更新.
+
+Collaborative fingerprint storage. DMTree maintains shared fingerprint tables across compute servers. As frequent updates to leaf nodes result in significant synchronization overhead and cache thrashing, it renders the private cache ineffective in optimizing the remote traversal overhead for fingerprint tables in FP-B+-tree. Therefore, DMTree adopts a collaborative fingerprint storage model on the compute servers. It stores the fingerprint table of each leaf node on multiple compute servers, as illustrated in Figure 7. Each table exists as primary storage on a single server but can be cached by several others. Before a leaf node entry is retrieved from a memory node, the corresponding fingerprint table is first read from a peer compute server and then cached locally. The position of the requested key-value entry within the leaf node is identified by scanning the fingerprints. When inserting new key-value entries, only the primary storage fingerprint table is updated synchronously to ensure accurate data retrieval and avoid redundant synchronization overhead. This collaborative design shifts the burden of reading and synchronizing fingerprint tables from the memory server to compute servers, efficiently alleviating the IOPS bottleneck in FP-B+-tree caused by additional RDMA requests for precise key-value locating.
+
+**协同指纹存储.** 叶更新频繁, 同步开销和缓存抖动大, 单纯私有缓存指纹表难以有效优化 FP-B+-tree. DMTree 因而在计算服务器间共享指纹表, 如图 7. 每张表在一台服务器上有主存储, 可被其他服务器缓存. 访问远程叶项前, 先从另一计算服务器读取相应表并本地缓存, 通过扫描指纹确定项的位置. 插入时只同步更新主表, 保证定位准确, 避免冗余同步. 这样将指纹读取与同步从内存侧转到计算侧, 缓解精确定位额外 RDMA 造成的 IOPS 瓶颈.
+
+<div class="paper-shared">
+
+![DM 计算侧协同缓存优化.](/assets/images/posts/dmtree/figure-07.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 7: Compute-side collaborative caching optimization on DM.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 7: DM 计算侧协同缓存优化.</span>
+
+It should be noted that each key-value entry requires only one byte of fingerprint storage, which is manageable within the available memory resources on the compute servers. The memory usage on each compute server is further discussed in §5.3. In particular, if memory resources are insufficient to accommodate the fingerprint tables and internal tree cache, internal nodes will be evicted in a FIFO manner, and the newly generated fingerprint table will be stored on memory servers. Additionally, to mitigate the impact of multiple RDMA requests caused by the remote traversal of the internal tree during cache misses, memory resources on the compute server prioritize fulfilling the internal tree cache requirements.
+
+每个键值项仅需一个字节指纹, 计算侧内存通常能够承受, 原文第 5.3 节进一步分析. 若内存不足以容纳指纹表和内部树缓存, 内部节点按 FIFO 淘汰, 新生成的指纹表转存内存服务器. 为减少内部树缓存未命中导致的多轮 RDMA, 计算侧内存优先满足内部树缓存.
+
+### 3.2.2 指纹与缓存一致性
+
+When applying our compute-side collaborative design, ensuring consistency is crucial. DMTree introduces a new consistency verification strategy that maintains consistency in both collaborative fingerprint storage and private internal cache.
+
+协同设计需要确保一致性. DMTree 引入新的验证策略, 同时维护共享指纹与私有内部缓存的一致性.
+
+Collaborative fingerprint consistency. For collaborative fingerprint storage, each fingerprint table is stored on a single server, with multiple cached copies distributed across other servers. During search operations, cached fingerprints are used to accelerate lookups. However, for write operations, only the primary fingerprint tables are updated synchronously, while the cached fingerprints are updated asynchronously, potentially leading to temporary inconsistencies.
+
+**协同指纹一致性.** 指纹表在一台服务器上保存主版本, 其他服务器缓存副本. 查询使用缓存加速; 写入只同步更新主表, 缓存异步更新, 因而可能短暂不一致.
+
+When searching cached fingerprints, two types of inconsistencies may arise, both of which can be directly detected: (i) the fingerprint of the requested key is found in the cache, but the corresponding key-value entry fetched remotely differs from the requested key; and (ii) the requested fingerprint is missing from the cache. For modified or newly inserted entries, the cached fingerprint tables are updated asynchronously and may not be consistent with the remote storage, leading to inaccurate entry locations or missing fingerprints.
+
+查询缓存指纹时可能出现两种可直接发现的情况: 找到目标指纹, 但远程读到的键值项与请求键不同; 或缓存中没有目标指纹. 对已修改或新插入项, 异步缓存可能尚未更新, 导致位置不准或指纹缺失.
+
+DMTree ensures fingerprint consistency in an optimistic manner. When an inconsistency occurs, the primary fingerprint table is retrieved from other compute servers, and the local cache is updated accordingly. To facilitate synchronization between the cached fingerprints and the primary fingerprint storage, DMTree stores a pointer to the primary fingerprint table within its internal entry. Figure 8 depicts the internal node structure. Each internal node contains multiple entries that consist of a key and a pointer to the lower tree node. The key in each entry represents the minimum key within the key range contained in the lower tree node or leaf node being pointed to. In the bottom-level internal nodes pointing to leaf nodes, each entry additionally stores a pointer to the corresponding primary fingerprint table.
+
+DMTree 乐观处理指纹一致性: 发现不一致后, 从其他计算服务器取回主表并更新本地缓存. 为此, 内部项保存主指纹表指针. 图 8 中内部节点含多个键-指针对, 键表示所指下层节点或叶节点范围的最小键. 最底层内部节点的每项还保存对应主指纹表指针.
+
+Private cache consistency. DMTree also ensures consistency between the private internal cache and the remote internal tree. Specifically, the correct leaf node and fingerprint table must be located through the internal tree cache, with results consistent with those from directly traversing the remote tree.
+
+**私有缓存一致性.** 内部缓存定位出的叶和指纹表, 必须与直接遍历远程树的结果一致.
+
+When searching the private internal cache, inconsistencies can arise when range modifications are made to remote internal or leaf nodes (`e.g.`, node splits or merges) without immediate synchronization across compute servers. To ensure internal cache consistency, both leaf nodes and internal nodes maintain some metadata, including K<sub>max</sub> and K<sub>min</sub> to indicate the range of the node, as well as an 8-byte pointer to its right sibling (similar to B+-tree). This metadata is essential for determining the range of nodes to search or update and for identifying the correct node when inconsistencies arise.
+
+远程内部节点或叶节点分裂, 合并等范围变化若未立即同步, 就会造成不一致. 每个内部节点和叶节点因此保存 K<sub>max</sub>, K<sub>min</sub> 表示范围, 以及 8 字节右兄弟指针, 类似 B+ 树. 这些元数据用于确定查询或更新范围, 并在缓存不一致时找到正确节点.
+
+To avoid additional RDMA requests for consistency verification during precise key-value locating, DMTree proposes an entry-level consistency verification mechanism. It adds an 8-byte version ID to each leaf key-value entry, internal entry, and leaf fingerprint table, as illustrated in Figure 8. This version ID represents the leaf node's version and is used to verify coherence among locally cached internal nodes, remote leaf nodes, and fingerprint tables. Specifically, the version ID is initialized to 0 when a node is created and increments whenever the range of the leaf node changes. After retrieving a leaf fingerprint table or key-value entry from the private internal cache, the compute server checks cache coherence by comparing the version ID of the leaf node or fingerprint table with the version ID in the cached internal entry. If the IDs do not match, it implies that the leaf node or fingerprint table has been changed, and the cached entry remains outdated. In such cases, DMTree triggers cache invalidation, prompting the compute server to traverse the internal tree remotely and update the corresponding local cache entry.
+
+为避免一致性验证额外发 RDMA, DMTree 在项级别校验: 每个叶键值项, 内部项和叶指纹表增加 8 字节版本号, 如图 8. 版本表示叶节点版本, 创建时为 0, 叶范围变化时递增. 计算服务器通过内部缓存找到指纹表或键值项后, 将其版本与缓存内部项版本比较. 不同则说明远端叶或表已变化, 缓存过期. 此时使缓存失效, 远程遍历内部树并刷新对应缓存项.
+
+<div class="paper-shared">
+
+![DMTree 为保证一致性设计的结构.](/assets/images/posts/dmtree/figure-08.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 8: Structures of DMTree designed for consistency.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 8: DMTree 为保证一致性设计的结构.</span>
+
+### 3.2.3 扩展性讨论
+
+Below, we discuss the scalability of our compute-side collaborative design, showing it efficiently scales with the number of compute servers. Basically, when compute servers are scaled, the primary fingerprint tables from decommissioned servers are transferred to active ones to maintain accurate index retrieval. Therefore, this transfer process should be lightweight to support the DM architecture's rapid scaling needs.
+
+下面讨论计算侧协同设计如何随计算服务器数量扩展. 服务器缩减时, 下线服务器上的主指纹表要转到活跃服务器, 维持准确检索. 为适应 DM 的快速伸缩, 迁移必须轻量.
+
+To achieve this, DMTree allows multiple compute servers to store identical copies of the fingerprint table at the same NIC register memory offset. Among these, one server is designated as the primary, while the others function as caches. The primary ownership of each fingerprint table is determined through consistent hashing <sup>[19]</sup> based on the fingerprint offset (`i.e.`, consistent_hash(fp_offset)). All active compute servers participate in the consistent hashing ring, ensuring efficient and consistent assignment of primary ownership and redirection of access requests. This method facilitates the seamless redirection of the fingerprint table pointer to the appropriate server. If a compute server becomes invalid, it is evicted from the hashing ring. Subsequently, consistent hashing redistributes the primary fingerprint table storage to other servers, and the cached fingerprint tables on these redistributed servers will then be synchronized to primary storage upon the next access. Furthermore, consistent hashing can also be used to loadbalance the primary fingerprint storage. Using techniques such as virtual nodes, hotspot fingerprints can be evenly distributed and accessed on compute servers.
+
+DMTree 允许多台计算服务器在相同 RNIC 注册内存偏移处保存相同指纹表副本, 其中一台为主, 其余为缓存. 主所有权由基于指纹偏移的一致性哈希 <sup>[19]</sup> 决定, 即 `consistent_hash(fp_offset)`. 所有活跃服务器加入哈希环, 便于分配主表和重定向访问. 服务器失效后移出环, 主表重新映射到其他服务器; 下次访问时, 新服务器上的缓存表将同步为主表. 虚拟节点等一致性哈希技术还可均衡热点指纹的存储与访问.
+
+## 3.3 将锁操作卸载到计算侧
+
+Previous concurrency control optimizations for DM indexes primarily focused on reducing the overhead associated with conflicted locking operations. For example, when two clients on the same server lock the same address, they resolve the lock conflicts locally, helping to mitigate some of the remote lock overhead. Techniques such as using local lock tables to handle conflicting write requests or aggregating a small batch of write requests within the same server were introduced <sup>[32, 49]</sup>. However, these approaches overlooked the optimization for common locking operations, such as nonconflicted write requests, which still impose significant network resource overhead. To address this, DMTree introduces a compute-side collaborative concurrency control that fully offloads locking operations to compute servers, further mitigating network bottlenecks on memory servers.
+
+既有 DM 并发优化主要减少锁冲突开销, 如同服务器两个客户端锁同一地址时在本地协调, 或通过本地锁表, 小批写请求聚合处理冲突 <sup>[32, 49]</sup>. 但无冲突写入等普通锁操作仍消耗大量网络资源. DMTree 将锁操作完整卸载到计算侧, 进一步缓解内存服务器瓶颈.
+
+Compute-side collaborative locking. DMTree adopts pessimistic locking for write-write conflict (`i.e.`, multiple concurrent write requests attempt to modify the same address). Before writing entries to a tree node in the memory server, the compute server must hold a lock on it. To better balance RDMA IOPS resource utilization (as described in §2.4), DMTree adopts a compute-side collaborative locking mechanism. Specifically, it stores the lock fields of leaf tree nodes distributed across compute servers along with the primary fingerprint tables. The node is locked by setting the lock field from 0 to 1 through RDMA_CAS across compute servers.
+
+**计算侧协同加锁.** 写写冲突, 即多个请求修改同一地址, 使用悲观锁. 写内存侧树节点前必须持锁. 叶锁字段与主指纹表一起分布在计算服务器, 通过计算服务器间 RDMA_CAS 将锁从 0 改为 1, 更均衡地使用 IOPS.
+
+Collaborative embedded unlocking. To further reduce the network resource consumption, DMTree combines unlocking operations with writing back the primary fingerprint table. It achieves this by storing the lock field at the end of the fingerprint table and unlocking the node by setting the lock field to 0 within an RDMA_WRITE. Due to the sequential write feature of RDMA NIC, the node unlocking is always done after the fingerprint table is written <sup>[32, 58]</sup>. Therefore, for insert operations, the fingerprint table writing and node unlocking are combined into a single RDMA write operation. For update operations that don't involve the updating of fingerprint tables, the node is unlocked by setting the lock field to 0 with a separate RDMA_WRITE. For infrequently updated internal nodes, lock fields are stored on the memory server, positioned at the end of each node. Locking employs RDMA_CAS to change the lock field from 0 to 1 while unlocking sets it to 0 when the node is written back.
+
+**协同嵌入式解锁.** 为进一步减少请求, DMTree 将解锁与主指纹表写回合并: 锁位于表尾, 在一次 RDMA_WRITE 中写表并将锁置 0. RNIC 顺序写保证解锁发生在表写完后 <sup>[32, 58]</sup>. 插入因而只需一次写操作完成更新表与解锁; 不修改指纹的更新操作则单独发 RDMA_WRITE 解锁. 更新较少的内部节点, 锁仍保存在内存侧节点尾部, 用 CAS 加锁, 写回节点时置 0 解锁.
+
+In the concurrent writing process, we use the update operation as an example to show the collaborative concurrency control strategy. As shown in Figure 9, the basic FP-B+-tree requires 5 RDMA operations to perform an update operation ((1) ~(5) in Figure 9), including (1)  locking the node, (2)  reading the fingerprint table to locate the corresponding key-value entry, (3) reading the key-value entry, (4) writing the updated entry, and (5) unlocking the node. By offloading the access to the fingerprint table, as well as the locking and unlocking operations, to the compute servers, 3 out of the 5 RDMA requests can be shifted away from the memory server during update operations. This effectively optimizes the performance issues caused by the IOPS bottleneck on the memory server.
+
+图 9 以更新为例. 基础 FP-B+-tree 需五次 RDMA: (1) 加锁; (2) 读指纹表定位; (3) 读键值项; (4) 写回更新项; (5) 解锁. 将指纹访问和加解锁转到计算侧, 就能把五次中的三次移出内存服务器, 缓解其 IOPS 瓶颈.
+
+<div class="paper-shared">
+
+![写入中的计算侧协同锁.](/assets/images/posts/dmtree/figure-09.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 9: Compute-side collaborative locking in write operations.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 9: 写入中的计算侧协同锁.</span>
+
+Compute-side optimistic locking. DMTree uses optimistic locking for concurrent read-write conflicts and includes an 8-byte CRC check field for each read and write unit, including tree nodes, key-value entries, and fingerprint tables. Read-write conflicts (`i.e.`, a read obtains the data that is being modified) are resolved by checking the consistency through the CRC checksum. When the compute server reads an internal node, a key-value entry, or a leaf fingerprint table, it verifies whether the CRC calculated matches the CRC checksum stored in the read unit. In a mismatch, the compute server re-reads the node, entry, or table. When the node, entry, or fingerprint table is updated, the CRC is re-calculated. In particular, if the size of the key-value entry is smaller than the cache line size (`e.g.`, 64B), there is no need to add a CRC field because RDMA guarantees the atomicity of data read and write at the cache line granularity <sup>[18, 58]</sup>.
+
+**计算侧乐观锁.** 并发读写冲突使用乐观机制, 为树节点, 键值项, 指纹表等读写单元增加 8 字节 CRC. 计算服务器读取时重新计算 CRC, 与单元内保存的校验值比较, 不符则重读; 更新时重新计算 CRC. 这可检测读到了正在修改的数据. 若键值项小于缓存行, 如 64 B, 则无需 CRC, 因为 RDMA 在缓存行粒度保证读写原子性 <sup>[18, 58]</sup>.
+
+# 4. 实现与讨论
+
+## 4.1 RDMA 优化
+
+Filter empty entries during scans. DMTree retrieves the index at the leaf node level during scan operations. All leaf nodes containing the requested keys must be read remotely. However, irrelevant data (`e.g.`, unwritten empty entries) within the node leads to a waste of bandwidth resources. To optimize this, DMTree utilizes the fingerprint table to filter out empty entries during scans, as shown in Figure 10. Since each fingerprint corresponds to a key-value entry in the leaf nodes, filtering out empty fingerprints prevents the reading of unwritten entries, thereby conserving bandwidth resources.
+
+**扫描时过滤空项.** 扫描按叶节点读取包含目标键的全部远程叶, 但未写入空项等无关数据浪费带宽. DMTree 根据指纹表过滤空项, 如图 10. 每个指纹对应一个叶项, 过滤空指纹即可避免读取未使用槽位.
+
+<div class="paper-shared">
+
+![扫描时通过指纹过滤空项.](/assets/images/posts/dmtree/figure-10.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 10: Filter empty entries through fingerprints during scans.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 10: 扫描时通过指纹过滤空项.</span>
+
+Combine concurrent requests. DMTree follows the read delegation and write combining design from existing works <sup>[32, 49]</sup>. These techniques combine concurrent searches and writes from a single compute server into a batch, reducing network overhead. Meanwhile, to prevent excessive latency caused by a large batch size, DMTree imposes a batch size limit. When the number of concurrent operations in a batch exceeds a threshold, the operation is executed directly without batching.
+
+**合并并发请求.** 沿用既有读委托与写合并设计 <sup>[32, 49]</sup>, 将同一计算服务器的并发查询或写入合批, 减少网络开销. 为防止批次过大拉长延迟, DMTree 设置批大小上限; 超过阈值的操作直接执行, 不再合批.
+
+## 4.2 DMTree 操作
+
+Based on DMTree's designs and optimizations, we offer four index primitives: Search, Write, Delete, and Scan.
+
+系统提供 Search, Write, Delete, Scan 四种索引原语.
+
+Search(key). When searching for a key, the client first checks its internal tree cache to locate the corresponding fingerprint table and leaf node. It then reads the fingerprint table from the cache, calculates the fingerprint of the key to be searched, and matches it within the table. If a matching fingerprint is found, the key-value entry is retrieved from the corresponding slot of the leaf node in the memory server. If not, DMTree reads the primary fingerprint table from other compute servers to verify cache consistency and check for any newly inserted matching fingerprints. If no entry is found, DMTree returns NULL to indicate that the requested key-value entry does not exist.
+
+Search(key). 客户端先查内部缓存, 定位指纹表与叶节点. 读取缓存指纹表, 计算目标键指纹并匹配. 若命中, 从内存侧叶对应槽读取键值项; 若未命中, 从其他计算服务器读主表, 检查缓存一致性及是否存在新插入指纹. 仍未找到则返回 NULL, 表示键不存在.
+
+Write(key, value). To insert or update a key-value entry, the client first locates the leaf node and primary fingerprint table using a collaborative cache strategy similar to searches. Before accessing the fingerprint table, it locks both the table and the leaf node with RDMA_CAS, changing the lock field from 0 to 1 across compute servers. Existing key-value entries are read and updated directly. For new key-value entries, their fingerprints are written into the empty slots of the fingerprint table, and the entries are written into the corresponding empty slots of the leaf node. The node is then unlocked by setting the lock field back to 0 using RDMA_WRITE. If the fingerprint table is full, both the leaf node and the fingerprint table are split, resembling a B+-tree, to create more index space. Half of the key-value entries and fingerprints are moved to the newly created node and table, and a new key-pointer is written to the internal nodes to retrieve them.
+
+Write(key, value). 插入或更新先通过协同缓存找到叶与主表. 访问表前, 在计算服务器之间用 RDMA_CAS 将锁从 0 置 1, 锁定表和叶. 已有项直接读后更新; 新项将指纹写入表空槽, 键值写入叶对应空槽. 然后用 RDMA_WRITE 置锁为 0. 若表满, 像 B+ 树一样分裂叶和指纹表, 将一半项及指纹移到新节点和新表, 在内部节点插入新的键-指针对.
+
+Delete(key). Deletes are similar to updates. Delete sets the corresponding entry to NULL, indicating that the entry has been logically removed and the space has been freed. When all key-value entries in a leaf node are deleted, the node is merged with its adjacent node, and the corresponding internal entry is updated to retrieve the newly merged node. DMTree uses a background thread to reclaim the freed nodes.
+
+Delete(key). 类似更新, 将项置 NULL, 表示逻辑删除并释放空间. 叶内全部项删除后, 与相邻节点合并, 更新内部项以定位合并后的节点. 后台线程回收已释放节点.
+
+Scan(start_key, len). When scanning a range of key-value entries, given a start key and a scan length, the client first uses its internal tree cache to locate the leaf node and fingerprint table where the start key is stored. It then remotely reads the fingerprint table to filter empty entries and reads the remaining leaf node to identify all requested entries. If fewer entries are found than the scan length, the client reads the adjacent leaf node and continues until all requested entries are located.
+
+Scan(start_key, len). 给定起始键和长度, 先用内部缓存定位起始叶与指纹表, 远程读表过滤空项, 再读剩余叶数据查找目标项. 数量不足时继续读相邻叶, 直至找到所需全部项.
+
+## 4.3 讨论
+
+Failures and inconsistencies handling. In DMTree, the compute-side collaborative design introduces auxiliary metadata (`e.g.`, fingerprint tables) on compute servers to support fast, scalable index operations. To ensure robustness against potential compute server failures that could affect this metadata, DMTree is designed to be compatible with lightweight failure detection mechanisms and recovery protocols that ensure correctness and fault tolerance. Specifically, as described in §3.2.3, DMTree supports the relocation and reconstruction of fingerprint tables. It allows multiple compute servers to store identical fingerprint replicas at the same NIC-registered memory offset, where one server acts as the primary and others hold cached replicas. To ensure availability, failures can be detected through lightweight mechanisms, such as monitoring RDMA request failures and verifying server liveness via probing. Upon detecting a compute server failure, the system updates the server membership list to exclude the failed server and elects a new primary from the remaining replicas. The newly elected primary can reconstruct the metadata, such as the fingerprint table, by validating and synchronizing it based on the key-value data stored in remote memory.
+
+**故障与不一致处理.** 计算侧指纹表等辅助元数据支持快速可扩展检索, 也需应对计算服务器故障. DMTree 可配合轻量故障检测与恢复协议, 保证正确性和容错. 如原文第 3.2.3 节, 多台服务器在相同 RNIC 注册偏移保存副本, 一主多缓存. 可通过监测 RDMA 请求失败, 探测服务器存活等方式发现故障. 检测到故障后更新成员列表, 排除故障节点, 从剩余副本选新主. 新主根据远程内存的键值数据验证并同步, 重建指纹等元数据.
+
+Compatibility of DMTree to CXL. The key design principles of DMTree remain compatible with CXL-based systems. First, from a functional perspective, DMTree relies solely on one-sided RDMA primitives and inter-server communication, which naturally align with CXL's load/store instructions and inter-CPU memory sharing. Second, in terms of performance benefits, although CXL memory offers lower latency (~170-250 ns <sup>[34]</sup>) and higher PCIe bandwidth (~64 GB/s) than RDMA, performance bottlenecks may still arise on the memory side under high concurrency. Therefore, the compute-side collaborative design in DMTree remains valuable. Finally, regarding system adaptations, deploying DMTree in CXL environments may require specific adjustments. While CXL's enhanced memory performance may reduce the relative performance gains of DMTree, it also shifts the system's performance bottlenecks. Specifically, software-level overheads (`e.g.`, concurrency control) may become the dominant limiting factors before IOPS or PCIe bandwidth are saturated. These shifting bottlenecks present further opportunities for optimization via compute-side collaborative design.
+
+**与 CXL 的兼容性.** DMTree 原则上适用于 CXL. 功能上, 它仅依赖单边 RDMA 和服务器间通信, 可对应 CXL load/store 与 CPU 间内存共享. 性能上, 即便 CXL 延迟约 170-250 ns <sup>[34]</sup>, PCIe 带宽约 64 GB/s, 高并发仍可能使内存侧遇到瓶颈, 协同设计仍有价值. 但部署需要调整: 更快的内存可能缩小相对收益, 并改变瓶颈位置, 例如并发控制等软件开销可能在 IOPS 或 PCIe 带宽饱和前先成为限制. 这些变化也为计算侧协同优化提供机会.
+
+# 5. 评估
+
+In this section, we evaluate DMTree by comparing it to state-of-the-art DM range indexes. We first outline our experimental setups and competitors in §5.1. Our evaluation focuses on the following research questions:
+
+本节将 DMTree 与先进 DM 范围索引比较. 原文第 5.1 节介绍环境与基线, 重点回答以下问题.
+
+What is the overall performance of DMTree (§5.2)?
+
+整体性能如何? 见原文第 5.2 节.
+
+Dose DMTree incur additional overhead (§5.3)?
+
+是否带来额外开销? 见原文第 5.3 节.
+
+How does each design help with the performance (§5.4)?
+
+各项设计分别贡献多少性能? 见原文第 5.4 节.
+
+What is the impact of workload characteristics (§5.5)?
+
+负载特征有何影响? 见原文第 5.5 节.
+
+## 5.1 实验设置
+
+Testbed. All experiments are conducted on a cluster of seven machines (six compute servers and one memory server), each equipped with two 40-core Intel Xeon Gold CPUs, 128 GB DRAM, and a 100 Gbps Mellanox ConnectX-6 RNIC. All machines are connected to a 100 Gbps Ethernet switch. The RDMA driver is MLNX_OFED-5.4. Each memory server is allocated a single CPU core to reflect the limited computational resources on the remote memory in DM architecture. Each compute server is allocated 25 GB of memory to meet the requirements of all baselines (discussed in §5.3).
+
+**环境.** 七台机器, 六台计算服务器和一台内存服务器. 每台配两颗 40 核 Intel Xeon Gold CPU, 128 GB DRAM, 100 Gbps Mellanox ConnectX-6 RNIC, 连接 100 Gbps 以太网交换机, 驱动为 MLNX_OFED-5.4. 内存服务器只分配一个 CPU 核模拟 DM 受限算力; 每台计算服务器分配 25 GB 内存, 满足所有基线需求, 见原文第 5.3 节.
+
+Workloads. We use YCSB <sup>[11]</sup> workloads with both uniform and Zipfian distributions, adopting two configurations: Microbenchmarks and YCSB-benchmarks. Micro-benchmarks evaluate DMTree's performance on basic operations, including search, insert, update, and scan. YCSB-benchmarks assess DMTree's performance under mixed operations, including A (50% updates, 50% searches), B (5% updates, 95% searches), C (100% searches), D (5% inserts, 95% searches), E (5% inserts, 95% scans), F (50% read-modify-write, 50% searches).
+
+**负载.** 使用均匀与 Zipfian 分布的 YCSB <sup>[11]</sup>, 包含微基准和混合基准. 微基准分别评估查询, 插入, 更新, 扫描. YCSB A 为 50% 更新和 50% 查询; B 为 5% 更新和 95% 查询; C 全查询; D 为 5% 插入和 95% 查询; E 为 5% 插入和 95% 扫描; F 为 50% 读-修改-写和 50% 查询.
+
+For both the Micro-benchmarks and YCSB-benchmarks, we randomly preload one billion key-value entries and perform 100 million operations in each experiment. Before executing the operations, we randomly access all loaded key-value entries to warm up the cache. By default, the size of each key-value pair is fixed at 32 bytes (24 bytes for the key and 8 bytes for the value). This approach, which involves using a fixed-length key and an 8-byte value as a pointer to application data, is common in disaggregated memory-based indexes <sup>[25, 31, 32]</sup>. The maximum length for scan operations is set as 100, with a uniform distribution. In §5.5, we further investigate the impact of these workload characteristics (`i.e.`, varying key-value sizes and scan lengths) on performance.
+
+两类基准均随机预载十亿键值项, 每次执行一亿操作. 操作前随机访问全部已载入项预热缓存. 默认每项 32 字节, 键 24 字节, 值 8 字节. 固定长键加 8 字节应用数据指针, 是 DM 索引常见方式 <sup>[25, 31, 32]</sup>. 扫描长度均匀分布, 最大 100. 原文第 5.5 节进一步研究项大小和扫描长度.
+
+Baselines. We evaluate and compare DMTree with five state-of-the-art DM-optimized range indexes: Sherman (B+-tree), dLSM (LSM-tree), ROLEX (learned index), SMART (ART), and CHIME (hybrid index), all evaluated based on their open-source implementations <sup>[37, 44-47]</sup>. For ROLEX, we adopt the implementation provided by CHIME, following its approach of pretraining all loaded key-value entries to avoid model retraining <sup>[37]</sup>. Additionally, certain RDMA verbs, such as Masked-CAS used in CHIME, are no longer supported in MLNX_OFED-5.1 and later driver versions <sup>[1]</sup>. We have carefully replaced these verbs with alternative approaches.
+
+**基线.** 比较 Sherman (B+ 树), dLSM (LSM 树), ROLEX (学习索引), SMART (ART), CHIME (混合索引), 均用开源实现 <sup>[37, 44-47]</sup>. ROLEX 使用 CHIME 提供的版本, 按其方式预训练全部载入项以避免重新训练 <sup>[37]</sup>. CHIME 使用的 Masked-CAS 等 RDMA 原语在 MLNX_OFED-5.1 及以后版本不再支持 <sup>[1]</sup>, 我们用替代方式谨慎替换.
+
+Parameters. Unless otherwise specified, the following default parameters are used for the baselines to ensure a fair comparison. For Sherman and CHIME, we set the span size to 32 (`i.e.`, each leaf node stores 32 key-value entries), as recommended in <sup>[49]</sup>. For ROLEX, we configure a span size of 8 and set the model prediction error to 8 to reduce read amplification. For dLSM, we use the default 64 MB SSTable size as specified in <sup>[50]</sup>. For DMTree, we also use a span size of 32. Each leaf node is approximately 1.3 KB in size.
+
+**参数.** 为公平比较, Sherman 和 CHIME 每叶 32 项, 遵循建议 <sup>[49]</sup>. ROLEX span 为 8, 模型误差为 8, 减少读放大. dLSM 使用默认 64 MB SSTable <sup>[50]</sup>. DMTree 每叶也为 32 项, 节点约 1.3 KB.
+
+## 5.2 整体性能
+
+### 5.2.1 微基准性能
+
+We first evaluate the basic operations of DMTree independently using the Micro-benchmarks with various numbers of client threads, each bound to a CPU core. Each thread uses 4 coroutines to overlap the RDMA polling overhead (all baselines also enable coroutines, except for dLSM, which currently does not support this feature). We use both Uniform and Zipfian (coefficient = 0.99) distributions to issue operations. The throughput results are presented in Figure 11 and 12.
+
+先独立评估基本操作, 改变绑定 CPU 核的客户端线程数. 每线程四个协程重叠 RDMA 轮询开销; 基线也启用协程, 不支持该功能的 dLSM 除外. 操作分别使用均匀和参数 0.99 的 Zipfian 分布, 吞吐量见图 11, 12.
+
+Search workload. For the search-only workload, DMTree, SMART, and CHIME deliver performance close to the expected search, with each using a single RDMA request to complete the search operation and accessing only the requested key-value entry. This approach maximizes the utilization of the network resources. DMTree outperforms Sherman and ROLEX by 4.5-5.2× by avoiding the need to read the entire leaf node, which conserves bandwidth resources and prevents bandwidth bottleneck. Furthermore, DMTree outperforms dLSM by 2.8-3.1×, primarily due to the overhead introduced by dLSM's complex LRU cache implementation.
+
+**查询.** DMTree, SMART, CHIME 都接近理想查询, 一次 RDMA 只读取目标项, 充分利用网络. DMTree 避免读取整叶, 性能为 Sherman 和 ROLEX 的 4.5-5.2 倍; 相对 dLSM 为 2.8-3.1 倍, 后者复杂的 LRU 缓存实现增加了开销.
+
+Insert workload. For the insert-only workload, DMTree outperforms Sherman and ROLEX by 3.7-4.3× by alleviating the bandwidth bottleneck through the elimination of read amplification. It also achieves 2.3-3.5× better insert performance than SMART and CHIME. This improvement results from a reduction in RDMA requests to remote memory. When compared to SMART, it minimizes RDMA requests arising from frequent internal tree updates. In contrast to CHIME, it reduces RDMA requests related to handling hash collisions. During insert operations, DMTree leverages fingerprint tables to efficiently locate empty tree slots and offloads RDMA requests for updating the fingerprint table, as well as locking operations, to the compute servers. This strategy minimizes the consumption of the memory server's limited IOPS resources, alleviating the IOPS bottleneck and ensuring expected insert performance. Compared to dLSM, DMTree achieves 2.1-5.7× better insert performance, as dLSM relies on the memory server's CPU to handle LSM-tree's compaction tasks. The limited computational power on the memory server hinders dLSM's ability to handle high-concurrency writes.
+
+**插入.** 消除读放大使 DMTree 性能为 Sherman 和 ROLEX 的 3.7-4.3 倍. 相对 SMART 和 CHIME 为 2.3-3.5 倍, 因为减少了远程 RDMA: 相比 SMART, 减少频繁内部树更新; 相比 CHIME, 减少哈希冲突处理. 指纹表高效找空槽, 更新指纹与锁操作转到计算侧, 节省内存侧 IOPS, 接近理想插入性能. 相比 dLSM 为 2.1-5.7 倍, 因为后者依赖内存侧有限 CPU 执行合并, 难以承受高并发写入.
+
+Update workload. For the update-only workload, DMTree outperforms all baselines by 1.4-4.3× under the uniform distribution, thanks to its compute-side collaborative design. Under the Zipfian distribution, Sherman performs poorly due to concentrated updates, which block concurrent requests. In contrast, SMART, CHIME, and DMTree efficiently handle concentrated updates by aggregating simultaneous requests, thus reducing blocking overhead. DMTree further outperforms SMART and CHIME by 1.1-1.5× due to its offloading of locking operations to the compute servers. dLSM demonstrates excellent performance with Zipfian updates, as most of these operations can be efficiently handled within its local memory structures. This is primarily due to the LSM-tree's sequential write feature, which minimizes the need for RDMA requests.
+
+**更新.** 均匀分布下, 协同设计使 DMTree 性能为各基线的 1.4-4.3 倍. Zipfian 下, Sherman 集中更新造成阻塞; SMART, CHIME 和 DMTree 聚合同时到达的请求, 减少阻塞. DMTree 再将锁移到计算侧, 比 SMART 和 CHIME 快 1.1-1.5 倍. dLSM 在 Zipfian 更新下表现很好, 因为顺序写使大部分操作在本地处理, 少发 RDMA.
+
+Scan workload. Regarding the scan-only workload, DMTree achieves 3.2× higher throughput than SMART. This improvement is due to DMTree's ability to to continuously store a range of key-value entries, thereby avoiding the IOPS bottleneck experienced by SMART due to multiple RDMA requests during scan operations. Moreover, DMTree outperforms Sherman and CHIME by 1.1-1.3×. This improvement can be attributed to DMTree's ability to filter out empty key-value entries in leaf nodes during scans, effectively reducing unnecessary bandwidth consumption. ROLEX achieves similar scan performance to DMTree, thanks to its smaller leaf node size, which minimizes read amplification.
+
+**扫描.** DMTree 连续保存键值范围, 避免 SMART 多次 RDMA 的 IOPS 瓶颈, 吞吐量为其 3.2 倍. 过滤叶内空项减少带宽浪费, 使其为 Sherman 和 CHIME 的 1.1-1.3 倍. ROLEX 叶较小, 读放大少, 扫描性能与 DMTree 接近.
+
+<div class="paper-shared">
+
+![均匀分布微基准下, DM 范围索引吞吐量比较.](/assets/images/posts/dmtree/figure-11.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 11: Throughput comparison of range indexes on DM under Micro-benchmarks with Uniform distribution.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 11: 均匀分布微基准下, DM 范围索引吞吐量比较.</span>
+
+<div class="paper-shared">
+
+![Zipfian 分布微基准下, DM 范围索引吞吐量比较.](/assets/images/posts/dmtree/figure-12.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 12: Throughput comparison of range indexes on DM under Micro-benchmarks with Zipfian distribution.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 12: Zipfian 分布微基准下, DM 范围索引吞吐量比较.</span>
+
+### 5.2.2 微基准尾延迟
+
+Besides throughput, we also report the P99 latency of DMTree in Figure 13. By default, each compute server launches 72 client threads, with other configurations unchanged. Since scan operations in SMART, ROLEX, and CHIME do not currently support coroutines <sup>[37, 44, 45]</sup>, we disable coroutines for a fair comparison when measuring the tail latency of scans for all indexes. We show the average results of 3 runs.
+
+图 13 给出 P99. 每台计算服务器默认 72 个线程, 其他配置不变. SMART, ROLEX, CHIME 的扫描暂不支持协程 <sup>[37, 44, 45]</sup>, 因而测扫描尾延迟时所有索引均禁用协程. 结果为三次运行均值.
+
+For search operations, DMTree reduces the tail latency by up to 64% compared to Sherman and ROLEX, primarily by alleviating the bandwidth bottleneck. Under uniform distribution, SMART, CHIME, and DMTree have similar minimum tail latencies. However, under Zipfian distribution, SMART and CHIME experience higher latencies due to the aggregation of simultaneous search requests. Requests at the tail of the long queue face extended waiting times. In contrast, DMTree limits the aggregate queue length, reducing these delays (see §4.1). This results in a 26%-31% reduction in search tail latency compared to SMART and CHIME.
+
+查询尾延迟相对 Sherman 和 ROLEX 最高降低 64%, 主要来自带宽瓶颈缓解. 均匀分布下 SMART, CHIME, DMTree 接近; Zipfian 下前两者聚合查询造成长队列, 队尾等待更久. DMTree 限制聚合队列长度, 将尾延迟进一步降低 26%-31%, 见原文第 4.1 节.
+
+For insert operations, DMTree reduces tail latency by 28%-80% compared to Sherman, ROLEX, SMART, and CHIME, primarily by alleviating RDMA bandwidth and IOPS bottlenecks. Regarding update operations, Sherman experiences high tail latency (20 ms) under Zipfian distribution due to concentrated lock contention and blocking. In contrast, SMART, CHIME, and DMTree reduce blocking overhead by aggregating simultaneous update requests. DMTree further lowers update tail latency compared to SMART and CHIME by minimizing IOPS consumption on the memory server caused by locking operations. Notably, dLSM achieves low tail latency for insert and update operations due to its sequential write design, processing over 99% of writes within its local memory structures. However, once a remote flush or compaction is triggered and blocked by limited CPU resources on the memory server, latency can increase sharply (`e.g.`, >600 ms).
+
+插入尾延迟相对 Sherman, ROLEX, SMART, CHIME 降低 28%-80%, 主要因带宽与 IOPS 压力减少. Zipfian 更新中, Sherman 因集中锁竞争出现 20 ms 尾延迟; SMART, CHIME, DMTree 合并请求减轻阻塞, DMTree 又通过减少内存侧锁 IOPS 进一步降低延迟. dLSM 的插入和更新尾延迟较低, 因为超过 99% 写入在本地结构完成; 但远程刷写或合并若被内存侧 CPU 阻塞, 延迟可能骤增到 600 ms 以上.
+
+For scan operations, DMTree reduces tail latency by 70% compared to SMART, due to its contiguous storage of range key-value entries and efficient reduction of IOPS resource consumption. Compared to Sherman and CHIME, DMTree slightly decreases tail latency by 10-19% through filtering empty entries and conserving limited bandwidth resources.
+
+扫描尾延迟相对 SMART 降低 70%, 来自连续存储与 IOPS 节省; 相对 Sherman 和 CHIME 降低 10%-19%, 来自空项过滤和带宽节省.
+
+<div class="paper-shared">
+
+![不同操作的尾延迟比较.](/assets/images/posts/dmtree/figure-13.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 13: Tail latency comparison of different operations.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 13: 不同操作的尾延迟比较.</span>
+
+### 5.2.3 YCSB 性能
+
+We then evaluate the performance of DMTree using the well-studied YCSB-benchmarks. Figure 14 shows the throughput results. Compared to Sherman and ROLEX, DMTree achieves 3.8-9.7× higher throughout across all search-/write-intensive workloads (`i.e.`, all except workload E) and similar performance under the scan-intensive workload (`i.e.`, workload E). Moreover, DMTree delivers 3.2× higher throughput for the scan-intensive workload and comparable performance in search-/write-intensive workloads compared to SMART. Compared to dLSM, DMTree achieves an overall performance improvement of 1.4-8.6×, particularly in workloads involving insert operations (`e.g.`, workload D). Additionally, DMTree outperforms CHIME by 1.1-1.7× in search-/write-intensive workloads, as CHIME incurs extra overhead from handling conflicted key-value entries due to hash collisions.
+
+图 14 展示混合负载. 相对 Sherman 和 ROLEX, DMTree 在除 E 外的查询或写密集负载中吞吐量为其 3.8-9.7 倍, 扫描密集 E 则相近. 相对 SMART, 扫描密集负载为其 3.2 倍, 查询或写密集负载相当. 相对 dLSM 整体为 1.4-8.6 倍, 插入负载如 D 尤其明显. 相对 CHIME, 查询或写密集负载为 1.1-1.7 倍, 后者要额外处理哈希冲突.
+
+In summary, DMTree delivers the optimal overall performance for the search-, write- and scan-intensive workloads among the range indexes on DM. In particular, SMART and DMTree achieve similar performance under the search-/write-intensive workloads with the Zipfian distribution. However, SMART relies on more compute-side memory resources for cache optimization. In the next section, we further analyze the impact of compute-side memory resources on performance.
+
+DMTree 在查询, 写入和扫描密集负载中具备最佳整体表现. Zipfian 查询或写密集场景下 SMART 与其接近, 但 SMART 需要更多计算侧内存缓存. 下一节分析内存资源对性能的影响.
+
+<div class="paper-shared">
+
+![YCSB 基准性能比较.](/assets/images/posts/dmtree/figure-14.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 14: Performance comparison under YCSB-benchmarks.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 14: YCSB 基准性能比较.</span>
+
+## 5.3 计算与内存开销
+
+Computation overhead. We first analyze the computational overhead of our compute-side collaborative design and demonstrate that the extra overhead it introduces is minimal, involving both local (`i.e.`, cached fingerprint traversal) and remote (`i.e.`, primary fingerprint synchronization) operations. As shown in Table 1, for search operations, the fingerprint traversal overhead contributes only 5% to the overall latency, with no synchronization overhead for static searches. In write operations, certain steps, such as internal cache traversal, locking, and key-value read/write, which are typically unavoidable in range indexes, contribute to the overall latency. The additional overhead from fingerprint traversal and synchronization accounts for only 19.4% of total latency. This overhead is worthwhile given its performance gains (see §5.2).
+
+**计算开销.** 协同设计的额外工作包括本地缓存指纹遍历和远程主指纹同步. 表 1 中, 查询指纹遍历只占总延迟 5%, 静态查询无需同步. 写入中内部缓存遍历, 加锁, 键值读写等本就是范围索引常见开销; 额外指纹遍历与同步共占 19.4%. 考虑原文第 5.2 节收益, 这一代价值得.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 1: Computation overhead of each breakdown step in DMTree.</span>
+
+| Operation | Internal cache | FP traversal | Locking | FP sync | K-V |
+|:---|:---|:---|:---|:---|:---|
+| Search | 3.2 μs | 0.4 μs (5%) | 0 μs | 0 μs | 4.3 μs |
+| Write | 3.4 μs | 0.4 μs (1.5%) | 8.2 μs | 4.5 μs (17.9%) | 8.7 μs |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 1: DMTree 各阶段计算开销.</span>
+
+| 操作 | 内部缓存 | 指纹遍历 | 加锁 | 指纹同步 | 键值访问 |
+|:---|:---|:---|:---|:---|:---|
+| 查询 | 3.2 μs | 0.4 μs (5%) | 0 μs | 0 μs | 4.3 μs |
+| 写入 | 3.4 μs | 0.4 μs (1.5%) | 8.2 μs | 4.5 μs (17.9%) | 8.7 μs |
+
+</div>
+
+</div>
+
+Memory overhead on compute-side. We then analyze the memory requirements for various indexes on each compute server. Sherman, SMART, and CHIME need memory to cache the internal tree and some metadata, while ROLEX caches the learned model. ROLEX8 and ROLEX16 use span sizes of 8 and 16, respectively. DMTree requires memory for its compute-side collaborative design, including the internal tree and collaborative fingerprint storage. Under the default configuration, memory demands per compute server for optimal performance are as follows: Sherman (2.1 GB), SMART (22.5 GB), ROLEX8 (5.6 GB), ROLEX16 (1.5 GB, reduced due to a larger span size), CHIME (4.5 GB), and DMTree (5.4 GB, with 2.3 GB for the internal tree cache and 3.1 GB for fingerprint storage). Given that the DM architecture typically provides compute servers with tens of GB of memory for large data scales <sup>[49]</sup>, the memory overhead of DMTree is acceptable.
+
+**计算侧内存.** Sherman, SMART, CHIME 缓存内部树与元数据, ROLEX 缓存模型, ROLEX8 与 ROLEX16 的 span 分别为 8 和 16. DMTree 保存内部树和协同指纹. 默认配置下达到最佳性能, 每计算服务器所需内存分别为 Sherman 2.1 GB, SMART 22.5 GB, ROLEX8 5.6 GB, ROLEX16 1.5 GB, CHIME 4.5 GB, DMTree 5.4 GB. DMTree 中内部树占 2.3 GB, 指纹占 3.1 GB. 较大 span 降低了 ROLEX16 的需求. 大规模 DM 计算服务器通常有数十 GB 内存 <sup>[49]</sup>, 因而 DMTree 开销可接受.
+
+To intuitively demonstrate how compute-side memory resources impact index retrieval, we evaluate the search performance of DMTree and other range indexes under varying memory sizes in each compute server. As shown in Figure 15, as memory size decreases from 20 GB to 2.5 GB, SMART's throughput drops by up to 72% due to cache invalidation, which strains RDMA network resources. In contrast, DMTree achieves sustained high performance across all scenarios by using less memory than SMART while efficiently alleviating network bottlenecks. CHIME also performs well under limited cache, thanks to its hotness-aware cache mechanism.
+
+图 15 改变各计算服务器内存大小. 从 20 GB 降至 2.5 GB 时, SMART 因缓存失效加重 RDMA 压力, 吞吐量最高下降 72%. DMTree 用更少内存缓解网络瓶颈, 各场景均保持高性能. CHIME 的热度感知缓存也使它在小缓存下表现良好.
+
+<div class="paper-shared">
+
+![不同缓存大小下的查询性能.](/assets/images/posts/dmtree/figure-15.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 15: Search performance with varying cache sizes.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 15: 不同缓存大小下的查询性能.</span>
+
+Memory overhead on memory-side. We also evaluate the memory overhead introduced by DMTree on memory servers, with a focus on the additional memory consumption resulting from its compute-side collaborative design. Unlike the original B+-tree, which stores only key-value pairs in its leaf nodes, DMTree incorporates two extra fields (`i.e.`, version and CRC) to ensure consistency (see §3.2.2). For a typical 32-byte key-value entry, DMTree adds an 8-byte version field. For larger entries that span multiple cache lines (`e.g.`, those exceeding 64 bytes), an additional 8-byte CRC is appended. We argue that, for larger data sizes, the memory overhead associated with additional consistency checks remains relatively small. We further evaluate the actual memory usage of DMTree under the default configuration and compare it with Sherman (a DM-optimized B+-tree). For 1 billion 32-byte key-value entries, Sherman uses 54.2 GB of memory, while DMTree requires 60.1 GB. Overall, the additional memory overhead incurred by DMTree for ensuring consistency remains modest and represents a reasonable trade-off between reliability and space efficiency. Moreover, similar designs are commonly adopted in prior systems. For example, SMART also adds an 8-byte reverse pointer and an 8-byte checksum per entry to ensure consistency <sup>[32]</sup>.
+
+**内存侧开销.** 相比叶内只保存键值的原始 B+ 树, DMTree 加版本和 CRC 保证一致性. 典型 32 字节项增加 8 字节版本; 超过缓存行, 如大于 64 字节时, 再加 8 字节 CRC. 大项下相对开销较小. 十亿个 32 字节项的实际占用, Sherman 为 54.2 GB, DMTree 为 60.1 GB. 这一额外成本是可靠性与空间的合理权衡. 既有系统也有类似设计, 如 SMART 每项增加 8 字节反向指针和 8 字节校验和 <sup>[32]</sup>.
+
+## 5.4 各项设计的效果
+
+We conduct an ablation study to evaluate the effectiveness of DMTree's design. Starting with a basic FP-B+-tree, we apply our designs one by one to demonstrate their impact on performance. The results are shown in Figure 16.
+
+我们从基础 FP-B+-tree 出发逐项启用优化, 图 16 给出消融结果.
+
+RDMA optimizations (RDMA Opt). We first enable the RDMA optimizations to prevent redundant network resource consumption. Compared to FP-B+-tree, this design improves scan performance by 1.3×. It mitigates the bandwidth bottleneck during scans by filtering out empty key-value entries, reducing bandwidth resource waste.
+
+**RDMA 优化 (RDMA Opt).** 过滤空键值项节省带宽, 扫描性能提高到基础版本的 1.3 倍.
+
+Compute-side collaborative caching (Cache). We then examine the benefits of compute-side collaborative caching optimization. This approach improves search and write performance by 1.2-1.9×. By combining an internal tree cache with shared fingerprint storage, it shifts RDMA operations for precise key-value locating, such as access, synchronization, and updating of fingerprints, onto compute servers. This redistribution helps alleviate network bottlenecks on memory servers, improving overall efficiency in key-value locating.
+
+**计算侧协同缓存 (Cache).** 查询和写入提高到 1.2-1.9 倍. 内部树缓存与共享指纹结合, 将精确定位涉及的指纹访问, 同步, 更新移到计算侧, 缓解内存侧瓶颈.
+
+Compute-side collaborative concurrency (Concur). The compute-side collaborative concurrency control strategy further improves insert and update performance by 1.5-1.6×. By offloading locking operations to compute servers, this design effectively leverages the unsaturated RDMA resources to alleviate the memory side IOPS bottleneck.
+
+**计算侧协同并发 (Concur).** 锁操作卸载后充分利用计算侧空闲 RDMA, 进一步缓解内存 IOPS 瓶颈, 插入和更新再提高到 1.5-1.6 倍.
+
+<div class="paper-shared">
+
+![各项设计的效果.](/assets/images/posts/dmtree/figure-16.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 16: Effectiveness of the design techniques.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 16: 各项设计的效果.</span>
+
+RDMA resource utilization. We also demonstrate DMTree's improvement in the utilization of RDMA IOPS resources. As shown in Figure 17, DMTree increases IOPS utilization on compute servers from 17.5% to 32.9% compared to FP-B+-tree. By fully leveraging available network resources, DMTree effectively alleviates the IOPS bottleneck on memory servers.
+
+**RDMA 利用率.** 图 17 中, 相比 FP-B+-tree, DMTree 将计算侧 IOPS 利用率从 17.5% 提高到 32.9%, 利用可用网络资源缓解内存侧瓶颈.
+
+<div class="paper-shared">
+
+![FP-B+-tree 与 DMTree 插入时的 IOPS 消耗. C1-C6 为计算服务器, M1 为内存服务器.](/assets/images/posts/dmtree/figure-17.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 17: IOPS resource consumption of FP-B+-tree and DMTree during inserts (C1-C6 for compute servers, M1 for memory servers).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 17: FP-B+-tree 与 DMTree 插入时的 IOPS 消耗. C1-C6 为计算服务器, M1 为内存服务器.</span>
+
+## 5.5 负载特征的影响
+
+Impact of key-value size. Figure 18 presents the results. Due to memory limitations, we reduced the preloaded key-value entries from one billion to 100 million. For mixed Zipfian search and update operations (YCSB A), as the key-value size increases, DMTree consistently outperforms Sherman and ROLEX by 3.3-13.5× by efficiently reducing read amplification. SMART, CHIME, and DMTree all exhibit high and sustained performance, while dLSM suffers significantly from increased write amplification. Regarding scan performance, the IOPS bottleneck is predominant at smaller key-value sizes. At a key-value size of 16 bytes, DMTree outperforms SMART by 4.8× due to its continuous storage of range key-value entries, reducing RDMA requests during scans. As the key-value size increases, the bandwidth bottleneck becomes more prominent. At 128 bytes, DMTree and SMART show similar scan performance, as bandwidth now limits performance, with IOPS consumption having a minor effect.
+
+**键值大小.** 受内存限制, 预载量从十亿降为一亿. 图 18 中 Zipfian 查询更新混合负载 YCSB A 随项增大, DMTree 通过降低读放大, 持续达到 Sherman 和 ROLEX 的 3.3-13.5 倍. SMART, CHIME, DMTree 性能均高且稳定; dLSM 受写放大增加影响明显. 扫描小项时 IOPS 主导: 16 字节项下, 连续存储使 DMTree 为 SMART 的 4.8 倍. 项增大后带宽成为主要瓶颈, 128 字节时两者扫描性能接近, IOPS 影响变小.
+
+<div class="paper-shared">
+
+![不同键值大小下的性能.](/assets/images/posts/dmtree/figure-18.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 18: Performance with different key-value sizes.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 18: 不同键值大小下的性能.</span>
+
+Impact of scan length. Figure 19 illustrates the scan-only and scan-dominant (YCSB E) performance across different maximum scan lengths. As the length increases from 10 to 1000, SMART's performance drops significantly due to an increase in RDMA requests, exacerbating the IOPS bottleneck. At a maximum scan length of 10, DMTree and SMART have similar performance, as SMART does not generate many RDMA requests at this point. However, with a length of 1000, DMTree outperforms SMART by 3.5-3.9×. Across various scan lengths, DMTree consistently outperforms Sherman by 1.1-1.2×, thanks to its ability to filter out empty key-value entries in leaf tree nodes, reducing bandwidth resource wastage.
+
+**扫描长度.** 图 19 比较纯扫描和 YCSB E. 最大长度从 10 增至 1000, SMART 因 RDMA 次数增长, IOPS 瓶颈加重, 性能显著下降. 长度 10 时请求不多, 两者接近; 长度 1000 时 DMTree 为 SMART 的 3.5-3.9 倍. 不同长度下, DMTree 通过过滤空项减少带宽浪费, 始终为 Sherman 的 1.1-1.2 倍.
+
+<div class="paper-shared">
+
+![不同扫描长度下的扫描性能.](/assets/images/posts/dmtree/figure-19.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 19: Scan performance with different scan lengths.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 19: 不同扫描长度下的扫描性能.</span>
+
+# 6. 相关工作
+
+Range-based index over RDMA. Many influential range indexes have been proposed over RDMA <sup>[4, 25, 30-32, 36, 49, 50, 59]</sup>. Five of them are evaluated in §5 as DMTree's baselines. We then introduce others below. Cell <sup>[36]</sup> implements a variant of the B+-tree index and combines client-side and server-side processing to balance the CPU and network resources. FG <sup>[59]</sup> is the first tree index that is implemented with completely one-sided RDMA operations. DEX <sup>[30]</sup> presents a scalable B+-tree. It employs logical partitioning to distribute data into ranges, with each compute server handling a specific range of key-value entries. Additionally, it incorporates a lightweight cache replacement strategy to optimize memory resource usage in compute servers.
+
+**RDMA 范围索引.** 已有多种方案 <sup>[4, 25, 30-32, 36, 49, 50, 59]</sup>, 其中五种用作本文基线. Cell <sup>[36]</sup> 实现 B+ 树变体, 结合客户端与服务端处理平衡 CPU 和网络. FG <sup>[59]</sup> 是首个完全使用单边 RDMA 的树索引. DEX <sup>[30]</sup> 用逻辑分区将数据划为范围, 各计算服务器负责一段, 并以轻量缓存替换优化计算侧内存.
+
+Hash index over RDMA. Hash indexes are also well-studied <sup>[12, 29, 35, 52, 60]</sup>. For instance, Pilaf <sup>[35]</sup> implements a cuckoo-based hash index, using one-sided RDMA for read operations and two-sided RDMA for write operations. RACE <sup>[60]</sup> takes the first step to optimize a hash index for the DM architecture. It addresses concurrency and scalability challenges by introducing a lock-free concurrency control mechanism and an efficient hash resizing strategy. Outback <sup>[29]</sup> presents a novel indexing solution that employs dynamic minimal perfect hashing. It separates the index into memory-efficient and compute-intensive components, distributing them across compute and memory servers to minimize computation overhead at the memory servers.
+
+**RDMA 哈希索引.** 这方面也已有大量研究 <sup>[12, 29, 35, 52, 60]</sup>. Pilaf <sup>[35]</sup> 使用布谷鸟哈希, 单边读, 双边写. RACE <sup>[60]</sup> 针对 DM, 用无锁并发控制和高效哈希扩容解决并发与扩展问题. Outback <sup>[29]</sup> 使用动态最小完美哈希, 将索引拆成内存高效与计算密集两部分, 分置内存与计算服务器, 尽量减少内存侧计算开销.
+
+# 7. 结论
+
+This paper introduces DMTree, a tree index optimized for disaggregated memory. DMTree addresses RDMA network bottlenecks with a compute-side collaborative design. Experiments show it outperforms state-of-the-art range indexes in all performance aspects across various scenarios.
+
+本文提出面向内存解耦的 DMTree. 它通过计算侧协同设计解决 RDMA 网络瓶颈. 实验表明, 在多种场景下, 其各方面性能均优于先进范围索引.
+
+# 8. 致谢
+
+We thank our shepherd, Zhichao Cao, and the anonymous reviewers for their valuable comments. This work was supported in part by NSFC (62472392, 62172382) and the Youth Innovation Promotion Association CAS.
+
+感谢论文指导人 Zhichao Cao 和匿名审稿人的宝贵意见. 本工作部分获国家自然科学基金 62472392, 62172382, 以及中国科学院青年创新促进会资助.
+
+# 9. 参考文献
+
+<div class="paper-shared">
+
+[1] NVIDIA Corporation. Accessed: 2024. Advanced Transport. `https://docs.nvidia.com/networking/display/rdmacore50/extended+atomics`
+
+[2] Marcos K. Aguilera, Nadav Amit, Irina Calciu, Xavier Deguillard, Jayneel Gandhi, Pratap Subrahmanyam, Lalith Suresh, Kiran Tati, Rajesh Venkatasubramanian, and Michael Wei. Remote memory in the age of fast networks. In `Proc.` of ACM SoCC, page 121-127, 2017.
+
+[3] Marcos K. Aguilera, Kimberly Keeton, Stanko Novakovic, and Sharad Singhal. Designing far memory data structures: Think outside the box. In `Proc.` of ACM HotOS, page 120-126, 2019.
+
+[4] Hang An, Fang Wang, Dan Feng, Xiaomin Zou, Zefeng Liu, and Jianshun Zhang. Marlin: A concurrent and write-optimized b+-tree index on disaggregated memory. In `Proc.` of ACM ICPP, page 695-704, 2023.
+
+[5] Berk Atikoglu, Yuehai Xu, Eitan Frachtenberg, Song Jiang, and Mike Paleczny. Workload analysis of a largescale key-value store. In `Proc.` of ACM SIGMETRICS, page 53-64, 2012.
+
+[6] Daniel S. Berger, Daniel Ernst, Huaicheng Li, Pantea Zardoshti, Monish Shah, Samir Rajadnya, Scott Lee, Lisa Hsu, Ishwar Agarwal, Mark D. Hill, and Ricardo Bianchini. Design tradeoffs in cxl-based memory pools for public cloud platforms. IEEE Micro, 43(2): 30-38, 2023.
+
+[7] Irina Calciu, M. Talha Imran, Ivan Puddu, Sanidhya Kashyap, Hasan Al Maruf, Onur Mutlu, and Aasheesh Kolli. Rethinking software runtimes for disaggregated memory. In `Proc.` of ACM ASPLOS, page 79-92, 2021.
+
+[8] Wei Cao, Yingqiang Zhang, Xinjun Yang, Feifei Li, Sheng Wang, Qingda Hu, Xuntao Cheng, Zongzhi Chen, Zhenjun Liu, Jing Fang, Bo Wang, Yuhui Wang, Haiqing Sun, Ze Yang, Zhushi Cheng, Sen Chen, Jian Wu, Wei Hu, Jianwei Zhao, Yusong Gao, Songlu Cai, Yunyang Zhang, and Jiawang Tong. Polardb serverless: A cloud native database for disaggregated data centers. In `Proc.` of ACM SIGMOD, page 2477-2489, 2021.
+
+[9] Zhichao Cao, Siying Dong, Sagar Vemuri, and David H.C. Du. Characterizing, modeling, and benchmarking RocksDB Key-Value workloads at facebook. In `Proc.` of USENIX FAST, pages 209-223, 2020.
+
+[10] Youmin Chen, Youyou Lu, and Jiwu Shu. Scalable rdma rpc on reliable connection with efficient resource sharing. In `Proc.` of ACM EuroSys, 2019.
+
+[11] Brian F. Cooper, Adam Silberstein, Erwin Tam, Raghu Ramakrishnan, and Russell Sears. Benchmarking cloud serving systems with ycsb. In `Proc.` of ACM SoCC, page 143-154, 2010.
+
+[12] Aleksandar Dragojevic´, Dushyanth Narayanan, Miguel Castro, and Orion Hodson. FaRM: Fast remote memory. In `Proc.` of USENIX NSDI, pages 401-414, 2014.
+
+[13] Peter X. Gao, Akshay Narayan, Sagar Karandikar, Joao Carreira, Sangjin Han, Rachit Agarwal, Sylvia Ratnasamy, and Scott Shenker. Network requirements for resource disaggregation. In `Proc.` of USENIX OSDI, pages 249-264, 2016.
+
+[14] Jing Guo, Zihao Chang, Sa Wang, Haiyang Ding, Yihui Feng, Liang Mao, and Yungang Bao. Who limits the resource efficiency of my datacenter: An analysis of alibaba datacenter traces. In `Proc.` of IEEE IWQoS, pages 1-10, 2019.
+
+[15] Zhiyuan Guo, Yizhou Shan, Xuhao Luo, Yutong Huang, and Yiying Zhang. Clio: A hardware-software codesigned disaggregated memory system. In `Proc.` of ACM ASPLOS, page 417-433, 2022.
+
+[16] Junhyeok Jang, Hanjin Choi, Hanyeoreum Bae, Seungjun Lee, Miryeong Kwon, and Myoungsoo Jung. CXL-ANNS: Software-Hardware collaborative memory disaggregation and computation for Billion-Scale approximate nearest neighbor search. In `Proc.` of USENIX ATC, pages 585-600, 2023.
+
+[17] Anuj Kalia, Michael Kaminsky, and David G. Andersen. Using rdma efficiently for key-value services. In `Proc.` of ACM SIGCOMM, page 295-306, 2014.
+
+[18] Anuj Kalia, Michael Kaminsky, and David G. Andersen. Design guidelines for high performance RDMA systems. In `Proc.` of USENIX ATC, pages 437-450, 2016.
+
+[19] David Karger, Eric Lehman, Tom Leighton, Rina Panigrahy, Matthew Levine, and Daniel Lewin. Consistent hashing and random trees: distributed caching protocols for relieving hot spots on the world wide web. In `Proc.` of ACM STOC, page 654-663, 1997.
+
+[20] Sekwon Lee, Soujanya Ponnapalli, Sharad Singhal, Marcos K. Aguilera, Kimberly Keeton, and Vijay Chidambaram. Dinomo: An elastic, scalable, highperformance key-value store for disaggregated persistent memory. `Proc. VLDB Endow.`, 15(13): 4023-4037, 2022.
+
+[21] Seung-seob Lee, Yanpeng Yu, Yupeng Tang, Anurag Khandelwal, Lin Zhong, and Abhishek Bhattacharjee. Mind: In-network memory management for disaggregated data centers. In `Proc.` of ACM SOSP, page 488-504, 2021.
+
+[22] Philip L. Lehman and s. Bing Yao. Efficient locking for concurrent operations on b-trees. ACM Trans. Database `Syst.`, 6(4): 650-670, 1981.
+
+[23] Viktor Leis, Alfons Kemper, and Thomas Neumann. The adaptive radix tree: Artful indexing for main-memory databases. In `Proc.` of IEEE ICDE, pages 38-49, 2013.
+
+[24] Huaicheng Li, Daniel S. Berger, Lisa Hsu, Daniel Ernst, Pantea Zardoshti, Stanko Novakovic, Monish Shah, Samir Rajadnya, Scott Lee, Ishwar Agarwal, Mark D. Hill, Marcus Fontoura, and Ricardo Bianchini. Pond: Cxl-based memory pooling systems for cloud platforms. In `Proc.` of ACM ASPLOS, page 574-587, 2023.
+
+[25] Pengfei Li, Yu Hua, Pengfei Zuo, Zhangyu Chen, and Jiajie Sheng. ROLEX: A scalable RDMA-oriented learned Key-Value store for disaggregated memory systems. In `Proc.` of USENIX FAST, pages 99-114, 2023.
+
+[26] Yongkun Li, Zhen Liu, Patrick P. C. Lee, Jiayu Wu, Yinlong Xu, Yi Wu, Liu Tang, Qi Liu, and Qiu Cui. Differentiated Key-Value storage management for balanced I/O performance. In `Proc.` of USENIX ATC, pages 673- 687, 2021.
+
+[27] Kevin Lim, Jichuan Chang, Trevor Mudge, Parthasarathy Ranganathan, Steven K. Reinhardt, and Thomas F. Wenisch. Disaggregated memory for expansion and sharing in blade servers. In `Proc.` of ACM ISCA, page 267-278, 2009.
+
+[28] Jihang Liu, Shimin Chen, and Lujun Wang. Lb+trees: optimizing persistent index performance on 3dxpoint memory. `Proc. VLDB Endow.`, 13(7): 1078-1090, 2020.
+
+[29] Yi Liu, Minghao Xie, Shouqian Shi, Yuanchao Xu, Heiner Litz, and Chen Qian. Outback: Fast and communication-efficient index for key-value store on disaggregated memory. `Proc. VLDB Endow.`, page 335-348, 2024.
+
+[30] Baotong Lu, Kaisong Huang, Chieh-Jan Mike Liang, Tianzheng Wang, and Eric Lo. Dex: Scalable range indexing on disaggregated memory. `Proc. VLDB Endow.`, page 2603-2616, 2024.
+
+[31] Xuchuan Luo, Jiacheng Shen, Pengfei Zuo, Xin Wang, Michael R. Lyu, and Yangfan Zhou. Chime: A cacheefficient and high-performance hybrid index on disaggregated memory. In `Proc.` of ACM SOSP, page 110-126, 2024.
+
+[32] Xuchuan Luo, Pengfei Zuo, Jiacheng Shen, Jiazhen Gu, Xin Wang, Michael R. Lyu, and Yangfan Zhou. SMART: A High-Performance adaptive radix tree for disaggregated memory. In `Proc.` of USENIX OSDI, pages 553- 571, 2023.
+
+[33] Wenlong Ma, Yuqing Zhu, Cheng Li, Mengying Guo, and Yungang Bao. Bilokey : A scalable bi-index localityaware in-memory key-value store. IEEE Transactions on Parallel and Distributed Systems, 30(7): 1528-1540, 2019.
+
+[34] Hasan Al Maruf, Hao Wang, Abhishek Dhanotia, Johannes Weiner, Niket Agarwal, Pallab Bhattacharya, Chris Petersen, Mosharaf Chowdhury, Shobhit Kanaujia, and Prakash Chauhan. Tpp: Transparent page placement for cxl-enabled tiered-memory. In `Proc.` of ACM ASPLOS, page 742-755, 2023.
+
+[35] Christopher Mitchell, Yifeng Geng, and Jinyang Li. Using One-Sided RDMA reads to build a fast, CPUEfficient Key-Value store. In `Proc.` of USENIX ATC, pages 103-114, 2013.
+
+[36] Christopher Mitchell, Kate Montgomery, Lamont Nelson, Siddhartha Sen, and Jinyang Li. Balancing CPU and network in the cell distributed B-Tree store. In `Proc.` of USENIX ATC, pages 451-464, 2016.
+
+[37] Huazhong University of Science and Technology. ROLEX. `https://github.com/iotlpf/ROLEX`
+
+[38] Ismail Oukid, Johan Lasperas, Anisoara Nica, Thomas Willhalm, and Wolfgang Lehner. Fptree: A hybrid scmdram persistent and concurrent b-tree for storage class memory. In `Proc.` of ACM SIGMOD, page 371-386, 2016.
+
+[39] Patrick O'Neil, Edward Cheng, Dieter Gawlick, and Elizabeth O'Neil. The log-structured merge-tree (lsm-tree). Acta `Inf.`, 33(4): 351-385, 1996.
+
+[40] Feng Ren, Mingxing Zhang, Kang Chen, Huaxia Xia, Zuoning Chen, and Yongwei Wu. Scaling up memory disaggregated applications with smart. In `Proc.` of ACM ASPLOS, page 351-367, 2024.
+
+[41] Yizhou Shan, Yutong Huang, Yilun Chen, and Yiying Zhang. LegoOS: A disseminated, distributed OS for hardware resource disaggregation. In `Proc.` of USENIX OSDI, pages 69-87, 2018.
+
+[42] Jiacheng Shen, Pengfei Zuo, Xuchuan Luo, Tianyi Yang, Yuxin Su, Yangfan Zhou, and Michael R. Lyu. FUSEE: A fully Memory-Disaggregated Key-Value store. In `Proc.` of USENIX FAST, pages 81-98, 2023.
+
+[43] Shin-Yeh Tsai, Yizhou Shan, and Yiying Zhang. Disaggregating persistent memory and controlling them remotely: An exploration of passive disaggregated KeyValue stores. In `Proc.` of USENIX ATC, pages 33-48, 2020.
+
+[44] Fudan University. CHIME. `https://github.com/dmemsys/CHIME`
+
+[45] Fudan University. SMART. `https://github.com/dmemsys/SMART`
+
+[46] Purdue University. dLSM. `https://github.com/ruihong123/dLSM`
+
+[47] Tsinghua University. Sherman. `https://github.com/thustorage/Sherman`
+
+[48] Chenxi Wang, Haoran Ma, Shi Liu, Yuanqi Li, Zhenyuan Ruan, Khanh Nguyen, Michael D. Bond, Ravi Netravali, Miryung Kim, and Guoqing Harry Xu. Semeru: A Memory-Disaggregated managed runtime. In `Proc.` of USENIX OSDI, pages 261-280, 2020.
+
+[49] Qing Wang, Youyou Lu, and Jiwu Shu. Sherman: A write-optimized distributed b+tree index on disaggregated memory. In `Proc.` of ACM SIGMOD, page 1033-1048, 2022.
+
+[50] Ruihong Wang, Jianguo Wang, Prishita Kadam, M. Tamer Özsu, and Walid G. Aref. dlsm: An lsmbased index for memory disaggregation. In `Proc.` of IEEE ICDE, pages 2835-2849, 2023.
+
+[51] Xingda Wei, Rong Chen, and Haibo Chen. Fast RDMAbased ordered Key-Value store using remote learned cache. In `Proc.` of USENIX OSDI, pages 117-135, 2020.
+
+[52] Xingda Wei, Jiaxin Shi, Yanzhe Chen, Rong Chen, and Haibo Chen. Fast in-memory transaction processing using rdma and htm. In `Proc.` of ACM SOSP, page 87-104, 2015.
+
+[53] Fei Xia, Dejun Jiang, Jin Xiong, and Ninghui Sun. HiKV: A hybrid index Key-Value store for DRAMNVM memory systems. In `Proc.` of USENIX ATC, pages 349-362, 2017.
+
+[54] Erfan Zamanian, Carsten Binnig, Tim Harris, and Tim Kraska. The end of a myth: Distributed transactions can scale. `Proc. VLDB Endow.`, 10(6): 685-696, 2017.
+
+[55] Ming Zhang, Yu Hua, and Zhijun Yang. Motor: Enabling Multi-Versioning for distributed transactions on disaggregated memory. In `Proc.` of USENIX OSDI, pages 801-819, 2024.
+
+[56] Ming Zhang, Yu Hua, Pengfei Zuo, and Lurong Liu. FORD: Fast one-sided RDMA-based distributed transactions for disaggregated persistent memory. In `Proc.` of USENIX FAST, pages 51-68, 2022.
+
+[57] Qizhen Zhang, Yifan Cai, Xinyi Chen, Sebastian Angel, Ang Chen, Vincent Liu, and Boon Thau Loo. Understanding the effect of data center resource disaggregation on production dbmss. `Proc. VLDB Endow.`, 13(9): 1568-1581, 2020.
+
+[58] Tobias Ziegler, Jacob Nelson-Slivon, Viktor Leis, and Carsten Binnig. Design guidelines for correct, efficient, and scalable synchronization using one-sided rdma. Proc. ACM Manag. Data, 2023.
+
+[59] Tobias Ziegler, Sumukha Tumkur Vani, Carsten Binnig, Rodrigo Fonseca, and Tim Kraska. Designing distributed tree-based index structures for fast rdmacapable networks. In `Proc.` of ACM SIGMOD, page 741-758, 2019.
+
+[60] Pengfei Zuo, Jiazhao Sun, Liu Yang, Shuangwu Zhang, and Yu Hua. One-sided RDMA-Conscious extendible hashing for disaggregated memory. In `Proc.` of USENIX ATC, pages 15-29, 2021.
+
+</div>
+
+# 10. 实验材料附录
+
+## 10.1 摘要
+
+The artifact includes the prototype implementation of DMTree, along with scripts to automate its evaluation and reproduce the main experimental results presented in the paper. DMTree is a tree index optimized for disaggregated memory. It introduces a compute-side collaborative design that offloads data locating and locking operations from memory servers to compute servers. By leveraging the unsaturated RDMA resources between compute servers, DMTree effectively alleviates network bottlenecks and improves overall system performance.
+
+实验材料包含 DMTree 原型, 自动评估脚本和复现论文主要结果的脚本. DMTree 面向内存解耦, 将定位与锁操作移到计算侧, 利用计算服务器之间未饱和的 RDMA 资源, 缓解网络瓶颈并提高整体性能.
+
+## 10.2 范围
+
+This artifact allows reviewers to validate the main claims made in the paper. Specifically, it enables the reproduction of experimental results demonstrating that DMTree outperforms existing state-of-the-art range indexes on disaggregated memory for both point operations (`i.e.`, searches, inserts, and updates) and range operations (`i.e.`, scans). The artifact supports evaluation under various workloads, including Micro-benchmarks and YCSB workloads.
+
+这些材料可验证论文主要结论, 复现 DMTree 在查询, 插入, 更新和扫描上优于现有先进 DM 范围索引的结果. 支持微基准和 YCSB 等不同负载.
+
+## 10.3 内容
+
+The artifact consists of the following directories and scripts:
+
+实验材料包括以下目录与脚本.
+
+`DMTree/`, which contains the source code of the DMTree prototype implementation.
+
+`DMTree/` 保存原型源码.
+
+`AE/`, which includes Python scripts for formatting experimental results and generating plots.
+
+`AE/` 保存整理实验结果和绘图的 Python 脚本.
+
+`build_ae.sh`, a script that automates the process of copying and compiling the code across all cluster nodes.
+
+`build_ae.sh` 自动将代码复制到全部集群节点并编译.
+
+`run_simple.sh` and `run_ycsb.sh`, scripts that automate the execution of the main experiments.
+
+`run_simple.sh` 与 `run_ycsb.sh` 自动运行主要实验.
+
+Baseline implementations, including the source code for representative existing approaches such as `Sherman/`, `ROLEX/`, `SMART/`, `dLSM/`, and `CHIME/`, used for comparison in our experiments.
+
+实验基线源码包括 `Sherman/`, `ROLEX/`, `SMART/`, `dLSM/` 和 `CHIME/` 等.
+
+## 10.4 托管位置
+
+The artifact is accessible from GitHub at [aefast26](https://github.com/muouim/aefast26). Please refer to the main branch and the latest commit version for the exact code used in this paper.
+
+实验材料位于 GitHub 的 [aefast26](https://github.com/muouim/aefast26). 原文要求以 main 分支的最新提交版本为准, 查阅论文所用代码.
+
+## 10.5 运行要求
+
+### 10.5.1 硬件依赖
+
+The artifact has been developed and tested on a cluster of seven machines, consisting of six compute servers and one memory server. Each machine is equipped with two 40-core Intel Xeon Gold CPUs, 128 GB of DRAM, and a 100 Gbps Mellanox ConnectX-6 RNIC. All machines are interconnected via a 100 Gbps Ethernet switch.
+
+开发和测试使用七台机器, 六台计算服务器和一台内存服务器. 每台配两颗 40 核 Intel Xeon Gold CPU, 128 GB DRAM, 100 Gbps Mellanox ConnectX-6 RNIC, 通过 100 Gbps 以太网交换机连接.
+
+### 10.5.2 软件依赖
+
+Our artifact is developed and tested on Ubuntu 20.04 LTS with the following software dependencies:
+
+开发和测试系统为 Ubuntu 20.04 LTS, 依赖如下.
+
+DMTree prototype: `g++`, `cmake`, `libssl`, `snappy`, `boost`, `memcached`, `city-hash`.
+
+DMTree 原型依赖 `g++`, `cmake`, `libssl`, `snappy`, `boost`, `memcached`, `city-hash`.
+
+RDMA driver: `MLNX_OFED_LINUX-5.X`.
+
+RDMA 驱动为 `MLNX_OFED_LINUX-5.X`.
+
+Evaluation scripts: `python3`, `python3-pip`.
+
+评估脚本依赖 `python3` 与 `python3-pip`.
+
+## 10.6 评估步骤
+
+We provide detailed step-by-step instructions in the `AE_INSTRUCTION.md` file on GitHub to reproduce the major experiments presented in the paper. The core steps are summarized below for quick reference.
+
+GitHub 的 `AE_INSTRUCTION.md` 提供主要实验的详细复现步骤. 下面列出核心操作, 便于查阅.
+
+### 10.6.1 克隆代码仓库
+
+First, clone the code repository from GitHub:
+
+先从 GitHub 克隆仓库.
+
+<div class="paper-shared">
+
+```bash
+cd ~
+git clone https://github.com/muouim/aefast26.git
+```
+
+</div>
+
+### 10.6.2 编译构建
+
+Next, navigate to the project directory and run the build script to copy and compile the code across all cluster nodes:
+
+进入项目目录, 运行脚本, 在全部集群节点复制并编译代码.
+
+<div class="paper-shared">
+
+```bash
+cd ~/aefast26
+bash build_ae.sh
+```
+
+</div>
+
+### 10.6.3 运行微基准
+
+To run the Micro-benchmark experiments, execute the following commands:
+
+执行以下命令运行微基准.
+
+<div class="paper-shared">
+
+```bash
+cd ~/aefast26
+nohup bash run_simple.sh >r_s.output 2>&1 &
+```
+
+</div>
+
+The resulting output corresponds to the experiments presented in Figures 11 and 12 of the paper. For quick verification, we provide only the bottleneck performance results, `i.e.`, the performance of each baseline under each workload at the maximum thread count.
+
+输出对应论文图 11, 12. 为便于快速验证, 脚本只提供达到瓶颈时的性能, 即各基线在各负载和最大线程数下的结果.
+
+### 10.6.4 运行 YCSB
+
+To run the YCSB workload experiments, execute the following commands:
+
+执行以下命令运行 YCSB 实验.
+
+<div class="paper-shared">
+
+```bash
+cd ~/aefast26
+nohup bash run_ycsb.sh >r_y.output 2>&1 &
+```
+
+</div>
+
+The resulting output corresponds to the experiments presented in Figure 14 of the paper.
+
+输出对应论文图 14.
+
+### 10.6.5 结果分析
+
+The raw experimental results are stored in the `AE/Data` directory. The processed results are organized into CSV files such as `simple_results_zipfian.csv` and `ycsb_results_zipfian.csv`. For visual comparison, corresponding bar charts are generated and saved as `simple_zipfian.pdf` and `ycsb_zipfian.pdf`.
+
+原始结果保存在 `AE/Data`. 处理后的结果保存为 `simple_results_zipfian.csv`, `ycsb_results_zipfian.csv` 等 CSV; 对应柱状图保存为 `simple_zipfian.pdf` 和 `ycsb_zipfian.pdf`, 便于比较.

@@ -1,0 +1,868 @@
+# 译 - LavaStore: ByteDance's Purpose-built, High-performance, Cost-effective Local Storage Engine for Cloud Services
+
+<div class="paper-shared">
+
+LavaStore 是字节跳动面向云服务构建的本地存储引擎. 本文翻译其 VLDB 2024 论文, 介绍 LavaKV 的 KV 分离与垃圾回收, LavaLog 的日志管理, LavaFS 的同步写优化, 以及 CBT 索引和统一缓存, 并保留基准测试与生产环境评估结果.
+
+原论文: [LavaStore: ByteDance's Purpose-built, High-performance, Cost-effective Local Storage Engine for Cloud Services](https://www.vldb.org/pvldb/vol17/p3799-jiao.pdf), 中文题名为 "LavaStore: 字节跳动面向云服务构建的专用高性能, 高性价比本地存储引擎".
+
+作者: Hao Wang, Jiaxin Ou, Ming Zhao, Sheng Qiu, Yizheng Jiao, Yi Wang, Qizhong Mao, Zhengyu Yang, Yang Liu, Jianshun Zhang, Jianyang Hu, Jingwei Zhang, Jinrui Liu, Jiaqiang Chen, Yong Shen, Lixun Cao, Heng Zhang, Hongde Li, Ming Li, Yue Ma, Lei Zhang, Jian Liu, Guanghui Zhang, Fei Liu, Jianjun Chen. 作者单位: ByteDance.
+
+出处: Proceedings of the VLDB Endowment, 17(12): 3799-3812, 2024. DOI: 10.14778/3685800.3685807. 原论文标注许可为 CC BY-NC-ND 4.0, 版权归原作者或权利人所有.
+
+"我们" 指论文作者, 性能数据和版本描述均以论文撰写时为准. compaction 保留英文, 指 LSM-tree 的文件合并过程, 与 compression (数据压缩) 区分.
+
+</div>
+
+# 0. 摘要
+
+Persistent key-value (KV) stores are widely used by cloud services at ByteDance as local storage engines, and RocksDB used to be the de facto implementation since it can be tailored to a variety of workloads and requirements. In this paper, we provide key insights into local storage engine usage at ByteDance, explain why the combination of highly write-intensive workloads and stringent requirements on cost efficiency and point lookup tail latency may pose challenges to a general-purpose local storage engine such as RocksDB, and present the design and implementation of LavaStore, a high-performance cost-effective local storage engine purpose-built to address these challenges.
+
+字节跳动的云服务广泛采用持久化键值 (KV) 存储作为本地存储引擎. 此前, RocksDB 凭借灵活的配置能力, 能够适应不同的工作负载和需求, 一直是这些服务的主流选择. 本文介绍字节跳动使用本地存储引擎的实践, 分析 RocksDB 这类通用引擎面临的挑战: 在写入负载很重的情况下, 既要控制成本, 又要满足严格的点查尾延迟要求. 为应对这些挑战, 我们专门设计并实现了 LavaStore, 一个兼顾高性能与低成本的本地存储引擎.
+
+LavaStore achieves its design goals by selectively customizing a few components of a RocksDB-based, general-purpose local storage engine, including a distinct KV separation design that decouples garbage collection from compaction, a specialized engine type for the commonly recurring Write-Ahead-Logging workload, and a customized user-space append-only filesystem. LavaStore has been deployed to production with hundreds of thousands of running instances, storing more than 100 PB of data and serving billions of requests per second, bringing significant performance improvements and cost reductions to customers over their original local storage engines. For example, a ByteDance proprietary distributed OLTP database service has experienced a reduction in average write and read latency by 61% and 16%, respectively, and a ByteDance proprietary caching service has gained an 87% increase in write throughput with no more than 6% space overhead.
+
+LavaStore 在基于 RocksDB 的通用本地存储引擎上, 有针对性地改造了少数组件, 以实现上述目标. 具体来说, 我们重新设计了 KV 分离机制, 将垃圾回收与 compaction 解耦; 为常见的预写日志负载开发了专用引擎; 并定制了一套运行在用户态, 仅支持追加写入的文件系统. LavaStore 已在生产环境中运行数十万个实例, 存储超过 100 PB 的数据, 每秒处理数十亿次请求. 相比用户原先使用的本地存储引擎, 它显著提升了性能并降低了成本. 例如, 字节跳动的一项自研分布式 OLTP 数据库服务, 平均写延迟和读延迟分别降低了 61% 和 16%; 另一项自研缓存服务的写吞吐量提高了 87%, 空间开销不超过 6%.
+
+# 1. 引言
+
+Persistent Key-Value (KV) stores are widely used by cloud services at ByteDance as local storage engines. For example, ByteNDB, a proprietary OnLine Transaction Processing (OLTP) system, stores database page versions in persistent KV stores; ABase, a proprietary distributed NoSQL database, also implements Redis-compliant data structures on top of persistent KV stores.
+
+字节跳动的云服务广泛使用持久化键值 (KV) 存储作为本地存储引擎. 例如, 自研在线事务处理 (OLTP) 系统 ByteNDB 使用持久化 KV 存储保存数据库页面的不同版本; 自研分布式 NoSQL 数据库 ABase 也在持久化 KV 存储之上实现了兼容 Redis 的数据结构.
+
+RocksDB <sup>[25]</sup> is a Log-Structured Merge (LSM) tree <sup>[62]</sup> based, high-performance persistent KV store developed for large-scale distributed systems and optimized for Solid State Drives (SSDs). Due to its configurability, RocksDB can be tailored to a variety of workloads and requirements, and became the de facto local storage engine implementation for many cloud services at ByteDance.
+
+RocksDB <sup>[25]</sup> 是基于日志结构合并树 (Log-Structured Merge Tree, LSM-tree) <sup>[62]</sup> 的高性能持久化 KV 存储, 面向大规模分布式系统开发, 并针对固态硬盘 (SSD) 进行了优化. RocksDB 的配置灵活, 能够适应不同的工作负载和需求, 因而成为字节跳动许多云服务选用本地存储引擎时的主流方案.
+
+With the tremendous growth of popular ByteDance applications, however, some cloud services began to encounter performance and cost issues with their RocksDB-based local storage engines. After numerous attempts in tuning RocksDB configuration, we came to the conclusion that the unique workload characteristics, performance requirements, and cost objectives of these cloud services demand a local storage engine design with some distinctly different trade-offs from that of RocksDB. In 2019, ByteDance acquired TerarkDB <sup>[9]</sup>, a RocksDB-based general-purpose KV store with customized indexing and compression algorithms, and set out to develop LavaStore, a high-performance and cost-effective local storage engine based on TerarkDB but purpose-built for cloud services at ByteDance. In this paper, we describe the challenges for local storage engines at ByteDance, explain why existing designs in RocksDB fall short, and present the design and implementation of LavaStore that address these challenges.
+
+然而, 随着字节跳动热门应用的业务规模快速增长, 部分云服务开始遇到性能和成本瓶颈, 问题出在基于 RocksDB 的本地存储引擎上. 经过多轮配置调优, 我们意识到, 要满足这些服务特有的负载特点, 性能要求和成本目标, 本地存储引擎需要在一些设计取舍上走出与 RocksDB 不同的路. 2019 年, 字节跳动收购了 TerarkDB <sup>[9]</sup>. 这是一个基于 RocksDB 的通用 KV 存储, 采用了定制的索引和压缩算法. 此后, 我们以 TerarkDB 为基础开发 LavaStore, 为字节跳动的云服务提供专用的高性能, 高性价比本地存储引擎. 本文介绍这些服务带来的挑战, 分析 RocksDB 现有设计的不足, 并说明 LavaStore 如何通过设计与实现来解决这些问题.
+
+Write throughput was one of the first major bottlenecks that emerged early on due to the unique workload characteristics at ByteDance. Specifically, ByteDance applications aggressively deployed in-memory caches (`e.g.`, Redis and Memcached) at multiple layers of their architecture to reduce read latency, leaving only a small fraction of read requests for local storage engines to handle. Furthermore, with applications commonly batching write requests for higher throughput, the write workload is dominated by large value writes. Unfortunately, RocksDB's write throughput under such a workload is severely limited by the inherently large write amplification of LSM-tree for large value sizes. Even with BlobDB, which is the RocksDB implementation of the commonly used technique of KV separation to improve write throughput for large value sizes, the write throughput still falls significantly short of application requirements. In order to address this challenge, we opted for a distinct KV separation design that decouples Garbage Collection (GC) from compaction, which enables more flexible tradeoffs among space usage, read performance and write performance. Compared with the design of BlobDB in RocksDB, which ties GC to compaction, LavaStore can achieve much better write performance with comparable space usage and read performance.
+
+受字节跳动业务负载特点的影响, 写吞吐量很早就成为主要瓶颈之一. 具体来说, 为降低读延迟, 应用在架构的多个层次大量部署 Redis, Memcached 等内存缓存, 只有少量读请求会落到本地存储引擎. 此外, 应用通常会批量提交写请求以提高吞吐量, 因此写入负载以大 value 为主. 对于这类负载, LSM-tree 处理大 value 时固有的高写放大严重限制了 RocksDB 的写吞吐量. 即使使用 BlobDB, 吞吐量仍远低于应用要求. BlobDB 是 RocksDB 对常用 KV 分离技术的实现, 旨在提升大 value 场景的写吞吐量. 为解决这一问题, 我们采用了一种不同的 KV 分离设计, 将垃圾回收 (Garbage Collection, GC) 与 compaction 解耦, 从而更灵活地权衡空间占用, 读性能和写性能. 与 RocksDB 中将 GC 绑定到 compaction 的 BlobDB 设计相比, LavaStore 在保持相近空间占用和读性能的同时, 可以取得更好的写性能.
+
+As applications in ByteDance enjoyed continued exponential growth, the resource consumption by the cloud services, in terms of the volume of data stored, CPU usage, `etc.`, gradually grew to a scale for which cost reduction became a major concern. In order to improve resource efficiency, LavaStore introduced various GC optimizations to its KV separation implementation. In particular, for the commonly recurring Write-Ahead-Logging (WAL) workload, we added a specialized local storage engine, LavaLog, to exploit the fact that these data are mostly written and expired in a First-In-First-Out (FIFO) fashion, and rarely read, in order to achieve near-optimal write amplification and GC overhead. Moreover, some applications would like to enable RocksDB "sync" write to guarantee data durability, but the ensuing throughput and latency penalty is so large that most of them opted for "non-sync" write with increased replication, effectively trading resource efficiency for durability. For such applications, LavaStore employed cross-layer optimization between the KV store and the underlying filesystem to eliminate the "sync write" performance penalty, which helps these cloud services restore resource efficiency while maintaining data durability.
+
+随着字节跳动应用的业务规模持续呈指数级增长, 云服务存储的数据量和消耗的 CPU 等资源也不断增加, 降低成本逐渐成为重要目标. 为提高资源利用效率, LavaStore 在 KV 分离的实现中引入了多项 GC 优化. 针对常见的预写日志 (Write-Ahead Logging, WAL) 负载, 我们专门开发了本地存储引擎 LavaLog. 这类数据通常按先进先出 (FIFO) 的顺序写入和过期, 很少被读取. LavaLog 利用这些特点, 将写放大和 GC 开销降至接近最优水平. 另一个问题是, 部分应用希望启用 RocksDB 同步写来保证数据持久性, 却难以承受由此带来的吞吐量下降和延迟增加. 大多数应用最终选择关闭同步写, 通过增加副本数来保障持久性, 为此付出了更多资源. LavaStore 对 KV 存储和底层文件系统进行跨层优化, 消除同步写带来的性能损失, 使这些服务能够在保证数据持久性的同时提高资源利用效率.
+
+Finally, as cloud services continued to pursue aggressive cost reductions, the previously abundant in-memory caches got more and more scarce, so read performance optimization began to gain importance. With a careful study of application requirements and read performance metrics, we found that point lookup queries are the main pain point. Specifically, due to their interactive nature, many popular ByteDance applications have stringent Service Level Agreements (SLAs) on both the average and tail (`e.g.`, the 99-percentile) latencies. Although the average read latencies of most cloud services were well below SLA, tail latencies were orders of magnitude above SLA. Since resources must be provisioned to meet SLAs on both average and tail latencies, average resource utilization became very low. Reducing the tail latency of point lookup queries thus became the key to improving resource efficiency. To this end, LavaStore introduced a new index type that is very memory efficient with outstanding point lookup performance. Together with a more refined caching strategy, this new index type enables LavaStore to achieve near-optimal read amplification for point lookup queries, thus drastically closing the gap between average and tail latencies for point lookup queries, and leading to substantial cost savings for such cloud services.
+
+随着云服务进一步压缩成本, 原本充裕的内存缓存也开始缩减, 读性能优化随之变得重要. 仔细分析应用需求和读性能指标后, 我们发现, 问题主要集中在点查上. 字节跳动的许多热门应用需要及时响应用户交互, 因而对平均延迟和尾延迟, 例如第 99 百分位延迟, 都有严格的服务等级协议 (SLA) 要求. 大多数云服务的平均读延迟远低于 SLA 上限, 尾延迟却高出几个数量级. 为了同时满足这两项要求, 服务必须配备足够的资源, 导致平均资源利用率很低. 因此, 降低点查尾延迟成为提高资源利用效率的关键. LavaStore 为此引入了一种内存占用低, 点查性能好的新索引. 配合更精细的缓存策略, 该索引使点查的读放大接近最优水平, 大幅缩小平均延迟与尾延迟的差距, 从而为这些服务节省大量成本.
+
+As of this writing, LavaStore has been successfully deployed to three widely used cloud services at ByteDance, with more than 100,000 running instances in production, storing more than 100 PB of data and serving an aggregate of over 2 billion Queries Per Second (QPS). Customers of LavaStore have enjoyed great benefits over their original local storage engines. Specifically, ByteNDB has seen its average write latency reduced by 61% and its read latency by 16%. The write QPS of ABase is increased by 87% while keeping the total garbage ratio between 1% and 6%. Flink also reduces its CPU usage by up to 67% after switching from its previous RocksDB-based state backend to one based on LavaStore.
+
+截至本文撰写时, LavaStore 已部署到字节跳动三项广泛使用的云服务中, 生产环境中运行的实例超过 100,000 个, 存储数据超过 100 PB, 合计每秒处理超过 20 亿次查询 (QPS). 与原先的本地存储引擎相比, 用户获得了明显收益. 具体而言, ByteNDB 的平均写延迟降低了 61%, 读延迟降低了 16%. ABase 的写 QPS 提高了 87%, 同时整体垃圾比例维持在 1% 到 6%. Flink 将原先基于 RocksDB 的状态后端切换为基于 LavaStore 的后端后, CPU 使用量最多降低了 67%.
+
+In summary, our key contributions are as follows:
+
+我们的主要贡献如下:
+
+- We provide insights into local storage engine usage by cloud services at ByteDance, and explain why the combination of highly write-intensive workloads and stringent requirements on cost efficiency and point lookup tail latency may pose challenges to a general-purpose local storage engine such as RocksDB;
+
+- We show how these challenges can be effectively addressed by selectively customizing a few components of a RocksDB-based, general-purpose local storage engine. Specifically,
+
+  - We present LavaKV, with a distinct KV separation design that decouples garbage collection from compaction, which enables more flexible trade-offs among space usage, read performance, and write performance than RocksDB;
+  - We present LavaLog, a specialized local storage engine for the commonly recurring Write-Ahead-Logging workload, which significantly outperforms RocksDB in terms of write amplification and garbage collection overhead;
+  - We present LavaFS, a user-space append-only filesystem, which provides much lower write amplification and synchronous write latency than the in-kernel filesystem Ext4 when used by LavaKV and LavaLog;
+
+- Using both synthetic and production workloads, we validate LavaStore's design and implementation by showing that it successfully meets the performance requirements and cost objectives of cloud services at ByteDance;
+
+- We share the lessons we have learned while developing LavaStore and running it in production at scale.
+
+<!-- language-pair -->
+
+- 介绍字节跳动云服务使用本地存储引擎的实践, 分析 RocksDB 这类通用引擎为何难以在写入负载很重的情况下, 同时满足成本控制和点查尾延迟的严格要求.
+- 说明如何针对性地改造基于 RocksDB 的通用引擎中的少数组件, 解决这些问题. 具体包括 LavaKV, LavaLog 和 LavaFS: LavaKV 通过将 GC 与 compaction 解耦的 KV 分离设计, 比 RocksDB 更灵活地权衡空间占用和读写性能; LavaLog 面向常见的 WAL 工作负载, 在写放大和垃圾回收开销上显著优于 RocksDB; LavaFS 是一套运行在用户态的文件系统, 仅支持追加写入. LavaKV 和 LavaLog 使用它时, 写放大和同步写延迟都远低于使用内核文件系统 Ext4 时的水平.
+- 使用合成负载和生产负载验证 LavaStore 的设计与实现, 说明它能够满足字节跳动云服务的性能要求和成本目标.
+- 分享开发 LavaStore 以及在生产环境大规模运行它的经验.
+
+The rest of the paper is organized as follows. Section 2 presents the background and motivation of this work. Section 3 describes the design of LavaStore, with Section 3.2 focusing on improving write performance, Section 3.3 on improving cost-effectiveness, and Section 3.4 on improving read performance. In Section 4, we evaluate LavaStore's performance and cost-effectiveness using both synthetic and production workloads. Section 5 discusses our lessons learned and future work. Section 6 reviews the related work. Finally, Section 7 concludes our work.
+
+本文其余部分安排如下. 原文第 2 节介绍背景与动机. 第 3 节介绍 LavaStore 的设计, 其中第 3.2 节关注写性能, 第 3.3 节关注成本效率, 第 3.4 节关注读性能. 第 4 节使用合成负载和生产负载评估性能与成本效率. 第 5 节讨论经验和未来工作, 第 6 节回顾相关研究, 最后在第 7 节总结全文.
+
+# 2. 背景与动机
+
+In this section, we first describe three cloud services that represent typical use cases of persistent KV stores as local storage engines at ByteDance, with a focus on their workload characteristics, performance requirements, and cost objectives. We then explain why the existing designs in RocksDB does not adequately address these use cases, which also motivates the design of LavaStore.
+
+本节先介绍字节跳动的三项云服务, 说明持久化 KV 存储作为本地存储引擎的典型使用场景, 重点讨论各自的负载特点, 性能要求和成本目标. 随后分析 RocksDB 现有设计为何不能充分满足这些需求, 由此说明我们设计 LavaStore 的原因.
+
+## 2.1 字节跳动的本地存储引擎使用情况
+
+### 2.1.1 ByteNDB
+
+ByteNDB, short for ByteDance NewSQL Database, is a cloud-native, distributed OLTP database suite engineered for full compatibility with MySQL <sup>[26]</sup> and PostgreSQL <sup>[57]</sup>. Moving away from MySQL's traditional non-distributed InnoDB storage engine, ByteNDB's storage layer comprises two key components: LogStore and PageStore <sup>[15]</sup>. LogStore leverages append-only distributed blob storage to provide fast redo log persistence with large capacity, while PageStore, through a collection of page servers, handles the persistence of redo logs from LogStore and their application in constructing data pages. Each PageStore, managing 16 KB database page versions and indexing them by unique IDs, places significant demands on local storage engines for large value management.
+
+ByteNDB 是 ByteDance NewSQL Database 的缩写, 是一套云原生分布式 OLTP 数据库, 旨在完全兼容 MySQL <sup>[26]</sup> 和 PostgreSQL <sup>[57]</sup>. 与 MySQL 传统的单机 InnoDB 存储引擎不同, ByteNDB 的存储层由 LogStore 和 PageStore <sup>[15]</sup> 两个关键组件组成. LogStore 使用仅支持追加写入的分布式 blob 存储, 能够快速持久化大量 redo log. PageStore 由一组 page server 组成, 负责持久化来自 LogStore 的 redo log, 并应用这些日志构建数据页. 每个 PageStore 管理大小为 16 KB 的数据库页面版本, 以唯一 ID 建立索引, 因而要求本地存储引擎能够高效处理大 value.
+
+To ensure high availability, page servers persist redo logs from LogStore using unique Logical Sequence Numbers (LSNs), and use a gossip protocol <sup>[6]</sup> to retrieve missing logs from peers. This allows for mostly sequential log insertions with occasional out-of-order entries. Immediate durability is critical, ensuring that log appends are persistently stored before user confirmation.
+
+为保证高可用性, page server 使用唯一的逻辑序列号 (Logical Sequence Number, LSN) 持久化来自 LogStore 的 redo log, 并通过 gossip 协议 <sup>[6]</sup> 从其他节点获取缺失日志. 因此, 日志插入大多有序, 但偶尔也会乱序. 即时持久化至关重要: 在向用户确认成功之前, 追加的日志必须已经落盘.
+
+### 2.1.2 ABase
+
+ABase is ByteDance's distributed KV storage system, supporting services like advertising, e-commerce, recommendation, search, and video platforms. It caches large datasets beyond in-memory capacity, such as Redis <sup>[12]</sup>, using a disk-based approach for handling large KV pairs and terabyte-scale data. ABase ensures high throughput, essential disk-based data preservation, and low cost. Its critical operations are Set (inserting/overwriting values) and Get (retrieving values).
+
+ABase 是字节跳动的分布式 KV 存储系统, 服务于广告, 电商, 推荐, 搜索和视频平台等业务. 对于 Redis <sup>[12]</sup> 等内存缓存容纳不下的大型数据集, ABase 使用磁盘缓存, 支持大 KV 对和 TB 级数据. 它需要在保证高吞吐量和必要的数据落盘能力的同时, 控制存储成本. 核心操作是 Set 和 Get, 分别用于插入或覆盖 value, 以及读取 value.
+
+LavaStore's KV separation significantly boosts write throughput and reduces tail write latency, aligning with ABase's performance expectations. Yet, as ByteDance's online services expand, the challenge of tail read latency emerges, particularly as in-memory caching becomes increasingly expensive. The objective is to reduce disk accesses in Sorted-Sequence/String Tables (SSTables) within LavaStore, ideally limiting it to a single I/O to retrieve a value from the blob file, thereby minimizing tail read latencies.
+
+LavaStore 的 KV 分离显著提高了写吞吐量并降低了写尾延迟, 满足了 ABase 对写性能的要求. 但随着字节跳动在线服务规模扩大, 读尾延迟问题开始显现, 尤其是在内存缓存成本不断上升的情况下. 我们的目标是减少访问 LavaStore 有序表 (Sorted-Sequence/String Table, SSTable) 时的磁盘 I/O. 理想情况下, 只需进行一次 I/O, 从 blob 文件中读出 value, 就能完成查询, 从而尽量降低读尾延迟.
+
+### 2.1.3 Apache Flink
+
+Flink, a framework and distributed processing engine for stateful computations on unbounded and bounded data streams <sup>[11]</sup>, is instrumental at ByteDance, powering over 30,000 streaming and 100,000 batch jobs daily across various business units. Flink's demand for high write throughput, focusing on lookup queries with occasional scans, requires efficient resource utilization. Deployed via YARN <sup>[77]</sup> or Kubernetes <sup>[8]</sup>, Flink configurations often involve multiple storage engine instances per process on shared CPU and memory, sometimes exceeding 100 instances on a single machine. Each engine, running within containers, has a predefined quota for CPU and memory allocation. Given Flink's substantial need for computational resources, optimizing the storage engine to minimize CPU and memory consumption is critical, enabling more resources for computation-heavy tasks.
+
+Flink 是面向无界和有界数据流进行有状态计算的框架与分布式处理引擎 <sup>[11]</sup>. 在字节跳动, 它每天为不同业务部门运行超过 30,000 个流处理作业和 100,000 个批处理作业. Flink 要求较高的写吞吐量, 读取以点查为主, 偶尔执行扫描, 因而需要高效利用资源. 使用 YARN <sup>[77]</sup> 或 Kubernetes <sup>[8]</sup> 部署时, 一个进程内通常有多个存储引擎实例共享 CPU 和内存, 单机有时超过 100 个实例. 每个引擎运行在容器内, 按预设配额分配 CPU 和内存. 由于 Flink 对计算资源需求很大, 必须优化存储引擎, 尽量降低 CPU 和内存消耗, 为计算密集任务留出更多资源.
+
+## 2.2 现有系统的问题
+
+### 2.2.1 RocksDB 的 KV 分离
+
+<div class="paper-shared">
+
+![图 1: RocksDB 与 LavaKV 的 KV 分离比较](/assets/images/posts/lavastore/figure-01.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 1: Comparison of key-value separation between RocksDB and LavaKV.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 1: RocksDB 与 LavaKV 的 KV 分离比较. (a) SST/blob 格式; (b) RocksDB 将 blob GC 与 SSTable compaction 绑定; (c) LavaKV 独立执行 SSTable compaction 与 blob GC. 图中 k 为 key, v 为小 value, V 为大 value, p 为 blob 指针, I 为索引; fno, off, len 分别为文件编号, 偏移量和长度. value 或压缩类型等其他细节省略.</span>
+
+Adjusting compaction settings, such as increasing flush size or switching to universal compaction, are common methods to mitigate RocksDB's write amplification. However, these approaches often fall short in sufficiently improving tail write latencies. The KV separation technique, introduced by Lu et al. <sup>[48]</sup>, offers a more effective solution by storing large values in separate blob files and reducing their involvement in compactions but increasing space amplification. It decreases compaction frequency and size, thus reducing write amplification and necessitating specialized garbage collection to preserve space efficiency. While it improves write performance through reduced SSTable sizes and potentially better cache efficiency, it may increase disk I/O for accessing separated values, negatively impacting read performance.
+
+调整 compaction 配置, 例如增大每次刷盘的数据量或改用 universal compaction, 是降低 RocksDB 写放大的常见方法. 但这些方法对降低写尾延迟的帮助往往有限. Lu 等人 <sup>[48]</sup> 提出的 KV 分离技术更为有效: 将大 value 存入独立的 blob 文件, 减少它们参与 compaction 的次数, 代价是增加空间放大. 该方法减少 compaction 的频率和规模, 降低写放大, 同时需要专门的垃圾回收来保持空间效率. 更小的 SSTable 有助于提高写性能, 也可能提高缓存效率. 不过, 读取分离出去的 value 可能需要更多磁盘 I/O, 影响读性能.
+
+RocksDB quickly incorporated the concept of KV separation through BlobDB <sup>[55]</sup>. It stores a triplet of blob file number, value offset, and value length within SSTables (Figure 1a), requiring a space overhead of approximately 24 bytes per key and facilitating efficient read access, as values in a blob file could be directly retrieved using the offset and length without the need for a separate index. However, blob GC requires rewriting all valid values to new files and updating their triplets of blob file number, value offset, and value length in the associated SSTables, changes that can only be made during compaction. This inadvertently increases write and space amplification since retained blob files must wait for future compactions of associated SSTables for reclamation, as shown in Figure 1b. Despite attempts to strike a balance among write, read, and space efficiencies, BlobDB did not fulfill our stringent requirements for ultra-low write amplification and minimized tail write latency. In 2019, PingCAP released the initial version of Titan, a RocksDB plugin with a slightly different KV separation design <sup>[67, 84]</sup>. Titan's strategy is similar to BlobDB but uses an EventListener callback to re-insert GC'ed KVs as updates after compactions. Although Titan was more usable and outperformed BlobDB, its write performance still fell short of our requirements. For a more in-depth comparison of KV separation between BlobDB and Titan, please refer to <sup>[81]</sup>.
+
+RocksDB 很快通过 BlobDB <sup>[55]</sup> 引入了 KV 分离. 它在 SSTable 中存储由 blob 文件编号, value 偏移量和 value 长度组成的三元组, 如图 1a 所示, 每个 key 需要额外占用约 24 字节. 读取时可以直接根据偏移量和长度定位 blob 文件中的 value, 无需额外索引, 因而效率较高. 然而, blob GC 必须将所有有效 value 重写到新文件, 并更新相关 SSTable 中的三元组, 而这些更新只能在 compaction 期间完成. 如图 1b 所示, 保留下来的 blob 文件必须等待相关 SSTable 后续再次 compaction 才能回收, 这会增加写放大和空间放大. 尽管 BlobDB 尝试平衡读, 写和空间效率, 仍无法满足我们对极低写放大和低写尾延迟的严格要求. 2019 年, PingCAP 发布了 Titan 初版, 这是采用略有不同的 KV 分离设计的 RocksDB 插件 <sup>[67, 84]</sup>. Titan 的策略与 BlobDB 类似, 但通过 EventListener 回调, 在 compaction 后将 GC 处理过的 KV 作为更新重新插入. 虽然 Titan 的可用性和性能优于 BlobDB, 其写性能仍未达到要求. 关于 BlobDB 与 Titan 的 KV 分离设计的详细比较, 请参阅 <sup>[81]</sup>.
+
+In addition to the write performance bottleneck of BlobDB and Titan, their instability and unavailability between 2018 and 2019 precluded their direct application in our production settings, compelling us to devise our own KV separation method, which is elaborated upon in Section 3.2. Our initial KV separation approach surpassed both BlobDB and Titan in write throughput and reduced tail write latency but incurred greater space use and read amplification. These issues are further discussed in Section 3.3 and Section 3.4, respectively. For the remainder of this paper, unless otherwise specified, RocksDB will refer to RocksDB BlobDB.
+
+除了写性能瓶颈, BlobDB 和 Titan 在 2018 至 2019 年间的稳定性与可用性问题, 也使我们无法直接将其用于生产环境, 因而必须自行设计 KV 分离方法, 详见原文第 3.2 节. 初版方案的写吞吐量和写尾延迟都优于 BlobDB 与 Titan, 但空间占用和读放大更高. 这两个问题分别在原文第 3.3 节和第 3.4 节讨论. 本文后续内容中, 除非另有说明, RocksDB 均指 RocksDB BlobDB.
+
+### 2.2.2 低效的同步写入
+
+To ensure high reliability, WAL must be used for synchronous writes on every insert. Moreover, specific workloads, such as ByteNDB's log shipping, demand low synchronous write latency with a Write Amplification Factor (WAF) near 1. RocksDB, however, can only achieve a minimum WAF of 2 with synchronous writes and WAL. This limitation led to the development of a new local storage engine, LavaLog, tailored for workloads that are highly sequential and require strong durability and low write latency. Despite this, both RocksDB and the new LavaLog experience significant tail latencies due to fsync operations on the standard kernel filesystem Ext4, severely impacting performance. Consequently, users like ByteNDB were forced to disable synchronous writes and rely on additional server replicas to maintain system durability, which significantly increased the cost of operations. To tackle these issues, there's a pressing need for a filesystem capable of delivering outstanding synchronous write performance along with ensuring strong durability.
+
+为保证高可靠性, 每次插入都必须通过 WAL 同步写入. 此外, ByteNDB 日志传输等特定负载要求较低的同步写延迟, 同时写放大因子 (Write Amplification Factor, WAF) 接近 1. 但 RocksDB 在开启 WAL 和同步写的情况下, WAF 最低只能达到 2. 这一限制促使我们开发 LavaLog, 专门处理以顺序访问为主, 要求强持久性和低写延迟的负载. 即便如此, RocksDB 和新开发的 LavaLog 在标准内核文件系统 Ext4 上仍会因 `fsync` 操作产生较高尾延迟, 严重影响性能. 因此, ByteNDB 等用户不得不关闭同步写, 依靠增加服务器副本来维持系统持久性, 显著增加了运行成本. 为解决这些问题, 我们迫切需要一个既能保证强持久性, 又能提供良好同步写性能的文件系统.
+
+# 3. LavaStore 设计
+
+## 3.1 系统架构
+
+<div class="paper-shared">
+
+![图 2: LavaStore 架构](/assets/images/posts/lavastore/figure-02.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 2: LavaStore Architecture.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 2: LavaStore 架构. 上层是 ByteNDB, ABase 和 Flink 等云服务, 引擎层包含 LavaKV 与 LavaLog, 下层包含 LavaFS 和 Ext4, 最终通过 I/O 控制层访问 SSD.</span>
+
+Considering various design choices and compromises, we created LavaStore at ByteDance-- a purpose-built, high-performance, and cost-effective local storage engine. LavaStore stands out for its modular and flexible architecture, divided into an upper engine layer and a lower filesystem layer, as shown in Figure 2.
+
+综合考虑各种设计方案及其取舍后, 我们在字节跳动开发了 LavaStore, 这一专用本地存储引擎兼顾了高性能与低成本. 它采用灵活的模块化架构, 分为上层的引擎层和下层的文件系统层, 如图 2 所示.
+
+LavaKV serves as a direct substitute for RocksDB, targeting general write-heavy workloads. It incorporates a refined KV separation strategy, significantly reducing write amplification and tail latency, while delivering comparable or superior read performance to RocksDB. Additionally, LavaKV employs an adaptive GC approach to optimize the balance between space efficiency and write performance, considering the current disk utilization. As indicated by the gray arrows, LavaKV runs on top of either Ext4 or LavaFS.
+
+LavaKV 可以直接替代 RocksDB, 面向一般的写密集负载. 它改进了 KV 分离策略, 显著降低写放大和尾延迟, 同时提供与 RocksDB 相当或更好的读性能. 此外, LavaKV 根据当前磁盘利用率采用自适应 GC, 在空间利用效率和写性能之间做出更合适的取舍. 如图中的灰色箭头所示, LavaKV 可以运行在 Ext4 或 LavaFS 之上.
+
+LavaLog, entirely developed anew, caters specifically to log-style workloads with high sequentiality. It leverages an LSM-tree-based approach for metadata management, enabling a near 1 WAF with support for immediate durability. Distinct from RocksDB's WAL, which is append-only during writes and read-only during recovery, LavaLog also facilitates real-time searches and scans, making it suitable for applications like ByteNDB's log shipping. As indicated by the gray arrow, LavaLog runs on top of LavaFS only for now.
+
+LavaLog 是从头开发的引擎, 专门处理以顺序访问为主的日志型负载. 它采用基于 LSM-tree 的方法管理元数据, 在支持即时持久化的同时, 将 WAF 降至接近 1. RocksDB 的 WAL 在写入时只追加, 在恢复时只读取; LavaLog 还支持实时查找和扫描, 因而适用于 ByteNDB 日志传输等场景. 如图中的灰色箭头所示, 当前 LavaLog 仅运行在 LavaFS 之上.
+
+LavaFS, a user-space filesystem, is specially designed to accommodate the append-only write patterns of both LavaKV and LavaLog. By fully managing the I/O pathway within LavaStore, we have implemented enhancements that previously required kernel modifications, thus improving the performance of synchronous writes in ways that are not feasible with kernel filesystems like Ext4.
+
+LavaFS 是一套运行在用户态的文件系统, 专门针对 LavaKV 和 LavaLog 仅追加写入的访问模式设计. 由于能够完整控制 LavaStore 内部的 I/O 路径, 我们得以实现一些原本需要修改内核的优化. 这些优化在 Ext4 等内核文件系统上无法直接实现, 却可以在 LavaFS 中用来改善同步写性能.
+
+## 3.2 写性能优化
+
+This section outlines our strategies to enhance LavaStore's write performance, showcasing a distinct KV separation approach that diverges from RocksDB's BlobDB, achieving exceptionally low write amplification and reduced tail latency. Additionally, we introduce a specialized user-space, append-only filesystem LavaFS designed specifically for achieving low latency in synchronous writes.
+
+本节介绍提升 LavaStore 写性能的策略. 我们采用与 RocksDB BlobDB 不同的 KV 分离方法, 实现很低的写放大和较低的尾延迟. 此外, 本节还将介绍 LavaFS. 这套文件系统运行在用户态, 仅支持追加写入, 专门用于降低同步写延迟.
+
+### 3.2.1 LavaKV 的 KV 分离
+
+Launched in 2019, LavaKV implemented a KV separation technique aimed at surpassing RocksDB in write throughput, making a deliberate trade-off for space efficiency in its design phase. This approach has led to outstanding write performance, along with competitive read functionality and greater flexibility in configuration. As illustrated in Figure 1c, LavaKV uniquely separates GC processes from compactions, with compactions merely updating information about garbage (`e.g.`, the garbage ratio in blob files), while dedicated tasks execute the actual I/O operations for GC. This separation offers multiple advantages: it allows for even smaller compactions, facilitating quicker merges of SSTables to lower levels in high write-intensive scenarios and mitigating write stalls by speeding up L0 to L1 compactions. Moreover, it provides flexibility in tuning compactions and GC independently, enabling users to optimize for higher disk utilization or prioritize quicker write operations based on current disk usage and the balance of write and read demands.
+
+LavaKV 于 2019 年推出. 我们在设计其 KV 分离方案时, 以获得高于 RocksDB 的写吞吐量为目标, 为此在空间效率上做了一定让步. 这一方案取得了很好的写性能, 读性能也不逊色, 配置上则更加灵活. 如图 1c 所示, LavaKV 将 GC 与 compaction 分开: compaction 只更新垃圾数据的相关信息, 例如 blob 文件中的垃圾比例, 实际的 GC I/O 由专门任务执行. 这样既能进一步缩小 compaction 的规模, 让 SSTable 在写密集场景下更快地合并到下层, 也能加快 L0 到 L1 的 compaction, 缓解写停顿. 此外, compaction 和 GC 可以独立调优. 用户可以根据磁盘占用和读写需求, 选择优先提高磁盘利用率, 还是优先加快写入.
+
+In practical terms, LavaKV utilizes the same SSTable format for blob files, incorporating a fully sorted index within each blob file, as shown in Figure 1a. Therefore, only the blob file number is needed in the original SSTables, effectively reducing their file sizes. During GC, rewritten valid values in new blob files are tracked in a manifest file alongside old numbers, creating a manageable inheritance tree that's pruned periodically to maintain efficiency. During the GC process, new blob file numbers are documented in a manifest file along with their former numbers, creating a manageable inheritance tree that's pruned periodically to maintain efficiency. Through this innovative structure, LavaKV has successfully decoupled blob GCs from compactions, attaining a write amplification that is 23% less than that seen in a finely tuned RocksDB.
+
+在实现上, LavaKV 的 blob 文件沿用 SSTable 格式, 每个文件都包含完整的有序索引, 如图 1a 所示. 因此, 原有 SSTable 中只需保存 blob 文件编号, 文件体积得以缩小. GC 将有效 value 重写到新 blob 文件后, 会在 manifest 文件中记录新旧文件编号的对应关系, 形成一棵表示文件继承关系的树, 并定期裁剪, 避免影响效率. 借助这一结构, LavaKV 将 blob GC 与 compaction 解耦, 写放大比经过精细调优的 RocksDB 低 23%.
+
+### 3.2.2 按需关联 compaction 与 GC
+
+<div class="paper-shared">
+
+![图 3: 处理 SSTable 与 blob 的依赖关系](/assets/images/posts/lavastore/figure-03.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 3: Resolving SSTable and blob dependencies.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 3: 处理 SSTable 与 blob 的依赖关系. (a) 不执行 GC 的 compaction; (b) 同时执行 GC 的 compaction.</span>
+
+Always executing blob GCs separately from SSTable compactions presents a significant challenge, as demonstrated in Figure 3a. For instance, consider a scenario where SSTables 1, 3, and 5 undergo compaction without including the blobs (2 and 4) they reference. This process redistributes keys from SSTable 1 that reference blob 2, and keys from SSTable 3 that reference blob 4, across the three resultant SSTables (6, 7, and 8), increasing the total reference count from 2 to 6 among them. This situation leads to two main issues:
+
+始终将 blob GC 与 SSTable compaction 分开执行, 也会带来明显问题, 如图 3a 所示. 例如, SSTable 1, 3 和 5 执行 compaction 时, 不处理它们引用的 blob 2 和 4. 原来位于 SSTable 1 中并引用 blob 2 的 key, 以及位于 SSTable 3 中并引用 blob 4 的 key, 会被重新分散到生成的三个 SSTable 6, 7 和 8 中, 使 SSTable 与 blob 之间的引用总数由 2 增至 6. 这会产生两个主要问题:
+
+- If blob 2 or 4 is later selected for GC, identifying still-valid keys becomes highly time-consuming as it necessitates reverse searches across more SSTables (6, 7, and 8), potentially taking minutes even hours for large datasets with numerous SSTables and blobs.
+- Post-compaction, the keys in SSTables 6, 7, and 8 are sorted, enhancing scan performance due to improved locality. However, since the values in the blobs remain in their original, unsorted order, this negates the locality benefits from the SSTables, degrading the overall scan performance.
+
+<!-- language-pair -->
+
+- 如果随后选择 blob 2 或 4 进行 GC, 就必须在更多 SSTable, 即 6, 7 和 8 中反向查询, 才能识别仍有效的 key. 对包含大量 SSTable 和 blob 的大型数据集, 这一过程可能耗时数分钟甚至数小时.
+- compaction 后, SSTable 6, 7 和 8 中的 key 已经排好序, 数据局部性得到改善, 本应有利于扫描. 但 blob 中的 value 仍保持原先的无序排列, 抵消了 SSTable 带来的局部性收益, 降低了整体扫描性能.
+
+To address these challenges, LavaKV optionally performs blob file reconstruction during SSTable compactions. When SSTables are selected for compaction, their associated blobs are also chosen based on criteria like garbage ratio and blob overlapping ratio, aiming to reclaim space and reduce blob-SSTable links while enhancing sequentiality across blobs. During this SSTable compaction, selected blob files are compacted too, creating new blobs as depicted in Figure 3b, which aids in reducing the cost of reverse querying for future compactions and GCs, and improves blob locality to enhance scan performance. This approach is similar to that of BlobDB, but with a critical distinction: if a blob in BlobDB is not selected during an SSTable compaction, it must wait for the referenced SSTables to be compacted again, which could be a lengthy process. Conversely, in LavaKV, blobs can be garbage collected either independently or jointly with SSTable compaction, offering greater flexibility to adapt to changes in write throughput and space constraints.
+
+为解决这些问题, LavaKV 可以在 SSTable compaction 期间按需重建 blob 文件. 选定 SSTable 后, 还会根据垃圾比例和 blob 重叠比例等条件选择关联 blob, 以回收空间, 减少 blob 与 SSTable 之间的引用关系, 并改善 blob 间的顺序性. 在此次 SSTable compaction 中, 被选中的 blob 文件也会一起合并, 生成图 3b 所示的新 blob. 这有助于降低后续 compaction 和 GC 的反向查询成本, 并通过改善 blob 局部性提升扫描性能. 该方法与 BlobDB 类似, 但存在关键区别: BlobDB 中的 blob 若未在一次 SSTable compaction 中被选中, 就必须等待引用它的 SSTable 再次参与 compaction, 可能需要很长时间. 而 LavaKV 中的 blob 既可独立 GC, 也可与 SSTable compaction 一起处理, 因而能更灵活地应对写吞吐量和空间约束的变化.
+
+### 3.2.3 性能结果
+
+<div class="paper-shared">
+
+![图 4: RocksDB, Titan 和采用 KV 分离的 LavaStore 的写性能与空间利用率权衡, 对应表 1 中的 A-Compact](/assets/images/posts/lavastore/figure-04.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 4: Evaluating the trade-offs in write performance and space utilization between RocksDB, Titan and LavaStore with KV separation (A-Compact in Table 1).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 4: RocksDB, Titan 和采用 KV 分离的 LavaStore 的写性能与空间利用率权衡, 对应表 1 中的 A-Compact. 横轴为压缩后的数据大小, 纵轴为 compaction 时间.</span>
+
+Figure 4, detailed in Table 1 in Section 4.1.2, illustrates the trade-offs between write performance and space utilization among vanilla RocksDB, RocksDB BlobDB, Titan and LavaKV. Since db_bench does not directly measure write and space amplification, these are inferred from the total compaction time (with longer duration indicating higher write amplification) and the final data size post-compaction (where larger size suggests greater space amplification). Vanilla RocksDB shows the longest compaction time but the smallest data size, highlighting its focus on minimizing space use at the expense of write efficiency. In contrast, both Titan and LavaKV opt to use more disk space to achieve lower write amplification (they are almost identical), positioning BlobDB in a middle ground. This demonstrates LavaKV's aim for significantly reduced amplification, a goal not attainable by RocksDB.
+
+图 4 展示未启用 KV 分离的原生 RocksDB, RocksDB BlobDB, Titan 和 LavaKV 在写性能与空间利用率之间的权衡, 工作负载详见原文第 4.1.2 节表 1. 由于 `db_bench` 不直接测量写放大和空间放大, 我们通过 compaction 总耗时和完成后的数据大小来间接判断: 时间越长意味着写放大越高, 最终数据越大意味着空间放大越高. 原生 RocksDB 的 compaction 时间最长, 但数据体积最小, 表明它以写效率为代价减少空间占用. 相比之下, Titan 和 LavaKV 选择使用更多磁盘空间来降低写放大, 两者结果几乎相同, BlobDB 则位于中间. 这说明 LavaKV 实现了显著降低写放大的目标, 而 RocksDB 无法达到同等水平.
+
+<div class="paper-shared">
+
+![图 5: 覆盖写性能比较, 对应表 1 中的负载 B](/assets/images/posts/lavastore/figure-05.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 5: Comparing overwrite performance (B in Table 1).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 5: 覆盖写性能比较, 对应表 1 中的负载 B. 图中给出平均写延迟和 p99 写延迟, 并使用不同纵轴尺度展示差异.</span>
+
+Furthermore, Figure 5 compares performance in an overwrite-centric workload, also outlined in Table 1 in Section 4.1.2. With BlobDB, Titan and LavaStore operating under a uniform write rate limit of 60 MB/s, BlobDB's GC operations during compactions are insufficient for handling large concurrent write traffic, leading to frequent write stalls in about half of the twelve runs. In its best runs, BlobDB's average and tail write latencies are similar to Titan's, but both are significantly higher than LavaStore's. In the majority of runs, BlobDB's latencies are several orders of magnitude higher than those of Titan and LavaStore. Titan performs better than BlobDB in most runs, but its reinsertion of KVs after compactions causes higher write amplification, resulting in average and tail latency numbers that are twice as high as those of LavaStore. This underscores the effectiveness of LavaStore's KV separation technique in enhancing write efficiency.
+
+图 5 进一步比较了以覆盖写为主的负载, 其定义同样见原文第 4.1.2 节表 1. BlobDB, Titan 和 LavaStore 都将写入速率限制为 60 MB/s. BlobDB 在 compaction 期间执行 GC, 难以应对大量并发写入, 12 次运行中约有一半频繁出现写停顿. 在表现最好的几次运行中, BlobDB 的平均写延迟和写尾延迟与 Titan 接近, 但都显著高于 LavaStore. 在多数运行中, BlobDB 的延迟比 Titan 和 LavaStore 高几个数量级. Titan 在多数运行中优于 BlobDB, 但 compaction 后重新插入 KV 会增加写放大, 使其平均延迟和尾延迟约为 LavaStore 的两倍. 这表明 LavaStore 的 KV 分离设计有效提升了写效率.
+
+This design outperformed RocksDB and Titan in write efficiency but introduced extra challenges, including the need for precise adjustments in the standalone GC process to maintain write performance and the complex index searches required by LavaKV's blob files, which often led to increased tail read latencies. Addressing these issues to enhance space utilization and read performance within LavaKV's KV separation framework and the solutions devised will be discussed in Sections 3.3 and 3.4.
+
+这一设计在写效率上优于 RocksDB 和 Titan, 但也带来了新问题. 独立执行的 GC 需要精细调优, 才能避免影响写性能; 查询 LavaKV 的 blob 文件又需要经过复杂的索引查找, 经常推高读尾延迟. 如何在该 KV 分离框架内解决这些问题, 改善空间利用率和读性能, 将分别在原文第 3.3 节和第 3.4 节讨论.
+
+## 3.3 成本效率优化
+
+This section details how LavaLog reduces write costs for sequential log-style workloads, outlines the development of blob GC strategies to enhance space efficiency in LavaKV, and discusses the optimizations for synchronous writes in LavaFS.
+
+本节介绍 LavaLog 如何降低顺序日志型负载的写入成本, LavaKV 如何通过 blob GC 策略提高空间效率, 以及 LavaFS 对同步写入的优化.
+
+### 3.3.1 使用 LavaLog 高效管理日志
+
+<div class="paper-shared">
+
+![图 6: LavaLog 内部结构](/assets/images/posts/lavastore/figure-06.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 6: LavaLog Internals.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 6: LavaLog 内部结构. 内存元数据包含逻辑日志 namespace 与两级记录索引; 元数据操作和用户日志记录分别汇聚到物理元日志与物理数据日志, 并通过检查点持久化索引.</span>
+
+LavaLog provides a set of APIs for users to create, open, and delete log files (called logical logs in LavaLog's context). After a logical log is created and opened, a user can append new records to it by specifying an LSN and a buffer that holds log data. A user can also trim all stale data before a given LSN in a log. Additionally, a user can read the data with an LSN, or scan a log after a given LSN.
+
+LavaLog 提供了一组用于创建, 打开和删除日志文件的 API. 这些文件在 LavaLog 中称为逻辑日志. 创建并打开逻辑日志后, 用户可以指定 LSN 和存放日志数据的缓冲区来追加记录, 也可以裁剪给定 LSN 之前的所有过期数据. 此外, 用户可以按 LSN 读取数据, 或扫描给定 LSN 之后的日志.
+
+Design Goals. The design of LavaLog focuses on the following aspects to serve in production. First, LavaLog needs to accommodate log records with both sequential incremental LSNs and occasionally non-sequential LSNs. While most LSNs ingested to LavaLog are in order, some of them might be out of order, `e.g.`, when a recovering replica is doing missing logs catch-up. The ability to handle log records with non-sequential LSNs distinguishes LavaLog from systems like LogDB <sup>[46]</sup>. Second, LavaLog should prioritize the performance of frequent operations. The most frequently used operations in LavaLog are append, trim, delete, and read. Third, LavaLog has to be resource efficient. LavaLog should avoid resource contention with other co-located services on the same machine. In fact, ByteNDB requires LavaLog to keep its memory consumption under 1% of the total log data size it stores. In addition, LavaLog needs to reclaim the space from trimmed records promply.
+
+**设计目标.** 面向生产环境, LavaLog 需要满足以下要求. 首先, 既要支持 LSN 顺序递增的日志, 也要处理偶尔出现的乱序日志. 大多数日志会按序到达, 但副本在恢复时补齐缺失日志, 就可能打乱顺序. 支持乱序 LSN 是 LavaLog 与 LogDB <sup>[46]</sup> 等系统的区别. 其次, 要优先保证高频操作的性能, 包括 append, trim, delete 和 read. 第三, 要高效利用资源, 避免与同机混部的其他服务争用资源. ByteNDB 要求 LavaLog 的内存消耗低于所存日志总大小的 1%. 此外, LavaLog 还必须及时回收被裁剪记录占用的空间.
+
+Overview. LavaLog logs user operations with two shared logs <sup>[3]</sup>, `i.e.`, metalog and datalog. The metalog logs create, delete, and trim operations, while the datalog records append operations. LavaLog buffers log operations from different users in a queue, while a background task coalesces and flushes the logs to the disk.
+
+**总体设计.** LavaLog 使用两个共享日志 <sup>[3]</sup>, 即 metalog 和 datalog, 记录用户操作. metalog 记录 create, delete 和 trim 操作, datalog 记录 append 操作. 来自不同用户的日志操作先缓存在队列中, 再由后台任务合并并刷入磁盘.
+
+LavaLog stores the metalog and datalog in physical logs, which are files in filesystem with a configurable capacity (`e.g.`, 256 MB). When a physical log outgrows the capcity, LavaLog seals that file, and opens a new one for writes.
+
+metalog 和 datalog 存储在物理日志中. 物理日志是文件系统中的文件, 容量可配置, 例如 256 MB. 当物理日志超过设定容量时, LavaLog 会封存该文件, 并打开新文件继续写入.
+
+<div class="paper-shared">
+
+![图 7: LavaLog 元数据管理](/assets/images/posts/lavastore/figure-07.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 7: LavaLog Metadata Management.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 7: LavaLog 元数据管理. 先将映射插入 L0, 再通过 MetaFlush 将映射写入物理元日志, 在 L1 中添加间接映射, 并生成检查点.</span>
+
+Two-Level Indexing. To locate a user log record in physical logs, LavaLog maintains two mappings. The in-memory namespace maps logical log names to physical file IDs, and metadata maps an LSN to the location of that log record in a physical file. Because of the size of the metadata, LavaLog organizes it into a two-level index, as illustrated in Figure 7. LavaLog only keeps part of the metadata in memory as direct mapping (L0), while MetaFlush the rest mappings into a physical log. The indirect mapping (L1) maps an end LSN to the physical location of MetaFlush records, each of which encodes a group of mappings of (lsn, log_data_location).
+
+**两级索引.** 为在物理日志中定位用户记录, LavaLog 维护两种映射. 内存中的 namespace 将逻辑日志名称映射到物理文件 ID, 元数据则将 LSN 映射到该记录在物理文件中的位置. 由于元数据量较大, LavaLog 采用图 7 所示的两级索引来管理这些映射. 只有部分元数据以直接映射 (L0) 的形式保存在内存, 其余映射通过 MetaFlush 写入物理日志. 间接映射 (L1) 将一组记录的结束 LSN 映射到 MetaFlush 记录的物理位置, 每条 MetaFlush 记录保存一组经过编码的 `(lsn, log_data_location)` 映射.
+
+Checkpoint and Garbage Collection. LavaLog utilizes fuzzy checkpoints <sup>[70]</sup> to minimize user request obstruction. It checkpoints both L1 and namespace data in the background for quick recovery. This involves merging incremental MetaFlush records from physical logs with a base checkpoint to create a new checkpoint.
+
+**检查点与垃圾回收.** LavaLog 使用模糊检查点 (fuzzy checkpoint) <sup>[70]</sup>, 尽量减少对用户请求的阻塞. 它在后台为 L1 和 namespace 数据生成检查点, 以便快速恢复. 具体做法是将物理日志中的增量 MetaFlush 记录与基础检查点合并, 生成新检查点.
+
+LavaLog reclaims space in the datalog by moving valid logical log records from the old log files to the active physical log. When garbage exceeds a threshold, the oldest physical log is targeted for garbage collection. Instead of scanning the entire physical log, LavaLog uses a reverse index at the end of each physical log, mapping [logical log id, LSN, offset, size]. This allows quick validation of logical log records and locating valid records via offsets, significantly reducing read amplification.
+
+LavaLog 将旧日志文件中的有效逻辑日志记录迁移到当前活跃的物理日志, 以回收 datalog 空间. 当垃圾量超过阈值时, 选择最旧的物理日志进行 GC. LavaLog 不扫描整个物理日志, 而是使用每个物理日志末尾的反向索引, 记录 `[logical log id, LSN, offset, size]` 映射. 这样可以快速判断逻辑日志记录是否有效, 并通过偏移量定位有效记录, 显著降低读放大.
+
+<div class="paper-shared">
+
+![图 8: RocksDB 与 LavaLog 即时持久化写入的延迟, 对应原文第 4.1.3 节的 WriteOnly](/assets/images/posts/lavastore/figure-08.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 8: Latencies of writes with immediate persistence for RocksDB and LavaLog (WriteOnly in Section 4.1.3).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 8: RocksDB 与 LavaLog 即时持久化写入的延迟, 对应原文第 4.1.3 节的 WriteOnly. 分别展示 1 个线程与 40 个线程, 4 KB 与 16 KB 写入的平均延迟和 p99.99 延迟; 上下两行的单位不同.</span>
+
+Performance. Figure 8 compares the performance of immediate durable writes in RocksDB and LavaLog, where LavaLog has much lower average and tail latencies than RocksDB.
+
+**性能.** 图 8 比较 RocksDB 与 LavaLog 的即时持久化写入性能. LavaLog 的平均延迟和尾延迟都明显更低.
+
+### 3.3.2 LavaKV 空间利用率优化
+
+We also introduce techniques to increase space efficiency of LavaKV. Specifically, we have implemented two techniques: calculating a blob file's garbage ratio to identify optimal candidates for space recovery (Accurate GC), and increasing the number of concurrent GC tasks through additional threads guided by an adaptive strategy based on disk usage (Adaptive GC). When disk usage is low, our approach focuses on minimizing write amplification by conservatively managing GC, delaying actions on files with lower garbage ratios until they meet set thresholds. Conversely, high disk usage prompts an increase in aggressive GC activities, utilizing more threads to maintain SLA standards, with GC thread priority adjusted below compaction tasks to balance operational needs. Figure 9 illustrates the relationship between GC thread count and garbage ratio as disk usage grows. In the optimized version, the number of GC threads begins to rise once disk usage surpasses the 75% threshold, effectively limiting the overall garbage ratio to approximately 13%, a significant improvement from the 20% observed in the prior, non-optimized version. As a result, disk usage stabilized at around 77%, leaving more usable space.
+
+我们通过两项技术提高 LavaKV 的空间利用效率. 一是精准 GC (Accurate GC): 计算 blob 文件的垃圾比例, 据此选择最适合回收的文件. 二是自适应 GC (Adaptive GC): 根据磁盘占用调整线程数, 增加并发执行的 GC 任务. 磁盘占用较低时, 优先减少写放大, 对垃圾比例较低的文件暂缓 GC, 等达到阈值后再处理. 磁盘占用较高时, 则增加 GC 线程, 加快回收以满足 SLA. 同时, 将 GC 线程的优先级设为低于 compaction 任务, 以兼顾回收和合并的需求. 图 9 展示了磁盘占用上升时 GC 线程数和垃圾比例的变化. 优化后, 磁盘占用一旦超过 75%, 就开始增加 GC 线程, 将整体垃圾比例控制在约 13%, 低于优化前的 20%. 最终磁盘占用稳定在约 77%, 留出了更多可用空间.
+
+<div class="paper-shared">
+
+![图 9: GC 线程数, 整体垃圾比例与磁盘占用的散点图, 对应原文第 4.1.3 节 WriteOnly](/assets/images/posts/lavastore/figure-09.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 9: Scatter plot of the number of GC threads and overall garbage ratio versus disk usage (WriteOnly in Section 4.1.3).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 9: GC 线程数, 整体垃圾比例与磁盘占用的散点图, 对应原文第 4.1.3 节 WriteOnly. Original 为优化前, Optimized 为优化后.</span>
+
+Overall, our GC optimizations have improved space efficiency, demonstrated by write-only workloads, for which our GC techniques increase effective garbage ratio by 7% and reduces the number of GC occurrences by 30%. Moreover, peak disk usage is dropped by 8%, which increases the storage capacity provisioned to users by 8%, thus lowering storage costs.
+
+总体而言, GC 优化提高了空间效率. 在只写负载中, 有效垃圾比例提高了 7%, GC 次数减少了 30%. 此外, 峰值磁盘占用下降了 8%, 可以向用户多提供 8% 的存储容量, 从而降低存储成本.
+
+<div class="paper-shared">
+
+> 译注: 上文的 "整体垃圾比例" 从约 20% 降到约 13%, 而本段原文写作 "effective garbage ratio" 提高 7%. 两处措辞按原文保留, 不将其视为同一指标的同方向变化.
+
+</div>
+
+### 3.3.3 通过 LavaFS 优化同步写入
+
+To tackle the write performance issues mentioned earlier, we introduce the optimizations for synchronous writes in LavaFS.
+
+为解决前述写性能问题, 我们对 LavaFS 的同步写入做了以下优化.
+
+Lightweight Journaling. Ext4 uses the jbd2 mechanism <sup>[34]</sup> for metadata journaling, where a transaction includes a header block (4 KB), one or more journal blocks (4n KB), and the transaction commit block (4 KB), as illustrated in Figure 10a. The inode grouping, together with the extra bookkeeping metadata blocks in jbd2 transaction records, introduce substantial write amplification, in particular for applications that frequently issue synchronous writes. LavaFS, on the other hand, employs a more lightweight journaling mechanism and commits metadata changes to disk by flushing them to a dedicated journal file only, without in-place metadata updates.
+
+**轻量级日志.** Ext4 使用 jbd2 机制 <sup>[34]</sup> 记录元数据日志. 如图 10a 所示, 每个事务包含一个 4 KB 的头块, 一个或多个总计 4n KB 的日志块, 以及一个 4 KB 的事务提交块. inode 分组方式, 加上 jbd2 事务记录中额外的管理信息块, 会带来明显的写放大, 对频繁执行同步写的应用尤其如此. LavaFS 则采用更轻量的日志机制, 只需将元数据变更刷入专用日志文件即可完成提交, 不必原地更新元数据.
+
+<div class="paper-shared">
+
+![图 10: 1 MB 追加写入的 fdatasync: Ext4 与 LavaFS 比较](/assets/images/posts/lavastore/figure-10.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 10: 1 MB appending fdatasync Ext4 v.s. LavaFS.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 10: 1 MB 追加写入的 fdatasync: Ext4 与 LavaFS 比较. (a) Ext4 的 fdatasync 退化为 fsync, WAF = 8; (b) LavaFS 的 fdatasync, WAF 约为 1. 同步写步骤 1 和 5: 将 inode 更新加入日志事务 Tx1 和 Tx2; 步骤 2 和 7: 将脏数据写入磁盘; 步骤 3 和 6: 提交事务, 共 12 KB, 包括 4 KB 事务头, 4 KB 日志块和 4 KB 提交块; 步骤 4: 更新 Ext4 的磁盘 inode 元数据; 步骤 8: 将 inode 更新事务日志写入磁盘.</span>
+
+Synchronous Write Optimization. LavaStore further improves synchronous write performance through a customized fdatasync implementation. Although the concept of fdatasync itself is not novel, using fdatasync in kernel filesystems such as Ext4 for append-only writes behaves the same as using fsync, due to the need to synchronize file metadata to update file size after each append. In contrast, the fdatasync implementation in LavaFS does not flush file metadata for file size changes, unless there is also a change in file extents, `e.g.`, when a new extent is allocated. Figure 10 compares the fdatasync implementations of Ext4 and LavaFS, suggesting a WAF of 8 and ~1, respectively, for 4 KB synchronous writes. Figure 11 shows the actual WAF measurement of ~6.7 and ~1, respectively, using 4 KB writes up to a 256 MB file. Figure 11 also shows that the fsync WAF of Ext4 is the same as fdatasync, and almost doubles for LavaFS due to the additional metadata synchronization in this case.
+
+**同步写优化.** LavaStore 通过定制 `fdatasync` 实现进一步提高同步写性能. `fdatasync` 本身并非新概念, 但在 Ext4 等内核文件系统上, 在仅追加写入的场景下, 调用 `fdatasync` 与调用 `fsync` 的行为相同, 因为每次追加后都要同步文件元数据, 更新文件大小. 相比之下, LavaFS 的 `fdatasync` 不会仅因文件大小变化就刷写文件元数据, 只有文件 extent 也发生变化, 例如分配新 extent 时才会刷写. 图 10 比较了两种实现: 按图中所示流程计算, 4 KB 同步写的 WAF 分别为 8 和约 1. 图 11 则以 4 KB 为单位持续写入, 直到文件达到 256 MB, 实测 WAF 分别约为 6.7 和 1. 图 11 还表明, Ext4 的 `fsync` 与 `fdatasync` 写放大相同; LavaFS 使用 `fsync` 时需要额外同步元数据, 因而写放大接近翻倍.
+
+<div class="paper-shared">
+
+![图 11: 以 4 KB 为单位写入至文件达到 256 MB 时, Ext4 与 LavaFS 的 fsync 和 fdatasync 实际写放大比较.](/assets/images/posts/lavastore/figure-11.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 11: Actual WAF comparison of fsync and fdatasync between Ext4 and LavaFS for 4 KB writes up to a 256 MB file.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 11: 以 4 KB 为单位写入至文件达到 256 MB 时, Ext4 与 LavaFS 的 fsync 和 fdatasync 实际写放大比较.</span>
+
+It is worth noting that with fdatasync, users can no longer rely on the inode information to retrieve the accurate file size (`e.g.`, via stat), and must identify the boundary between valid and invalid data through other means. This is less of an issue, however, for the targeted applications that LavaFS supports. For instance, in case of recovery during OpenDB, LavaKV scans the extents of its WAL to validate record checksums. If the validation fails for a record, both the failed record and any subsequent records will be discarded.
+
+需要注意, 使用这里的 `fdatasync` 后, 用户不能再依赖 inode 信息获取准确的文件大小, 例如通过 `stat` 查询, 而必须用其他方式确定有效数据与无效数据的边界. 不过, 对 LavaFS 所服务的应用来说, 这一限制影响不大. 例如, LavaKV 在 OpenDB 恢复过程中会扫描 WAL 的 extent, 检查记录的校验和 (checksum). 某条记录校验失败时, 该记录及其后所有记录都会被丢弃.
+
+Although it is possible to achieve effects similar to the fdatasync optimization entirely within LavaKV, `e.g.`, by utilizing sparse files initialized to a large size, we note that decoupling the low-level, storage-related optimizations into a user-space filesystem has additional benefits. For one thing, these optimizations can be easily re-used to improve performance and cost for any other systems using LavaFS. For another, having a user-space filesystem makes it easier to adopt technologies such as SPDK and ZNS SSDs for the future evolution of LavaStore.
+
+虽然也可以完全在 LavaKV 内部实现类似的 `fdatasync` 优化, 例如使用预先设定较大文件大小的稀疏文件, 但将这些底层存储优化独立出来, 放在用户态文件系统中还有其他好处. 一方面, 使用 LavaFS 的其他系统也能方便地复用这些优化, 提高性能并降低成本. 另一方面, 用户态文件系统有利于在 LavaStore 后续演进中引入 SPDK 和 ZNS SSD 等技术.
+
+LavaFS Performance. We compare the performance of sequential write and random read, the two access patterns cared by LavaLog and LavaKV, with FIO tests on LavaFS and Ext4. The sequential write tests include two cases. As shown in Figure 12, the first case uses one thread to create 400 files and write 256 MB worth of data to each file consecutively, and each write is followed by an fsync to simulate the writes for a WAL. The second case uses 20 threads and each thread does the same work as the first case, to simulate SSTable writes in an LSM-tree KV store (`i.e.`, writes that do not require immediate durability). The only difference is that each write is not followed by an fsync. The read tests use one thread or 20 threads to randomly read data from 400 pre-created files, and the total size of read data for each thread is 100 GB. For all tests, we vary the I/O size from 4 KB to 512 KB. To eliminate the effect of kernel page cache, both Ext4 and LavaFS use direct I/O.
+
+**LavaFS 性能.** 我们使用 FIO 比较 LavaFS 与 Ext4 的顺序写和随机读性能, 这两种访问模式正是 LavaLog 与 LavaKV 的优化重点. 顺序写测试包含两种情况, 如图 12 所示. 第一种使用单线程创建 400 个文件, 向每个文件连续写入 256 MB 数据, 每次写后调用 `fsync`, 模拟 WAL 写入. 第二种使用 20 个线程, 每个线程执行相同工作, 但每次写后不调用 `fsync`, 以模拟 LSM-tree KV 存储中不要求即时持久化的 SSTable 写入. 读测试使用单线程或 20 个线程, 从预先创建的 400 个文件中随机读数据, 每个线程读取总量为 100 GB. 所有测试均覆盖 4 KB 到 512 KB 的不同 I/O 大小. 为排除内核页缓存的影响, Ext4 和 LavaFS 均使用直接 I/O.
+
+<div class="paper-shared">
+
+![图 12: Ext4 与 LavaFS 的 FIO 性能比较](/assets/images/posts/lavastore/figure-12.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 12: FIO performance comparison for Ext4 and LavaFS.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 12: Ext4 与 LavaFS 的 FIO 性能比较. 左上为单线程顺序写延迟, 右上为 20 线程顺序写吞吐量, 左下为单线程随机读吞吐量, 右下为 20 线程随机读吞吐量.</span>
+
+In the case of sequential write operations, LavaFS outperforms Ext4 for single-threaded synchronous writes due to its much lower WAF. `E.g.`, for 4 KB I/O, LavaFS has a WAF of 2 when using fsync, while Ext4 has a WAF of ~6.7, as shown in Figure 11. Additionally, for multi-threaded non-synchronous writes, LavaFS also exhibits superior performance compared to Ext4 thanks to its lower overhead due to kernel bypassing.
+
+对于顺序写, LavaFS 的 WAF 更低, 因此单线程同步写性能优于 Ext4. 例如图 11 所示, 对 4 KB I/O 使用 `fsync` 时, LavaFS 的 WAF 为 2, Ext4 约为 6.7. 此外, LavaFS 绕过内核, 减少了相关开销, 因而多线程非同步写性能也优于 Ext4.
+
+Regarding random read operations, both in single-threaded and multi-threaded tests, LavaFS shows a slight advantage over Ext4, particularly for small I/O sizes. However, in most scenarios, their performance remains comparable.
+
+对于随机读, 无论单线程还是多线程测试, LavaFS 都略优于 Ext4, 小 I/O 时尤其明显. 不过, 大多数场景下两者性能接近.
+
+<div class="paper-shared">
+
+![图 13: LavaKV 在不同文件系统上的读写性能比较, 对应表 1 中的负载 B 和 C](/assets/images/posts/lavastore/figure-13.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 13: Write and read performance comparison of LavaKV on different filesystems (B and C in Table 1).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 13: LavaKV 在不同文件系统上的读写性能比较, 对应表 1 中的负载 B 和 C. 左侧为平均写延迟与 p99 写延迟, 右侧为平均 Get 延迟与 p99 Get 延迟.</span>
+
+Figure 13 shows the write and read performance of LavaKV on LavaFS and Ext4 with db_bench. In both workloads, LavaKV performs better on LavaFS than Ext4 with lower average and tail latencies. Compared with Ext4, LavaFS has in-memory metadata. Therefore, its read and write paths do not require metadata lookup and thus reduce average read and write latency. The better write performance also stems from the asynchronous journal compaction and fdatasync-based co-design.
+
+图 13 使用 `db_bench` 比较 LavaKV 运行在 LavaFS 和 Ext4 上的读写性能. 两种负载下, LavaKV 运行在 LavaFS 上时, 平均延迟和尾延迟都更低. 与 Ext4 相比, LavaFS 的元数据驻留内存, 因而读写路径不需要进行相应的元数据查找, 降低了平均读写延迟. 写性能提升还来自异步日志合并, 以及基于 `fdatasync` 的协同设计.
+
+## 3.4 读性能优化
+
+Our aim was to reduce the I/O cost for a Get query to 1, meaning that the index and data blocks from SSTables, as well as the blob index, should be accessible directly from the block cache. Thanks to KV separation leading to reduced SSTable sizes and an efficient compaction strategy, entire SSTables should easily fit into the block cache. Nonetheless, the fully sorted index in LavaKV's blob files is too extensive and redundant, mirroring SSTable indexes and proving useful only during GCs.
+
+我们的目标是让一次 Get 只需进行 1 次磁盘 I/O. 这意味着 SSTable 的索引块和数据块, 以及 blob 索引, 都要能够直接从块缓存中读取. KV 分离缩小了 SSTable 的体积, 再配合高效的 compaction 策略, 整个 SSTable 应当比较容易放入块缓存. 但 LavaKV 的 blob 文件中还保留了完整的有序索引, 不仅占用空间大, 也与 SSTable 索引重复, 只有 GC 时才用得上.
+
+To integrate the blob index into the block cache efficiently, we utilized a memory-efficient Crit-bit Tree (CBT) <sup>[39]</sup> index. The CBT index, using just 2.3 bytes per key, incurs a negligible space overhead of only 1.6‰ according to our db_bench test. This is significantly more efficient than the space overhead reported by RocksDB for a similar-purpose Data Block Hash Index <sup>[54]</sup> (~4.6%), making the CBT index only approximately 1/287 of this size. It facilitates efficient blob file lookups, enabling the quick retrieval of desired values. As a result, caching only needs to accommodate the CBT index. In contrast to RocksDB's approach, which uses a 24-byte triplet, LavaKV's method employs only 11 bytes on average (including an 8-byte blob file number common to both RocksDB and LavaKV), resulting in a better cache hit ratio and improved read performance.
+
+为了让 blob 索引以更小的开销放入块缓存, 我们采用了节省内存的 Crit-bit Tree (CBT) <sup>[39]</sup> 索引. 该索引每个 key 仅使用 2.3 字节; 在我们的 `db_bench` 测试中, 空间开销仅为 1.6‰. 这远低于 RocksDB 为用途类似的 Data Block Hash Index <sup>[54]</sup> 报告的约 4.6% 空间开销. 原文据此称 CBT 索引大小约为其 1/287. 通过 CBT 索引可以高效查询 blob 文件, 快速定位目标 value, 因此缓存只需保留这份索引. RocksDB 的方式使用 24 字节三元组, LavaKV 平均只需 11 字节, 其中包含两者都需要的 8 字节 blob 文件编号, 从而提高缓存命中率和读性能.
+
+<div class="paper-shared">
+
+> 译注: 原文同时给出 1.6‰, 4.6% 和约 1/287. 按前两个比例计算, 1.6‰ / 4.6% 约为 1/28.75, 与 1/287 不一致. 此处保留原文数值, 不替作者改定其中任何一项.
+
+</div>
+
+<div class="paper-shared">
+
+![图 14: LavaKV 使用 CBT 索引和统一缓存后的 Get 性能比较, 对应表 1 中负载 C, I/O 大小为 4 KB](/assets/images/posts/lavastore/figure-14.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 14: Comparing Get performance using the CBT index and unified cache (C in Table 1) with LavaKV (I/O size 4 KB).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 14: LavaKV 使用 CBT 索引和统一缓存后的 Get 性能比较, 对应表 1 中负载 C, I/O 大小为 4 KB. 比较排序索引, CBT 索引, 以及 CBT 索引与统一缓存结合的方案; 指标为平均 Get 延迟, p99 Get 延迟和每次 Get 的磁盘 I/O 次数.</span>
+
+In pursuit of optimizing block cache efficiency, we implemented an innovative cache system known as the unified cache, which operates atop any existing caches, including RocksDB's built-in clock and LRU caches. This system uniquely allocates a specific segment for indexing blocks, enabling dynamic size adjustment between index block and data block caches to optimize storage. To guarantee that each Get request results in no more than one disk I/O, indexing blocks are given priority in caching due to their higher importance. This prioritization is facilitated by the introduction of the CBT index for blob files. The integration of the CBT index alongside the unified cache system has led to a notable reduction in both average and tail Get latencies by approximately 20% to 30%, as well as a reduction in the average disk I/O for a Get operation from 4 to below 2, even in scenarios that favor RocksDB over LavaStore, enhancing overall efficiency and performance in data retrieval (as shown in Figure 14). It is noteworthy that this unified cache can function independently of KV separation, although the performance gains are not as pronounced as when used in conjunction with KV separation and the CBT index.
+
+为提高块缓存的利用效率, 我们实现了统一缓存 (unified cache). 它可以运行在已有缓存之上, 包括 RocksDB 内置的 clock 和 LRU 缓存. 统一缓存为索引块单独划分一部分空间, 并动态调整索引块缓存与数据块缓存的容量. 为使每次 Get 最多触发一次磁盘 I/O, 缓存优先保留更重要的索引块; blob 文件采用 CBT 索引有助于实现这一策略. CBT 索引与统一缓存结合后, 即使在更有利于 RocksDB 的场景中, Get 的平均延迟和尾延迟也下降了约 20% 到 30%, 每次 Get 的平均磁盘 I/O 从 4 次降至不足 2 次, 如图 14 所示. 统一缓存也可以不依赖 KV 分离单独使用, 但收益不及同时使用 KV 分离和 CBT 索引.
+
+# 4. 性能评估
+
+This section begins with a comparison of end-to-end I/O performance between upstream RocksDB and LavaStore using two standard benchmarks, db_bench and SysBench, in Section 4.1. We then assess the performance of LavaStore in our real-world production environment, with ABase and Flink, in Section 4.2.
+
+本节先使用 `db_bench` 和 SysBench 两项标准基准测试, 比较上游 RocksDB 与 LavaStore 的端到端 I/O 性能, 对应原文第 4.1 节. 随后介绍 LavaStore 在 ABase 和 Flink 生产环境中的实际表现, 对应原文第 4.2 节.
+
+## 4.1 标准基准测试
+
+### 4.1.1 硬件环境
+
+We use machines with identical hardware configurations to evaluate the performance of RocksDB, Titan and LavaStore. Each test machine features an Intel Xeon Silver 4314 CPU with 64 cores, 377 GB of DRAM, and 5 Intel SSDPF2KX038TZ NVMe SSDs, each with a capacity of 3.84 TB. The test machines all run a 64-bit Debian 10 operating system with Linux kernel version 5.15.103. Both db_bench and SysBench, which will be discussed in 4.1.2 and 4.1.3 respectively, use these same hardware equipment.
+
+我们使用相同硬件配置的机器评估 RocksDB, Titan 和 LavaStore. 每台测试机器配备 Intel Xeon Silver 4314 CPU, 64 个核心, 377 GB DRAM, 以及 5 块 Intel SSDPF2KX038TZ NVMe SSD, 每块容量 3.84 TB. 所有机器运行 64 位 Debian 10, Linux 内核版本为 5.15.103. 原文第 4.1.2 节和第 4.1.3 节介绍的 `db_bench` 与 SysBench 测试均使用这些硬件.
+
+<div class="paper-shared">
+
+> 译注: 原文将测试机器描述为 Intel Xeon Silver 4314 CPU, 64 cores. 这里保留原文整机配置表述, 不据此推断单颗处理器的核心数或处理器数量.
+
+</div>
+
+### 4.1.2 使用 db_bench 评估性能
+
+Configurations. We employ db_bench, the benchmarking tool commonly used for assessing the performance of RocksDB and its derivatives, to evaluate and compare the performance of RocksDB version 8.5.3 and Titan version 7.1 (the latest versions as of this writing) with LavaStore. For all our tests, we utilize the original benchmark.sh script from RocksDB version 8.5.3, as referenced in the RocksDB Wiki <sup>[56]</sup>. Our evaluation compares the performance about three types of operations: write operation, read operation, and short/long-range scans.
+
+**配置.** 我们使用常用于评估 RocksDB 及其衍生系统的 `db_bench`, 比较 RocksDB 8.5.3, Titan 7.1 与 LavaStore 的性能. RocksDB 和 Titan 均采用本文撰写时的最新版本. 所有测试都使用 RocksDB 8.5.3 原版 `benchmark.sh`, 参见 RocksDB Wiki <sup>[56]</sup>. 评估覆盖三类操作: 写入, 读取, 以及短范围和长范围扫描.
+
+We conduct tests across 5 distinct workloads based on the original benchmark.sh script with default parameters, as detailed in Tables 1 and 2. It is worth noting that the USE_O_DIRECT flag is set to enable direct I/O for read, flush, and compaction in RocksDB, thereby avoiding the use of the system's page cache, to ensure a fair comparison with LavaStore, which operates in direct I/O mode. This is because in our production environment, a larger block cache is prioritized over the page cache. In all workloads except A, the MB_WRITE_PER_SEC parameter is limited to 60 MB/s to restrict the write rate and prevent write stalls, with a maximum running time of 30 minutes. In Table 2, the SSTable cache is a SecondaryCache in RocksDB and a block cache in Titan, storing SSTable blocks. Conversely, in LavaStore, it stores both SSTable blocks and the blob CBT indexes. The blob cache stores blocks of blob files in RocksDB and Titan, whereas in LavaStore, it only stores the values of blobs. Averages are based on twelve runs for RocksDB, and six runs for Titan and LavaStore. RocksDB required more runs due to unstable write performance, while the other two showed consistent results.
+
+我们基于原版 `benchmark.sh` 及默认参数测试了 5 种负载, 详见表 1 和表 2. 为与使用直接 I/O 的 LavaStore 公平比较, 我们设置 `USE_O_DIRECT`, 让 RocksDB 的读取, flush 和 compaction 都使用直接 I/O, 绕过系统页缓存. 这是因为在生产环境中, 我们优先将内存分配给块缓存, 而非页缓存. 除负载 A 外, 所有负载都将 `MB_WRITE_PER_SEC` 设为 60 MB/s, 限制写速率以防写停顿, 最长运行 30 分钟. 表 2 中, SSTable 缓存在 RocksDB 中是 SecondaryCache, 在 Titan 中是块缓存, 都保存 SSTable 块; LavaStore 则同时保存 SSTable 块和 blob 的 CBT 索引. blob 缓存在 RocksDB 和 Titan 中保存 blob 文件块, 在 LavaStore 中只保存 blob 的 value. RocksDB 的平均值取自 12 次运行, Titan 和 LavaStore 各取自 6 次运行. RocksDB 写性能不稳定, 所以需要更多次运行; 另外两者的结果较一致.
+
+<div class="paper-shared">
+
+<span class="paper-caption">**表 1: db_bench 工作负载汇总 (Summary of db_bench workloads).**</span>
+
+| 编号 | 名称 | benchmark.sh 负载 | 说明 |
+|:---:|:---|:---|:---|
+| A | Load | bulkload | 单线程批量写入, 不启用同步写和 WAL, 对应 fillrandom; 随后手动执行 compact, 用于快速准备数据. |
+| B | Write | overwrite | 16 个线程执行随机 Put. |
+| C | Read | readwhilewriting | 16 个线程执行随机 Get, 同时 1 个线程执行随机 Put. |
+| D | Short Scan | fwdrangewhilewriting | 16 个线程执行随机迭代器 Seek, 每次随后执行 10 次 Next; 同时 1 个线程执行随机 Put. |
+| E | Long Scan | fwdrangewhilewriting | 16 个线程执行随机迭代器 Seek, 每次随后执行 1,000 次 Next; 同时 1 个线程执行随机 Put. |
+
+</div>
+
+<div class="paper-shared">
+
+<span class="paper-caption">**表 2: db_bench 中 RocksDB, Titan 与 LavaStore 的关键参数. 其他参数保持默认 (Key parameters; other parameters are kept default).**</span>
+
+| 参数 | 值 |
+|:---|:---|
+| Key/Value Length | 36 / 16,000 字节 |
+| Compression | 压缩比 50%; ZSTD |
+| Total Operations | 68,565,205 |
+| Total Raw KV Size | 1 TB, 压缩后 500 GB |
+| KV Separation Threshold | 512 字节, min_blob_size |
+| Total Cache Size | 1 GB, 缓存与总数据大小之比为 1:500 |
+| SSTable Cache | 800 MB, 压缩, LRU |
+| Blob Cache | 224 MB, 不压缩, LRU |
+
+</div>
+
+<div class="paper-shared">
+
+![图 15: 写入同时执行读取或扫描的负载比较](/assets/images/posts/lavastore/figure-15.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 15: Read/Scan while Writing Workloads Comparison (Y-axes of the first two columns are log-scaled).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 15: 写入同时执行读取或扫描的负载比较. 三行分别对应点查, 短范围扫描和长范围扫描; 前两列纵轴使用对数刻度.</span>
+
+Performance Results. We have the following three observations:
+
+**性能结果.** 测试结果主要体现在以下三个方面.
+
+(1) Write Performance: Similar to workload B, LavaStore outperforms RocksDB and Titan in workloads C, D, and E. LavaStore's average and 99th percentile write latencies are 67% to 80% lower than Titan's and several orders of magnitude lower than RocksDB's. Note that RocksDB's numbers are averages from twelve runs, but actual values fluctuate significantly, similar to Figure 5. The write performance gain demonstrates that we have successfully achieved our design goal of handling highly write-intensive workloads.
+
+**写性能.** 与负载 B 类似, 在 C, D 和 E 中 LavaStore 同样优于 RocksDB 和 Titan. LavaStore 的平均写延迟和第 99 百分位写延迟比 Titan 低 67% 到 80%, 比 RocksDB 低几个数量级. RocksDB 的数值是 12 次运行的平均值, 实际结果波动很大, 与图 5 类似. 这些结果表明, LavaStore 达到了应对高强度写入负载的设计目标.
+
+(2) Read Performance of Lookups: In the given settings, all data except for the values in blobs can be fully cached in the SSTable cache. As a result, retrieving a value typically requires only one disk read in a blob file. Consequently, the average Get latencies for RocksDB, Titan, and LavaStore are similar, with RocksDB being marginally faster. However, LavaStore supports cache warming by proactively caching KVs during compactions, which results in a slightly better 99th percentile latency compared to Titan.
+
+**点查读性能.** 在给定配置下, 除 blob 中的 value 外, 其他数据均可完整缓存在 SSTable 缓存中. 因此, 读取一个 value 通常只需对 blob 文件执行一次磁盘读取. RocksDB, Titan 和 LavaStore 的平均 Get 延迟接近, RocksDB 略快. 不过, LavaStore 支持在 compaction 期间主动缓存 KV 来预热缓存, 因而第 99 百分位延迟略优于 Titan.
+
+(3) Read Performance of Range Scans: LavaStore performs comparably or even slightly better than RocksDB and Titan in short-range scans but is less efficient in long-range scans, as illustrated in the third row of Figure 15. This is because our KV separation design, unlike RocksDB, decouples GC and compaction to achieve higher write throughput. However, this leads to less frequent compactions (Titan is similar), resulting in poorer locality for range queries compared to RocksDB. We note, however, that cloud services at ByteDance rarely rely on range queries, so this does not adversely impact LavaStore's performance in production.
+
+**范围扫描读性能.** 如图 15 第三行所示, LavaStore 的短范围扫描性能与 RocksDB, Titan 相当或略优, 但长范围扫描效率更低. 这是因为我们的 KV 分离设计将 GC 与 compaction 解耦来提高写吞吐量, 导致 compaction 频率下降, Titan 也有类似情况, 范围查询局部性因而不如 RocksDB. 不过, 字节跳动的云服务很少依赖范围查询, 因此这一不足并未影响 LavaStore 在生产环境中的表现.
+
+### 4.1.3 使用 SysBench 评估性能
+
+While db_bench can evaluate the I/O performance of single local storage engines, it is also important to conduct a broader evaluation of LavaStore in a cluster environment. Thus, we used SysBench <sup>[38]</sup> to benchmark a ByteNDB cluster comprising 3 nodes, each equipped with 5 NVMe SSD drives. These drives supported either 5 RocksDB instances on Ext4 or 5 LavaStore instances. Our setup handled 6 datasets, each containing 250 tables with 25 million rows of 200 bytes each, as detailed in Section 4.1.1.
+
+`db_bench` 用于评估单个本地存储引擎的 I/O 性能. 要更全面地了解 LavaStore 的表现, 还需要在集群环境中测试. 为此, 我们使用 SysBench <sup>[38]</sup> 测试了一个包含 3 个节点的 ByteNDB 集群, 每个节点配备 5 块 NVMe SSD. 每个节点分别使用这些磁盘运行 5 个基于 Ext4 的 RocksDB 实例, 或 5 个 LavaStore 实例. 测试使用 6 个数据集, 每个数据集包含 250 张表, 每张表包含 2,500 万行, 每行 200 字节. 硬件配置见原文第 4.1.1 节.
+
+The SysBench test has two workloads: WriteOnly workload employs the oltp_write_only script to write all 25 million rows to all tables; and ReadWrite utilizes the oltp_read_write script to both read and write to all rows in all tables. This setup allowed us to showcase the performance gains achieved with LavaStore, including the purpose-built LavaLog, comparing outcomes from persistent volumes and ByteNDB clients across these distinct storage solutions in a single, comprehensive paragraph.
+
+SysBench 测试包含两种负载. WriteOnly 使用 `oltp_write_only` 脚本写入所有表中的 2,500 万行; ReadWrite 使用 `oltp_read_write` 脚本对所有表的各行执行读写. 这一配置可以从持久卷和 ByteNDB 客户端两个角度比较不同存储方案, 综合展示包括专用 LavaLog 在内的 LavaStore 所带来的性能收益.
+
+Table 3 presents the performance metrics for two essential internal operations, WriteLog and ReadPage, comparing RocksDB and LavaLog specifically in log-style workloads. Additionally, it includes common end-to-end performance indicators such as throughput, latency, and overall WAF for a comprehensive assessment.
+
+表 3 给出 WriteLog 和 ReadPage 两个关键内部操作的性能指标, 比较 RocksDB 与 LavaLog 在日志型负载中的表现. 表中还列出吞吐量, 延迟和整体 WAF 等常用端到端指标, 以便全面评估.
+
+<div class="paper-shared">
+
+<span class="paper-caption">**表 3: 使用 SysBench 对比 ByteNDB 的 WriteOnly 和 ReadWrite (Comparison of WriteOnly and ReadWrite on ByteNDB using SysBench).**</span>
+
+| 指标 | WriteOnly: RocksDB | WriteOnly: LavaStore | ReadWrite: RocksDB | ReadWrite: LavaStore |
+|:---|---:|---:|---:|---:|
+| WriteLog (ms) | 3.6 | 1.4 | 1.4 | 0.7 |
+| ReadPage (ms) | - | - | 1.2 | 1.0 |
+| DB Latency (ms) | 3.8 | 3.6 | 62.3 | 56.5 |
+| DB TPS (×1000) | 200.5 | 212.5 | 12.3 | 13.6 |
+| DB QPS (×1000) | 1202.8 | 1275.3 | 246.6 | 271.6 |
+| End-to-End WAF | 7.3 | 5.6 | 35.94 | 20.25 |
+
+表中的 "-" 对应原文 N/A, 表示该负载下不适用. 百分比收益沿用论文正文报告值; 表格显示的是经过舍入的数据.
+
+</div>
+
+The table reveals that, compared to RocksDB, LavaLog decreases WriteLog latency by 61% in the WriteOnly workload and 48% in the ReadWrite workload, showcasing LavaLog's efficient design that targets reducing write amplification from at least 2 to nearly 1. Additionally, the ReadPage operation witnesses a 16% reduction in average latency during the ReadWrite test. This improvement highlights LavaLog's effective read path implementation, especially when compared to reading SSTables in such specific workloads.
+
+与 RocksDB 相比, LavaLog 在 WriteOnly 负载中的 WriteLog 延迟降低了 61%, 在 ReadWrite 中降低了 48%. 这说明将写放大从至少 2 降至接近 1 的设计取得了效果. 此外, ReadWrite 测试中 ReadPage 的平均延迟降低了 16%. 在这种特定负载下, 相比读取 SSTable, LavaLog 的读路径实现更高效.
+
+From a comprehensive end-to-end viewpoint, the overall average latency of combined operations sees a reduction of 6% in the WriteOnly workload and 10% in the ReadWrite workload. Thus, the database's overall throughput, in terms of Transactions Per Second (TPS) and QPS, experiences enhancements of 6% and 10%, respectively. This more pronounced improvement in the ReadWrite workload aligns with observations from similar db_bench workloads, such as C--E, indicating that LavaStore delivers superior write performance, particularly under heavy read pressure. Furthermore, the end-to-end WAF for ByteNDB shows a substantial decrease of 24% in WriteOnly and 44% in ReadWrite tests, further highlighting the impact of our optimization efforts on write efficiency.
+
+从端到端测试结果来看, WriteOnly 和 ReadWrite 两种负载下的整体平均操作延迟分别降低了 6% 和 10%, 数据库吞吐量, 包括每秒事务数 (TPS) 和 QPS, 则分别提高了 6% 和 10%. ReadWrite 的提升更明显, 与 `db_bench` 中类似负载 C 到 E 的结果一致. 这说明 LavaStore 在读压力较大时, 尤其能体现出写性能优势. 此外, ByteNDB 的端到端 WAF 在 WriteOnly 和 ReadWrite 中分别下降了 24% 和 44%, 也印证了这些优化对写效率的改善.
+
+## 4.2 生产环境性能
+
+<div class="paper-shared">
+
+![图 16: ABase 生产环境中 RocksDB 与 LavaStore 的比较](/assets/images/posts/lavastore/figure-16.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 16: RocksDB v.s. LavaStore on ABase.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 16: ABase 生产环境中 RocksDB 与 LavaStore 的比较. 分别给出 Set 和 Get 的 QPS 与 p99 延迟.</span>
+
+In Figure 16, LavaStore demonstrates marked enhancements for Abase in production, which maintains ~100 GB to ~1 TB data per instance on average, with a read: write ratio of 3.6:1 and an average value size of ~1 to ~2 KB. The efficient KV separation of LavaStore leads to an 87% increase in overall QPS for write (Set) operations, nearly doubling the performance compared to RocksDB. Furthermore, tail write latency sees a 38% reduction, thanks to synchronous write optimizations jointly engineered in LavaKV and LavaFS. Regarding read (Get) performance, LavaStore achieves a comparable QPS to RocksDB, with a slight 3% improvement. But more importantly, the CBT index and the unified cache significantly reduce tail read latency by 28%, underscoring the combined efficacy of these technologies in supporting lookup-centric workloads.
+
+图 16 展示了 ABase 在生产环境中使用 LavaStore 后的性能变化. 每个实例平均存储约 100 GB 到 1 TB 数据, 读写比为 3.6:1, value 平均大小约 1 到 2 KB. LavaStore 高效的 KV 分离使 Set 写操作的总 QPS 提高了 87%, 接近 RocksDB 的两倍. LavaKV 与 LavaFS 联合实现的同步写优化, 还使写尾延迟降低了 38%. Get 读操作的 QPS 与 RocksDB 接近, 提高了 3%. 更重要的是, CBT 索引与统一缓存将读尾延迟降低了 28%, 说明两者结合能有效改善以点查为主的负载.
+
+<div class="paper-shared">
+
+![图 17: Flink 生产环境中 RocksDB 与 LavaStore 的比较](/assets/images/posts/lavastore/figure-17.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 17: RocksDB v.s. LavaStore on Flink.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 17: Flink 生产环境中 RocksDB 与 LavaStore 的比较. 分别给出平均值与峰值的 CPU 核数, 内存使用量和数据大小.</span>
+
+Figure 17 compares LavaStore and RocksDB for a Flink online joiner of an advertising service in production, which features a multi-instance setup with ~6 GB data per instance and ~3000 instances per server, with a read: write: delete ratio of 1:1:1 and an average value size of ~70 KB. Compared with RocksDB, LavaStore enjoys a 26% and 67% reduction in average and peak CPU usage, respectively. This is primarily due to LavaStore's more efficient KV separation, which significantly reduces both the frequency and the size of CPU-heavy compactions. While average memory usage of LavaStore sees a minor increase of 1%, peak memory usage remains unchanged. Furthermore, both average and peak data sizes are reduced by 15% using LavaStore, highlighting the effectiveness of our optimized GC strategies in enhancing space efficiency.
+
+图 17 比较了生产环境中某广告服务的 Flink 在线关联任务 (joiner) 使用 LavaStore 和 RocksDB 的情况. 该场景采用多实例部署, 每个实例约 6 GB 数据, 每台服务器约 3,000 个实例, 读, 写, 删除比例为 1:1:1, value 平均大小约 70 KB. 与 RocksDB 相比, LavaStore 的平均 CPU 使用量降低了 26%, 峰值降低了 67%. 主要原因是 KV 分离更高效, 显著降低了 compaction 的频率和规模, 减少了这类 CPU 密集操作的开销. 平均内存使用量略增 1%, 峰值内存使用量不变. 此外, 使用 LavaStore 后, 数据大小的平均值与峰值均减少了 15%, 表明优化后的 GC 策略有效提高了空间效率.
+
+# 5. 讨论
+
+## 5.1 经验总结
+
+Specializing vs. Generalization: While common configurations like RocksDB suffice for many scenarios, specific cases highlight performance issues, such as high write amplification and significant tail latency. Databases that demand high write throughput and immediate disk flush, while maintaining read performance and capacity efficiency, benefit from specialized engines designed for particular I/O streams. These tailored solutions address performance challenges more effectively than a one-size-fits-all approach.
+
+**专用化与通用化.** RocksDB 这样的通用方案能够满足许多场景, 但在某些场景下仍会出现写放大高, 尾延迟大等问题. 如果数据库既要求高写吞吐量和即时落盘, 又需要兼顾读性能与存储空间利用率, 就可以考虑针对特定 I/O 模式设计专用引擎. 这类方案往往比通用方案更能解决这些性能问题.
+
+Building on Existing Foundations: Though crafting specialized software can offer performance gains, simplify the software stack, and enhance code quality, it introduces significant challenges. These include the substantial effort required for development from the ground up, as opposed to modifying existing systems. This approach also bypasses the benefits derived from mature testing frameworks, well-established benchmarks, and a plethora of utility tools inherent in existing solutions, which are crucial for maintaining high stability standards, especially for infrastructure software like local storage engines where stability is often paramount.
+
+**基于现有系统构建.** 专用软件有机会提升性能, 简化软件栈并改善代码质量, 但从头开发也面临不少困难. 相比改造现有系统, 它需要投入更多工作, 也无法直接复用现有方案成熟的测试框架, 基准测试和大量实用工具. 这些积累对于保证稳定性十分重要, 尤其是本地存储引擎这类基础设施软件, 稳定性往往是首要要求.
+
+Avoid Over-engineering: Efficient resolutions often emerge from uncomplicated and nimble approaches. For example, although KV separation effectively lowers write amplification during compaction, it inherently requires a balance between read performance and space usage. Our experience has shown that rather than resorting to intricate models, employing a straightforward strategy based on disk usage to dynamically regulate GCs can adeptly manage this balance, thereby enhancing overall performance.
+
+**避免过度设计.** 简单灵活的方法常常能有效解决问题. 例如, KV 分离虽然降低了 compaction 的写放大, 但仍需平衡读性能和空间占用. 我们的经验表明, 无需引入复杂模型, 根据磁盘占用动态调节 GC 的简单策略, 就能兼顾这些需求, 提高整体性能.
+
+Emphasizing Modular Design: Maintaining a comprehensive, yet modular design is crucial. This approach facilitates adaptability to emerging challenges. As priorities shifted from write throughput and space utilization to optimizing for lookup tail latency, we were compelled to reevaluate certain design and implementation aspects of LavaKV's KV separation strategy. Modularity is thus indispensable for facilitating such evolutionary development processes.
+
+**重视模块化设计.** 系统设计既要考虑整体, 也要做好模块划分, 才便于应对后续出现的问题. 当优化重点从写吞吐量和空间利用率转向点查尾延迟时, 我们就需要重新审视 LavaKV KV 分离方案的部分设计与实现. 模块化设计为这样的持续演进提供了必要条件.
+
+## 5.2 未来方向
+
+Evolving Local Storage Engine Optimization: Future enhancements may involve categorizing query requests into point lookup queries and range queries, each handled by distinct algorithms. This differentiation allows for optimizing sequential chunks, thereby improving write amplification and Total Cost of Ownership (TCO).
+
+**继续优化本地存储引擎.** 未来可以考虑将点查与范围查询分开, 分别使用不同算法处理. 这样便于针对顺序数据块进行优化, 降低写放大和总拥有成本 (TCO).
+
+Refining LavaLog's GC: . The current FIFO-based GC strategy in LavaLog shows limitations with out-of-order Trim requests from applications. We plan to develop and incorporate new GC strategies that intelligently adapt to varying Trim patterns, moving beyond a sole reliance on FIFO.
+
+**改进 LavaLog 的 GC.** 当前基于 FIFO 的 GC 策略, 在应用发出乱序 Trim 请求时存在局限. 我们计划开发并引入能够根据不同 Trim 模式自适应调整的新 GC 策略, 不再仅依赖 FIFO.
+
+Adapting to New Storage Technologies: Data streams with a sequential-intensive nature stand to benefit from append-optimized filesystems and storage devices. A potential avenue for exploration is the integration of append-friendly technologies like ZNS <sup>[7]</sup> SSDs, explicitly designed to cater to log-style data streams.
+
+**适配新的存储技术.** 对于以顺序访问为主的数据流, 针对追加写优化的文件系统和存储设备有望带来收益. 一个值得探索的方向是引入 ZNS <sup>[7]</sup> SSD 等适合追加写入的技术, 更好地支持日志型数据流.
+
+Optimize Cross-layer GC: . Our efforts have aimed at unifying GC processes at the KV and filesystem layers. However, considering the SSD still operates its own GC, which may introduce additional write amplification and impact performance and device lifespan, future work will focus on enhancing coordination across all layers, especially leveraging advancements in ZNS and SPDK technologies.
+
+**优化跨层 GC.** 我们一直在推进 KV 层与文件系统层 GC 的统一协调. 但 SSD 内部仍有自己的 GC, 可能带来额外写放大, 影响性能和设备寿命. 未来将加强各层之间的协调, 并利用 ZNS 和 SPDK 等技术的新进展.
+
+# 6. 相关工作
+
+Significant research has aimed at improving write, read, and space efficiencies in LSM-tree-based KV stores like RocksDB. Key studies in <sup>[50, 71, 72]</sup> examine the trade-offs among these aspects, providing a thorough overview of applicable techniques. Our discussion narrows down to related work in the following four specific categories, focusing on the optimization of LSM-tree-based systems.
+
+大量研究致力于提高 RocksDB 等基于 LSM-tree 的 KV 存储的写效率, 读效率和空间效率. 文献 <sup>[50, 71, 72]</sup> 研究这些指标间的权衡, 系统梳理了可用技术. 我们重点讨论以下四类与 LSM-tree 系统优化有关的工作.
+
+Improving Write Performance. KV separation has emerged as a prevalent technique for boosting write performance within database systems. Initially introduced by WiscKey <sup>[48]</sup> and later adopted by platforms such as <sup>[13, 21, 43, 55, 84]</sup>, this approach has been effective in reducing write amplification to some extent. Despite its effectiveness, these implementations fall short of achieving the ultra-low levels of write amplification desired in some applications. This shortfall is largely due to the necessity of integrating blob GCs with compactions, which leads to a compromise: either the write amplification remains higher than ideal or there is an increase in space amplification. Consequently, while KV separation marks a significant advancement in minimizing write amplification, the challenge of optimizing it alongside space efficiency persists, highlighting the need for further innovations in this area. Various alternative approaches focus on the improvement of compaction methodologies, as explored in <sup>[18, 20, 23, 33, 52, 63, 78]</sup>. These strategies often require a compromise between space or processing time to boost write efficiency. Although such methods might not reduce write amplification as significantly as KV separation does, they serve as valuable adjuncts to KV separation. By integrating these compaction strategies with KV separation techniques, it is possible to achieve a more refined equilibrium among write speed, read performance, and efficient use of storage space.
+
+**提高写性能.** KV 分离已成为提升数据库写性能的常见技术. WiscKey <sup>[48]</sup> 首先提出该方法, 随后被文献 <sup>[13, 21, 43, 55, 84]</sup> 中的系统采用, 在一定程度上有效降低了写放大. 但这些实现仍未达到部分应用所需的极低写放大, 主要原因是需要将 blob GC 与 compaction 结合, 要么写放大仍高于理想水平, 要么空间放大增加. 因此, KV 分离虽显著降低了写放大, 同时优化空间效率仍是难题, 还需继续改进. 另一些工作侧重改进 compaction 方法, 例如 <sup>[18, 20, 23, 33, 52, 63, 78]</sup>. 这些策略通常以空间或处理时间为代价提高写效率. 尽管降低写放大的幅度可能不及 KV 分离, 它们仍是有价值的补充. 将这些 compaction 策略与 KV 分离结合, 可以在写入速度, 读性能和空间利用率之间做出更合适的取舍.
+
+Improving Read Performance. In LSM architectures, where queries may necessitate accessing multiple SSTables, filters like <sup>[19, 22, 28, 44, 69, 75, 86]</sup> are frequently employed to limit the SSTables accessed. These mechanisms generally exchange space, memory, or CPU resources to diminish read amplification from SSTable access for lookup queries. However, they fall short in alleviating the read costs associated with accessing blob files in KV separated LSM trees. Other widely used techniques involve optimizing block cache data structures to enhance data locality and minimize resource contention caused by concurrency control mechanisms to improve upon or replace the commonly used LRU cache <sup>[10, 25, 27, 32, 68, 79]</sup>, which are orthogonal to our unified cache. Additionally, specialized hash indexes and partitioning strategies are employed for workloads with stringent performance demands for lookup queries <sup>[2, 5, 16, 41, 47, 82]</sup>. We are also investigating techniques that could improve range scan performance, areas where LavaStore ties or even lags behind RocksDB. This includes exploring technologies such as <sup>[37, 51, 58, 76, 80]</sup>, which leverage filters to boost short range query efficiency. Additionally, REMIX <sup>[85]</sup> offers a redesigned index structure that presents a globally sorted view of KV data across multiple table files, aiming to enhance the efficiency of range queries. FenceKV <sup>[74]</sup> introduces a key-range GC strategy to reduce GC overhead and ensure sequential access for range queries in KV separated LSM trees. Despite the potential of these advancements, they have not been the main focus of our efforts due to their marginal applicability to the core workloads of our direct users, who seldom require long range scans.
+
+**提高读性能.** LSM 架构中的一次查询可能访问多个 SSTable, 因而常使用 <sup>[19, 22, 28, 44, 69, 75, 86]</sup> 等过滤器减少访问数量. 这些机制一般消耗额外的空间, 内存或 CPU 资源, 以减少点查访问 SSTable 产生的读放大. 但它们无法降低 KV 分离的 LSM-tree 访问 blob 文件的成本. 另一类常见技术通过优化块缓存数据结构, 改善数据局部性, 减少并发控制产生的资源争用, 改进或替代常用 LRU 缓存 <sup>[10, 25, 27, 32, 68, 79]</sup>. 这些技术与我们的统一缓存并不冲突, 可以配合使用. 另外, 对点查性能要求严格的负载, 还会采用专用哈希索引与分区策略 <sup>[2, 5, 16, 41, 47, 82]</sup>. 我们也在研究提升范围扫描性能的技术, 因为 LavaStore 在这方面与 RocksDB 持平, 甚至落后. 例如, <sup>[37, 51, 58, 76, 80]</sup> 使用过滤器提高短范围查询效率; REMIX <sup>[85]</sup> 重新设计索引, 为多个表文件中的 KV 数据提供全局有序视图, 提高范围查询效率; FenceKV <sup>[74]</sup> 提出基于 key 范围的 GC 策略, 降低回收开销并让采用 KV 分离的 LSM-tree 在执行范围查询时能够顺序访问数据. 尽管这些技术具有潜力, 但我们的用户很少需要长范围扫描, 这些技术能帮助到的核心业务场景有限, 因而并非我们的工作重点.
+
+Handling Special Workloads. Local storage engines are faced with a diverse range of unique workloads that require specialized management. For instance, several studies tackle the challenges posed by sequential, log-style workloads, including WAL in RocksDB <sup>[14, 35, 36, 45, 46, 73]</sup>. However, these methods either incur a WAF of at least 2 due to writes to WALs and SSTables, or they necessitate strictly sequential data. As a result, they either underperform or fail to fulfill the durability criteria of LavaLog. Others examine Write-Once-Read-Many (WORM) workloads essential for storage engines <sup>[1, 29, 30, 64]</sup>. Additionally, there are proposals for data structures, algorithms, and implementations tailored to multi-dimensional data like time series and spatial-temporal data, which are crucial for analytic applications <sup>[49, 53, 60, 65]</sup>. Beyond these specific workload types, <sup>[17, 18, 31, 40, 59, 83]</sup> are dedicated to adjusting system parameters to optimize performance for a range of changing and diverse workloads. These efforts are complementary to our own and could potentially be leveraged to broaden the customer base of LavaStore.
+
+**处理特殊负载.** 本地存储引擎面对多种需要专门处理的负载. 例如, <sup>[14, 35, 36, 45, 46, 73]</sup> 研究包括 RocksDB WAL 在内的顺序日志型负载. 但这些方法要么同时写 WAL 和 SSTable, WAF 至少为 2, 要么要求数据严格顺序, 因而无法达到 LavaLog 的性能或持久性要求. 另一些工作研究存储引擎中的一次写入, 多次读取 (WORM) 负载 <sup>[1, 29, 30, 64]</sup>. 此外, 还有针对时间序列, 时空数据等多维数据设计的数据结构, 算法和实现, 这些数据对分析应用很重要 <sup>[49, 53, 60, 65]</sup>. 除上述特定负载外, <sup>[17, 18, 31, 40, 59, 83]</sup> 通过调整系统参数, 适应多种不断变化的负载, 优化系统性能. 这些工作与我们互补, 今后也可能帮助 LavaStore 服务更多用户.
+
+Cross-layer Storage Stack Optimization. Cross-layer storage stack optimization is essential for reducing redundant and uncoordinated overheads, such as compaction and GC, thereby enhancing disk efficiency and durability, as highlighted in a recent survey <sup>[24]</sup>. For instance, RStore <sup>[42]</sup> leverages modern storage technologies to achieve low tail latency in multi-core KV stores. exF2FS <sup>[61]</sup> introduces transaction support for log-structured filesystems, showing notable performance and scalability improvements. ScaleStore <sup>[87]</sup> offers a fast and cost-effective storage engine utilizing DRAM, NVMe, and RDMA. Viper <sup>[4]</sup> combines a DRAM-based hash index with a PMem-aware storage layout to capitalize on DRAM's rapid random-write speed and PMem's efficient sequential-write capability. Research by <sup>[43]</sup> explores differentiated KV storage management to balance I/O performance. SpanDB <sup>[14]</sup> employs high-speed SSDs selectively, allowing data placement across different SSD tiers based on TCO and SLA. <sup>[66]</sup> delves into LSM management within computational storage environments. Our approach, tailored to specific needs, shows that our append-friendly LavaFS improves write performance in local storage engines.
+
+**跨层存储栈优化.** 最近的综述 <sup>[24]</sup> 指出, 跨层优化有助于减少 compaction 和 GC 等重复且缺乏协调的开销, 提高磁盘效率与耐用性. 例如, RStore <sup>[42]</sup> 利用现代存储技术, 为多核 KV 存储实现低尾延迟. exF2FS <sup>[61]</sup> 为日志结构文件系统引入事务支持, 显著改善性能与可扩展性. ScaleStore <sup>[87]</sup> 使用 DRAM, NVMe 和 RDMA 提供快速, 低成本的存储引擎. Viper <sup>[4]</sup> 将基于 DRAM 的哈希索引与适配持久内存 (PMem) 的存储布局结合, 利用 DRAM 的快速随机写和 PMem 的高效顺序写. 文献 <sup>[43]</sup> 探索差异化 KV 存储管理以平衡 I/O 性能. SpanDB <sup>[14]</sup> 有选择地使用高速 SSD, 根据 TCO 和 SLA 将数据放到不同 SSD 层级. 文献 <sup>[66]</sup> 研究计算存储环境中的 LSM 管理. 我们的实践表明, 针对特定需求设计, 适合追加写入的 LavaFS 能够改善本地存储引擎的写性能.
+
+# 7. 结论
+
+This paper presents LavaStore, a high-performance cost-effective local storage engine purpose-built for cloud services at ByteDance. We demonstrate how to effectively handle a highly write-intensive workload with stringent requirements on resource efficiency and point lookup tail latency, by strategically customizing components of a RocksDB-based general purpose local storage engine. Although our implementation is based on RocksDB, the design techniques employed by LavaStore could be generally applicable to other LSM-tree-based persistent KV stores to handle workloads with similar characteristics and requirements.
+
+本文介绍了 LavaStore, 这是专为字节跳动云服务设计的高性能, 高性价比本地存储引擎. 我们展示了如何在基于 RocksDB 的通用引擎上, 有针对性地改造部分组件, 在处理大量写入的同时, 满足资源利用效率和点查尾延迟的严格要求. 虽然 LavaStore 基于 RocksDB 实现, 其中的设计方法也可用于其他基于 LSM-tree 的持久化 KV 存储, 帮助它们应对类似的负载和需求.
+
+# 8. 致谢
+
+We would like to thank the anonymous reviewers for their valuable comments. We are grateful to our shepherd for the extensive help in revising the paper. The CBT index is implemented by Guoshun Ma utilizing some components from the original version of TerarkDB. We would like to thank all those who have contributed to the design and development of LavaStore, in particular Changlong Chen, Yunxiao Du, Kuankuan Guo, Peng Lei, Jianchuan Li, Yuanjin Lin, Yangming Liu, Yu Miao, Chi Zhang and Maosen Zhang.
+
+感谢匿名审稿人提出的宝贵意见, 感谢论文指导审稿人 (shepherd) 在修改过程中给予的大量帮助. CBT 索引由 Guoshun Ma 利用原版 TerarkDB 的部分组件实现. 感谢所有参与 LavaStore 设计和开发的人, 特别是 Changlong Chen, Yunxiao Du, Kuankuan Guo, Peng Lei, Jianchuan Li, Yuanjin Lin, Yangming Liu, Yu Miao, Chi Zhang 和 Maosen Zhang.
+
+# 9. 参考文献
+
+<div class="paper-shared">
+
+[1] Joy Arulraj, Andrew Pavlo, and Subramanya R Dulloor. 2015. Let's talk about storage & recovery methods for non-volatile memory database systems. In Proceedings of the 2015 ACM SIGMOD International Conference on Management of Data. 707-722.
+
+[2] Nikolas Askitis and Ranjan Sinha. 2007. HAT-trie: a cache-conscious trie-based data structure for strings. In Proceedings of the thirtieth Australasian conference on Computer science-Volume 62. Citeseer, 97-105.
+
+[3] Mahesh Balakrishnan, Dahlia Malkhi, Ted Wobber, Ming Wu, Vijayan Prabhakaran, Michael Wei, John D Davis, Sriram Rao, Tao Zou, and Aviad Zuck. 2013. Tango: Distributed data structures over a shared log. In Proceedings of the twenty-fourth ACM symposium on operating systems principles. 325-340.
+
+[4] Lawrence Benson, Hendrik Makait, and Tilmann Rabl. 2021. Viper: An efficient hybrid PMem-DRAM key-value store. Proceedings of the VLDB Endowment 14, 9 (2021), 1544-1556.
+
+[5] Robert Binna, Eva Zangerle, Martin Pichl, Günther Specht, and Viktor Leis. 2018. HOT: A height optimized trie index for main-memory database systems. In Proceedings of the 2018 International Conference on Management of Data. 521-534.
+
+[6] Ken Birman. 2007. The promise, and limitations, of gossip protocols. ACM SIGOPS Operating Systems Review 41, 5 (2007), 8-13.
+
+[7] Matias Bjørling, Abutalib Aghayev, Hans Holmberg, Aravind Ramesh, Damien Le Moal, Gregory R Ganger, and George Amvrosiadis. 2021. ZNS: Avoiding the block interface tax for flash-based SSDs. In 2021 USENIX Annual Technical Conference (USENIX ATC 21). 689-703.
+
+[8] Brendan Burns, Joe Beda, Kelsey Hightower, and Lachlan Evenson. 2022. Kubernetes: up and running. O'Reilly Media, Inc.
+
+[9] ByteDance. 2019. TerarkDB. Retrieved January 18, 2024 from [TerarkDB 项目](https://github.com/bytedance/terarkdb)
+
+[10] Zhichao Cao, Siying Dong, Sagar Vemuri, and David HC Du. 2020. Characterizing, modeling, and benchmarking RocksDB key-value workloads at Facebook. In 18th USENIX Conference on File and Storage Technologies (FAST 20). 209-223.
+
+[11] Paris Carbone, Asterios Katsifodimos, Stephan Ewen, Volker Markl, Seif Haridi, and Kostas Tzoumas. 2015. Apache Flink: Stream and batch processing in a single engine. The Bulletin of the Technical Committee on Data Engineering 38, 4 (2015).
+
+[12] Josiah Carlson. 2013. Redis in action. Simon and Schuster.
+
+[13] Helen HW Chan, Chieh-Jan Mike Liang, Yongkun Li, Wenjia He, Patrick PC Lee, Lianjie Zhu, Yaozu Dong, Yinlong Xu, Yu Xu, Jin Jiang, et al. 2018. HashKV: Enabling Efficient Updates in KV Storage via Hashing. In 2018 USENIX Annual Technical Conference (USENIX ATC 18). 1007-1019.
+
+[14] Hao Chen, Chaoyi Ruan, Cheng Li, Xiaosong Ma, and Yinlong Xu. 2021. SpanDB: A fast, cost-effective LSM-tree based KV store on hybrid storage. In 19th USENIX Conference on File and Storage Technologies (FAST 21). 17-32.
+
+[15] Jianjun Chen, Yonghua Ding, Ye Liu, Fangshi Li, Li Zhang, Mingyi Zhang, Kui Wei, Lixun Cao, Dan Zou, Yang Liu, Lei Zhang, Rui Shi, Wei Ding, Kai Wu, Shangyu Luo, Jason Sun, and Yuming Liang. 2022. ByteHTAP: ByteDance's HTAP system with high data freshness and strong data consistency. Proc. VLDB Endow. 15, 12 (aug 2022), 3411-3424. [ByteHTAP: ByteDance's HTAP system with high data freshness and strong data consistency](https://doi.org/10.14778/3554821.3554832)
+
+[16] Yifan Dai, Yien Xu, Aishwarya Ganesan, Ramnatthan Alagappan, Brian Kroth, Andrea Arpaci-Dusseau, and Remzi Arpaci-Dusseau. 2020. From WiscKey to Bourbon: A Learned Index for Log-Structured Merge Trees. In 14th USENIX Symposium on Operating Systems Design and Implementation (OSDI 20). 155-171.
+
+[17] Niv Dayan, Manos Athanassoulis, and Stratos Idreos. 2017. Monkey: Optimal navigable key-value store. In Proceedings of the 2017 ACM International Conference on Management of Data. 79-94.
+
+[18] Niv Dayan and Stratos Idreos. 2018. Dostoevsky: Better space-time trade-offs for LSM-tree based key-value stores via adaptive removal of superfluous merging. In Proceedings of the 2018 International Conference on Management of Data. 505-520.
+
+[19] Niv Dayan and Moshe Twitto. 2021. Chucky: A Succinct Cuckoo Filter for LSMTree. In Proceedings of the 2021 International Conference on Management of Data. 365-378.
+
+[20] Niv Dayan, Tamar Weiss, Shmuel Dashevsky, Michael Pan, Edward Bortnikov, and Moshe Twitto. 2022. Spooky: granulating LSM-tree compactions correctly. Proceedings of the VLDB Endowment 15, 11 (2022), 3071-3084.
+
+[21] Dgraph. 2019. BadgerDB. Retrieved January 18, 2024 from [BadgerDB 文档](https://dgraph.io/docs/badger/)
+
+[22] Peter C Dillinger and Stefan Walzer. 2021. Ribbon filter: practically smaller than Bloom and Xor. arXiv preprint `arXiv:2103.02515` (2021).
+
+[23] Chen Ding, Ting Yao, Hong Jiang, Qiu Cui, Liu Tang, Yiwen Zhang, Jiguang Wan, and Zhihu Tan. 2022. TriangleKV: Reducing write stalls and write amplification in LSM-tree based KV stores with triangle container in NVM. IEEE Transactions on Parallel and Distributed Systems 33, 12 (2022), 4339-4352.
+
+[24] Krijn Doekemeijer and Animesh Trivedi. 2022. Key-Value Stores on Flash Storage Devices: A Survey. arXiv preprint `arXiv:2205.07975` (2022).
+
+[25] Siying Dong, Andrew Kryczka, Yanqin Jin, and Michael Stumm. 2021. Evolution of Development Priorities in Key-value Stores Serving Large-scale Applications: The RocksDB Experience. In 19th USENIX Conference on File and Storage Technologies (FAST 21). USENIX Association, 33-49. [Evolution of Development Priorities in Key-value Stores Serving Large-scale Applications: The RocksDB Experience](https://www.usenix.org/conference/fast21/presentation/dong)
+
+[26] Paul DuBois. 2013. MySQL. Addison-Wesley.
+
+[27] Gil Einziger, Roy Friedman, and Ben Manes. 2017. TinyLFU: A highly efficient cache admission policy. ACM Transactions on Storage (ToS) 13, 4 (2017), 1-31.
+
+[28] Bin Fan, Dave G Andersen, Michael Kaminsky, and Michael D Mitzenmacher. 2014. Cuckoo filter: Practically better than Bloom. In Proceedings of the 10th ACM International on Conference on emerging Networking Experiments and Technologies. 75-88.
+
+[29] Saugata Ghose, Amirali Boroumand, Jeremie S Kim, Juan Gómez-Luna, and Onur Mutlu. 2019. Processing-in-memory: A workload-driven perspective. IBM Journal of Research and Development 63, 6 (2019), 3-1.
+
+[30] Gabriel Haas and Viktor Leis. 2023. What Modern NVMe Storage Can Do, and How to Exploit It: High-Performance I/O for High-Performance Storage Engines. Proceedings of the VLDB Endowment 16, 9 (2023), 2090-2102.
+
+[31] Yichen Jia and Feng Chen. 2020. Kill two birds with one stone: Auto-tuning RocksDB for high bandwidth and low latency. In 2020 IEEE 40th International Conference on Distributed Computing Systems (ICDCS). IEEE, 652-664.
+
+[32] Song Jiang and Xiaodong Zhang. 2002. LIRS: An efficient low inter-reference recency set replacement policy to improve buffer cache performance. ACM SIGMETRICS Performance Evaluation Review 30, 1 (2002), 31-42.
+
+[33] Peiquan Jin, Jianchuan Li, and Hai Long. 2021. DLC: A New Compaction Scheme for LSM-tree with High Stability and Low Latency.. In EDBT. 547-557.
+
+[34] The kernel development community. 2023. Journal (jbd2). Retrieved January 18, 2024 from [Ext4 jbd2 日志文档](https://www.kernel.org/doc/html/latest/filesystems/ext4/journal.html)
+
+[35] Jongbin Kim, Hyeongwon Jang, Seohui Son, Hyuck Han, Sooyong Kang, and Hyungsoo Jung. 2019. Border-Collie: a wait-free, read-optimal algorithm for database logging on multicore hardware. In Proceedings of the 2019 International Conference on Management of Data. 723-740.
+
+[36] Wonbae Kim, Chanyeol Park, Dongui Kim, Hyeongjun Park, Young-ri Choi, Alan Sussman, and Beomseok Nam. 2022. ListDB: Union of Write-Ahead logs and persistent SkipLists for incremental checkpointing on persistent memory. In 16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22). 161-177.
+
+[37] Eric R Knorr, Baptiste Lemaire, Andrew Lim, Siqiang Luo, Huanchen Zhang, Stratos Idreos, and Michael Mitzenmacher. 2022. Proteus: A self-designing range filter. In Proceedings of the 2022 International Conference on Management of Data. 1670-1684.
+
+[38] Alexey Kopytov. 2012. SysBench manual. MySQL AB (2012), 2-3.
+
+[39] Adam Langley. 2008. Crit-bit Trees. Retrieved January 18, 2024 from [Crit-bit Trees](https://www.imperialviolet.org/binary/critbit.pdf)
+
+[40] Jieun Lee, Sangmin Seo, Jonghwan Choi, and Sanghyun Park. 2024. K2vTune: A workload-aware configuration tuning for RocksDB. Information Processing & Management 61, 1 (2024), 103567.
+
+[41] Viktor Leis, Alfons Kemper, and Thomas Neumann. 2013. The adaptive radix tree: ARTful indexing for main-memory databases. In 2013 IEEE 29th International Conference on Data Engineering (ICDE). IEEE, 38-49.
+
+[42] Lucas Lersch, Ivan Schreter, Ismail Oukid, and Wolfgang Lehner. 2020. Enabling low tail latency on multicore key-value stores. Proceedings of the VLDB Endowment 13, 7 (2020), 1091-1104.
+
+[43] Yongkun Li, Zhen Liu, Patrick PC Lee, Jiayu Wu, Yinlong Xu, Yi Wu, Liu Tang, Qi Liu, and Qiu Cui. 2021. Differentiated Key-Value Storage Management for Balanced I/O Performance. In 2021 USENIX Annual Technical Conference (USENIX ATC 21). 673-687.
+
+[44] Yongkun Li, Chengjin Tian, Fan Guo, Cheng Li, and Yinlong Xu. 2019. ElasticBF: Elastic Bloom Filter with Hotness Awareness for Boosting Read Performance in Large Key-Value Stores. In 2019 USENIX Annual Technical Conference (USENIX ATC 19). 739-752.
+
+[45] Hyeontaek Lim, David G Andersen, and Michael Kaminsky. 2016. Towards Accurate and Fast Evaluation of Multi-Stage Log-structured Designs. In 14th USENIX Conference on File and Storage Technologies (FAST 16). 149-166.
+
+[46] LogDevice. 2023. LogDB. Retrieved January 18, 2024 from [LogsDB 文档](https://logdevice.io/docs/LogsDB.html)
+
+[47] Kai Lu, Nannan Zhao, Jiguang Wan, Changhong Fei, Wei Zhao, and Tongliang Deng. 2021. TridentKV: A read-Optimized LSM-tree based KV store via adaptive indexing and space-efficient partitioning. IEEE Transactions on Parallel and Distributed Systems 33, 8 (2021), 1953-1966.
+
+[48] Lanyue Lu, Thanumalayan Sankaranarayana Pillai, Hariharan Gopalakrishnan, Andrea C Arpaci-Dusseau, and Remzi H Arpaci-Dusseau. 2017. WiscKey: Separating keys from values in SSD-conscious storage. ACM Transactions on Storage (TOS) 13, 1 (2017), 1-28.
+
+[49] Ziyi Lu, Qiang Cao, Hong Jiang, Shucheng Wang, and Yuanyuan Dong. 2022. p2KVS: a portable 2-dimensional parallelizing framework to improve scalability of key-value stores on SSDs. In Proceedings of the Seventeenth European Conference on Computer Systems. 575-591.
+
+[50] Chen Luo and Michael J Carey. 2020. LSM-based storage techniques: a survey. The VLDB Journal 29, 1 (2020), 393-418.
+
+[51] Siqiang Luo, Subarna Chatterjee, Rafael Ketsetsidis, Niv Dayan, Wilson Qin, and Stratos Idreos. 2020. Rosetta: A robust space-time optimized range filter for keyvalue stores. In Proceedings of the 2020 ACM SIGMOD International Conference on Management of Data. 2071-2086.
+
+[52] Qizhong Mao, Steven Jacobs, Waleed Amjad, Vagelis Hristidis, Vassilis J Tsotras, and Neal E Young. 2021. Comparison and evaluation of state-of-the-art LSM merge policies. The VLDB Journal 30 (2021), 361-378.
+
+[53] Qizhong Mao, Mohiuddin Abdul Qader, and Vagelis Hristidis. 2023. Comparison of LSM indexing techniques for storing spatial data. Journal of Big Data 10, 1 (2023), 51.
+
+[54] Meta. 2018. RocksDB Wiki: Data Block Hash Index. Retrieved January 18, 2024 from [Data Block Hash Index 文档](https://github.com/facebook/rocksdb/wiki/Data-Block-Hash-Index)
+
+[55] Meta. 2022. RocksDB Wiki: BlobDB. Retrieved January 18, 2024 from [BlobDB 文档](https://github.com/facebook/rocksdb/wiki/BlobDB)
+
+[56] Meta. 2022. RocksDB Wiki: Performance Benchmarks. Retrieved January 18, 2024 from [RocksDB 性能基准文档](https://github.com/facebook/rocksdb/wiki/Performance-Benchmarks)
+
+[57] Bruce Momjian. 2001. PostgreSQL: introduction and concepts. Vol. 192. AddisonWesley New York.
+
+[58] Bernhard Mößner, Christian Riegger, Arthur Bernhardt, and Ilia Petrov. 2022. bloomRF: On performing range-queries in Bloom-Filters with piecewisemonotone hash functions and prefix hashing. arXiv preprint `arXiv:2207.04789` (2022).
+
+[59] Ju Hyoung Mun, Zichen Zhu, Aneesh Raman, and Manos Athanassoulis. 2022. LSM-Tree Under (Memory) Pressure. In Proceedings of the International Workshop on Accelerating Data Management Systems Using Modern Processor and Storage Architectures (ADMS).
+
+[60] Syeda Noor Zehra Naqvi, Sofia Yfantidou, and Esteban Zimányi. 2017. Time series databases and InfluxDB. Studienarbeit, Université Libre de Bruxelles 12 (2017), 1-44.
+
+[61] Joontaek Oh, Sion Ji, Yongjin Kim, and Youjip Won. 2022. exF2FS: Transaction Support in Log-Structured Filesystem. In 20th USENIX Conference on File and Storage Technologies (FAST 22). 345-362.
+
+[62] Patrick O'Neil, Edward Cheng, Dieter Gawlick, and Elizabeth O'Neil. 1996. The Log-structured Merge-tree (LSM-tree). Acta Inf. 33, 4 (June 1996), 351-385.
+
+[63] Fengfeng Pan, Yinliang Yue, and Jin Xiong. 2017. dCompaction: Delayed compaction for the LSM-tree. International Journal of Parallel Programming 45 (2017), 1310-1325.
+
+[64] Satadru Pan, Theano Stavrinos, Yunqiao Zhang, Atul Sikaria, Pavel Zakharov, Abhinav Sharma, Mike Shuey, Richard Wareing, Monika Gangapuram, Guanglei Cao, et al. 2021. Facebook's tectonic filesystem: Efficiency from exascale. In 19th USENIX Conference on File and Storage Technologies (FAST 21). 217-231.
+
+[65] Gotze Philipp, Baumann Stephan, and Sattler Kai-Uwe. 2018. An NVM-aware storage layout for analytical workloads. In 2018 IEEE 34th International Conference on Data Engineering Workshops (ICDEW). IEEE, 110-115.
+
+[66] Ivan Luiz Picoli, Philippe Bonnet, and Pinar Tözün. 2019. LSM management on computational storage. In Proceedings of the 15th International Workshop on Data Management on New Hardware. 1-3.
+
+[67] PingCAP. 2023. Titan. Retrieved January 18, 2024 from [Titan 项目](https://github.com/tikv/titan)
+
+[68] Aleksandar Prokopec. 2018. Cache-tries: concurrent lock-free hash tries with constant-time operations. In Proceedings of the 23rd ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming. 137-151.
+
+[69] Kai Ren, Qing Zheng, Joy Arulraj, and Garth Gibson. 2017. SlimDB: A spaceefficient key-value storage engine for semi-sorted data. Proceedings of the VLDB Endowment 10, 13 (2017), 2037-2048.
+
+[70] Kenneth Salem and Hector Garcia-Molina. 1989. Checkpointing memory-resident databases. In ICDE. 452-462.
+
+[71] Subhadeep Sarkar and Manos Athanassoulis. 2022. Dissecting, designing, and optimizing LSM-based data stores. In Proceedings of the 2022 International Conference on Management of Data. 2489-2497.
+
+[72] Subhadeep Sarkar, Niv Dayan, and Manos Athanassoulis. 2023. The LSM design space and its read optimizations. In 2023 IEEE 39th International Conference on Data Engineering (ICDE). IEEE, 3578-3584.
+
+[73] Hemant Saxena, Lukasz Golab, Stratos Idreos, and Ihab F Ilyas. 2023. Real-time LSM-trees for HTAP workloads. In 2023 IEEE 39th International Conference on Data Engineering (ICDE). IEEE, 1208-1220.
+
+[74] Chenlei Tang, Jiguang Wan, and Changsheng Xie. 2022. FenceKV: Enabling efficient range query for key-value separation. IEEE Transactions on Parallel and Distributed Systems 33, 12 (2022), 3375-3386.
+
+[75] Sasu Tarkoma, Christian Esteve Rothenberg, and Eemil Lagerspetz. 2011. Theory and practice of bloom filters for distributed systems. IEEE Communications Surveys & Tutorials 14, 1 (2011), 131-155.
+
+[76] Kapil Vaidya, Subarna Chatterjee, Eric Knorr, Michael Mitzenmacher, Stratos Idreos, and Tim Kraska. 2022. SNARF: a learning-enhanced range filter. Proceedings of the VLDB Endowment 15, 8 (2022), 1632-1644.
+
+[77] Vinod Kumar Vavilapalli, Arun C Murthy, Chris Douglas, Sharad Agarwal, Mahadev Konar, Robert Evans, Thomas Graves, Jason Lowe, Hitesh Shah, Siddharth Seth, et al. 2013. Apache Hadoop YARN: Yet another resource negotiator. In Proceedings of the 4th annual Symposium on Cloud Computing. 1-16.
+
+[78] Xiaoliang Wang, Peiquan Jin, Bei Hua, Hai Long, and Wei Huang. 2022. Reducing write amplification of LSM-tree with block-grained compaction. In 2022 IEEE 38th International Conference on Data Engineering (ICDE). IEEE, 3119-3131.
+
+[79] Juncheng Yang, Yazhuo Zhang, Ziyue Qiu, Yao Yue, and Rashmi Vinayak. 2023. FIFO queues are all you need for cache eviction. In Proceedings of the 29th Symposium on Operating Systems Principles. 130-149.
+
+[80] Huanchen Zhang, Hyeontaek Lim, Viktor Leis, David G Andersen, Michael Kaminsky, Kimberly Keeton, and Andrew Pavlo. 2018. SuRF: Practical range query filtering with fast succinct tries. In Proceedings of the 2018 International Conference on Management of Data. 323-336.
+
+[81] Jianshun Zhang, Fang Wang, Sheng Qiu, Yi Wang, Jiaxin Ou, Junxun Huang, Baoquan Li, Peng Fang, and Dan Feng. 2024. Scavenger: Better Space-Time Trade-Offs for Key-Value Separated LSM-trees. In 2024 IEEE 40th International Conference on Data Engineering (ICDE). IEEE, 4072-4085.
+
+[82] Qiang Zhang, Yongkun Li, Patrick PC Lee, Yinlong Xu, Qiu Cui, and Liu Tang. 2020. UniKV: Toward high-performance and scalable KV storage in mixed workloads via unified indexing. In 2020 IEEE 36th International Conference on Data Engineering (ICDE). IEEE, 313-324.
+
+[83] Chenxingyu Zhao, Tapan Chugh, Jaehong Min, Ming Liu, and Arvind Krishnamurthy. 2022. Dremel: Adaptive Configuration Tuning of RocksDB KV-Store. Proceedings of the ACM on Measurement and Analysis of Computing Systems 6, 2 (2022), 1-30.
+
+[84] Zhiquan Zheng. 2019. Titan: A RocksDB Plugin to Reduce Write Amplification. Retrieved January 18, 2024 from [Titan 存储引擎设计与实现](https://www.pingcap.com/blog/titan-storage-engine-design-and-implementation)
+
+[85] Wenshao Zhong, Chen Chen, Xingbo Wu, and Song Jiang. 2021. REMIX: Efficient Range Query for LSM-trees. In 19th USENIX Conference on File and Storage Technologies (FAST 21). 51-64.
+
+[86] Zichen Zhu, Ju Hyoung Mun, Aneesh Raman, and Manos Athanassoulis. 2021. Reducing Bloom filter CPU overhead in LSM-trees on modern storage devices. In Proceedings of the 17th International Workshop on Data Management on New Hardware. 1-10.
+
+[87] Tobias Ziegler, Carsten Binnig, and Viktor Leis. 2022. ScaleStore: A fast and cost-efficient storage engine using DRAM, NVMe, and RDMA. In Proceedings of the 2022 International Conference on Management of Data. 685-699.
+
+</div>

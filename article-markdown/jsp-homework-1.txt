@@ -1,0 +1,239 @@
+# Servlet 课后作业-JSP 作业-1
+
+# 1. 作业要求:
+
+1. <a href="#1-1" id="1">编写一个 Serlvet 以便显示该 Servlet 被访问的次数.</a>
+2. <a href="#2-2" id="2">编写一个 Servlet 程序, 在 doGet 方法中显示一个 Form 表单, 用户可以输入姓名和电子邮件地址, 用户提交该表单后, doPost 方法动态读出请求参数, 并输出这些参数. 提示: 使用 request 对象的 getParameterNames() 方法.</a>
+3. <a href="#3-3" id="3">描述 Serlvet 的生命周期.</a>
+4. <a href="#4-4" id="4">实现 Servlet 有几种方法, 每种方法都有哪些特点.</a>
+5. <a href="#5-5" id="5">如何配置 Serlvet.</a>
+
+# 2. 开始作业
+
+><a id="1-1"></a>作业 1:[点此查看要求](#1)
+
+仅贴出 Servlet 的主体代码如下:
+```java
+@WebServlet("/Servlet_1")
+public class Servlet_1 extends HttpServlet {
+	private static final long serialVersionUID = 1L;
+    /**
+     * @see HttpServlet#HttpServlet()
+     */
+    public Servlet_1() {
+        super();
+        // TODO Auto-generated constructor stub
+    }
+    int num=1;
+	@Override
+	protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+		// TODO 自动生成的方法存根
+		//super.doGet(req, resp);
+		resp.setHeader("Content-type", "text/html;charset=UTF-8");  
+		PrintWriter pw = resp.getWriter();
+		pw.println("Servlet被访问的次数为:"+num++);
+	}
+
+}
+```
+
+运行图示如下:
+
+![Servlet Num](/assets/images/posts/jsp-homework-1/jsp-work-1-1.webp)
+
+><a id="2-2"></a>作业 2:[点此查看要求](#2)
+
+```java
+@WebServlet("/Servlet_2")
+public class Servlet_2 extends HttpServlet {
+	private static final long serialVersionUID = 1L;
+    /**
+     * @see HttpServlet#HttpServlet()
+     */
+    public Servlet_2() {
+        super();
+        // TODO Auto-generated constructor stub
+    }
+	@Override
+	protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+		// super.doGet(req, resp);
+		try {
+			req.setCharacterEncoding("UTF-8");
+			resp.setHeader("Content-type", "text/html;charset=UTF-8");  
+			PrintWriter out = resp.getWriter();
+			out.println("<html>");
+			out.println("<head><title>表单提交</title></head>");
+			out.println("<body>");
+			out.println("<h1>表单提交页面</h1>");
+			out.println("<form action='Servlet_2' method='post'>");
+			out.println("姓名:<input type='text' name='name' /><br>");
+			out.println("邮箱:<input type='mail' name='mail' /><br>");
+			out.println("<input type='submit' value='提交'>");
+			out.println("</form>");
+			out.println("</body>");
+			out.println("</html>");
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+	@Override
+	protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+		// super.doPost(req, resp);
+		req.setCharacterEncoding("UTF-8");
+		resp.setHeader("Content-type", "text/html;charset=UTF-8");  
+		String name = req.getParameter("name");
+		String mail = req.getParameter("mail");
+		PrintWriter out = resp.getWriter();
+		out.println("提交的姓名为:"+name+"<br />");
+		out.println("提交的邮箱为:"+mail+"<br />");
+	}
+}
+```
+
+运行图示如下:
+
+![Form Page](/assets/images/posts/jsp-homework-1/jsp-work-1-2.webp)
+![Form Submit](/assets/images/posts/jsp-homework-1/jsp-work-1-3.webp)
+
+><a id="3-3"></a>作业 3:[点此查看要求](#3)
+
+  具体答案内容, 请查看 [这里](/2016/11/29/jsp-2/#4-来些总结)
+
+><a id="4-4"></a>作业 4:[点此查看要求](#4)
+
+Servlet 有三种实现方式:
+
+- 继承原生 Servlet 接口
+- 继承 GenericServlet 类
+- 继承 HttpServlet 类
+
+# 3. Servlet 的这三种实现方式的具体讲解如下:
+
+## 3.1 继承原生 Servlet 接口:
+
+```java
+@WebServlet("/Servlet_1_1")
+public class Servlet_1_1 implements Servlet {
+    public void destroy() {
+        // TODO Auto-generated method stub
+        System.out.println("destroy....");  
+    }
+    public ServletConfig getServletConfig() {
+        // TODO Auto-generated method stub  
+        return null;  
+    }
+    public String getServletInfo() {  
+        // TODO Auto-generated method stub  
+        return null;  
+    }
+    //该 函数用于初始化,只会被调用一次(当用户第一次访问Servlet时,被调用)  
+    public void init(ServletConfig arg0) throws ServletException {  
+        // TODO Auto-generated method stub  
+        System.out.println("init....");
+    }
+    //用于处理业务逻辑,应该把业务逻辑代码写在该方法中  
+    //会被多次调用,当用户每访问一次时就会被调用一次  
+    //request用于获取客户端的信息  
+    //response用户向客户端返回信息  
+    public void service(ServletRequest request, ServletResponse response)  
+            throws ServletException, IOException {  
+        // TODO Auto-generated method stub  
+        System.out.println("service....");       
+    }
+}
+```
+
+### 3.1.1 注解:
+
+这种实现方法是新建一个类, 该类继承了 Servlet 接口, 因为新建类的缘故, 我们需要手动添加 `@WebServlet("/Servlet_1_1")` 代码, 然后重写 Servlet 接口的五个方法.
+
+#### 3.1.1.1 题外话: Servlet 接口的五个方法
+1. init()
+2. service()
+3. destroy()
+4. getServletConfig()
+5. getServletInfo()
+
+### 3.1.2 init() 方法:
+
+在 Servlet 实例化后, Servlet 容器会调用 init() 方法来初始化该对象, 主要是为了让 Servlet 对象在处理客户请求前可以完成一些初始化工作, 例如: 建立数据库的连接, 获取配置信息等. 对于每一个 Servlet 实例, init() 方法只能被调用一次. init() 方法有一个类型为 ServletConfig 的参数, Servlet 容器通过这个参数向 Servlet 传递配置信息. Servlet 使用 ServletConfig 对象从 Web 应用程序的配置信息中获取以名-值对形式提供的初始化参数. 另外, 在 Servlet 中, 还可以通过 ServletConfig 对象获取描述 Servlet 运行环境的 ServletContext 对象, 使用该对象, Servlet 可以和它的 Servlet 容器进行通信.
+
+### 3.1.3 Service() 方法:
+
+容器调用 service() 方法来处理客户端的请求. 要注意的是, 在 service() 方法被容器调用之前, 必须确保 init() 方法正确完成. 容器会构造一个表示客户端请求信息的请求对象 (类型为 ServletRequest) 和一个用于对客户端进行响应的响应对象 (类型为 ServletResponse) 作为参数传递给 service(). 在 service() 方法中, Servlet 对象通过 ServletRequest 对象得到客户端的相关信息和请求信息, 在对请求进行处理后, 调用 ServletResponse 对象的方法设置响应信息.
+
+### 3.1.4 destroy() 方法:
+
+当容器检测到一个 Servlet 对象应该从服务中被移除的时候, 容器会调用该对象的 destroy() 方法, 以便让 Servlet 对象可以释放它所使用的资源, 保存数据到持久存储设备中, 例如将内存中的数据保存到数据库中, 关闭数据库的连接等. 当需要释放内存或者容器关闭时, 容器就会调用 Servlet 对象的 destroy() 方法, 在 Servlet 容器调用 destroy() 方法前, 如果还有其他的线程正在 service() 方法中执行容器会等待这些线程执行完毕或者等待服务器设定的超时值到达. 一旦 Servlet 对象的 destroy() 方法被调用, 容器不回再把请求发送给该对象. 如果需要改 Servlet 再次为客户端服务, 容器将会重新产生一个 Servlet 对象来处理客户端的请求. 在 destroy() 方法调用之后, 容器会释放这个 Servlet 对象, 在随后的时间内, 该对象会被 java 的垃圾收集器所回收.
+
+### 3.1.5 getServletConfig() 方法:
+
+该方法返回容器调用 init() 方法时传递给 Servlet 对象的 ServletConfig 对象, ServletConfig 对象包含了 Servlet 的初始化参数.
+
+### 3.1.6 getServletInfo() 方法:
+
+返回一个 String 类型的字符串, 其中包括了关于 Servlet 的信息, 例如, 作者, 版本和版权. 该方法返回的应该是纯文本字符串, 而不是任何类型的标记.
+
+关于 Servlet 接口的五个方法的精彩文字转载自[这里](http://www.cnblogs.com/freeabyss/archive/2013/07/11/3187047.html).
+
+## 3.2 继承 GenericServlet 类:
+
+```java
+@WebServlet("/Servlet_1_2")
+public class Servlet_1_2 extends GenericServlet {
+
+	//重写service方法即可
+	@Override
+	public void service(ServletRequest arg0, ServletResponse arg1) throws ServletException, IOException {
+		// TODO 自动生成的方法存根
+		try{  
+            System.out.println("service....");
+        }catch(Exception e){  
+            e.printStackTrace();  
+        }  
+	}
+	
+}
+```
+### 3.2.1 注解:
+
+这里的实现方法也是新建一个类, 手动添加 `@WebServlet("/Servlet_1_2")` 这一行代码, 然后只重写 service() 方法即可, 如果我们直接通过实现 Servlet 接口来编写一个 Servlet 类, 就需要实现 Servlet 接口中定义的 5 种方法, 为了简化 Servlet 的编写, 在 javax.servlet 包中, 给我们提供了一个抽象的类 GenericServlet, 它提供了除 service() 方法外的其他 4 种方法的简单实现. GenericServlet 类定义了一个通用的, 不依赖具体协议的 Servlet. 实践出现的一个有意思的事情是, 我进入映射的虚拟路径/Servlet_1_2 后, 发现控制台输出的信息如下, 这里我并没有修改 init() 方法:
+
+![控制台](/assets/images/posts/jsp-homework-1/jsp-work-1-4.webp)
+
+## 3.3 继承 HttpServlet 类:
+
+```java
+@WebServlet("/Servlet_1")
+public class Servlet_1 extends HttpServlet {
+	private static final long serialVersionUID = 1L;
+
+	@Override
+	protected void service(HttpServletRequest arg0, HttpServletResponse arg1) throws ServletException, IOException {
+		// TODO 自动生成的方法存根
+		// super.service(arg0, arg1);
+		System.out.println("service....");
+	}
+
+	@Override
+	public void destroy() {
+		// TODO 自动生成的方法存根
+		// super.destroy();
+		System.out.println("destroy....");
+	}
+
+	@Override
+	public void init() throws ServletException {
+		// TODO 自动生成的方法存根
+		// super.init();
+		System.out.println("init.....");
+	}
+}
+```
+### 3.3.1 注解:
+
+新建一个 Servlet 类时的默认构建方法, 也是最常用的构建方法. 由于大多数网络应用中, 都是浏览器通过 HTTP 协议去访问服务器资源, 而我们编写的 Servlet 也主要是应用于 HTTP 协议的请求和响应, 为了快速开发应用于 HTTP 协议的 Servlet, 在 javax.servlet.http 包中给我们提供了一个抽象的类 HttpServlet, 他继承自 GenericServlet 类, 用于创建适合 Web 站点的 HTTP Servlet.
+
+><a id="5-5"></a>作业 5:[点此查看要求](#5)
+
+配置 Serlvet 的过程可分为两种, 一种是 Servlet3.0 版本之前的配置, 相对来说比较麻烦, 还有一种是 Servlet3.0 版本之后的配置, 相对来说简单很多, 具体的配置方法, 我在[JSP笔记_1_初次使用Servlet](/2016/11/29/jsp-1/)中已经详细说明过了, 这里就不做具体说明了.

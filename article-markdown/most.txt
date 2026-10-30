@@ -1,0 +1,1008 @@
+# 译 - Getting the MOST out of your Storage Hierarchy with Mirror-Optimized Storage Tiering
+
+<div class="paper-shared">
+
+原论文 [Getting the MOST out of your Storage Hierarchy with Mirror-Optimized Storage Tiering](https://www.usenix.org/conference/fast26/presentation/tu) 发表于 FAST 2026 (第 24 届 USENIX 文件与存储技术会议), 中文题名为 "MOST: 通过镜像优化存储分层, 充分发挥存储层次结构的能力".
+
+传统存储分层把数据放在某一层, 热点变化时往往需要迁移数据. MOST 只镜像少量热点数据, 让请求可以在不同存储层之间分配, 从而减少迁移和负载倾斜:
+
+**镜像与分层**
+
+- 大部分数据仍按分层方式存放, 保持空间效率; 需要分担负载的热点数据才在存储层之间保留镜像.
+
+**请求路由**
+
+- 系统通过选择服务请求的副本平衡读写负载, 面对动态热点时不必频繁移动整份数据.
+
+**实验结果**
+
+- 论文在基于 CacheLib 的 Cerberus 中实现 MOST. 静态和动态负载实验显示, 其吞吐量优于文中对照方案, 对 I/O 密集型负载尤其有利.
+
+MOST 研究现代异构存储中如何兼顾分层存储的空间效率和热点负载下的带宽利用率. 传统分层通常把一份数据放在某一层, 当热点变化或读写负载失衡时, 为了重新分配请求可能需要搬迁数据; 全量镜像又会占用过多空间. 这篇 FAST 2026 论文提出镜像优化存储分层, 只为少量热点数据保留跨层副本, 其余数据仍按分层方式存放. 系统通过请求路由决定由哪一份副本服务访问, 在不同设备间分担读写压力, 避免每次负载变化都移动完整数据. 论文还给出镜像类与分层类的划分方式, 优化算法, 副本同步过程及相应的空间与写入代价. MOST 在基于 CacheLib 的用户态存储管理层 Cerberus 中实现, 并在静态和动态负载下与其他方案比较. 实验报告其吞吐量优于论文所选对照, 尤其适合 I/O 密集或热点变化频繁的场景. 这一结论以论文的设备组合和负载为条件, 其设计重点是让少量副本承担负载调节作用.
+
+mirrored class 和 tiered class 分别译为镜像类与分层类; cleaning 在本文指同步失效副本, 译为同步, 不表示回收空间. 结论以论文配置与负载为准.
+
+</div>
+
+# 0. 摘要
+
+We present Mirror-Optimized Storage Tiering (MOST), a novel tiering-based approach optimized for modern storage hierarchies. The key idea of MOST is to combine the load-balancing advantages of mirroring with the space-efficiency advantages of tiering. Specifically, MOST dynamically mirrors a small amount of hot data across storage tiers to efficiently balance load, avoiding costly migrations. As a result, MOST is as space-efficient as classic tiering while achieving better bandwidth utilization under I/O-intensive workloads. We implement MOST in Cerberus, a user-level storage management layer based on CacheLib. We show the efficacy of Cerberus through a comprehensive empirical study: across a range of static and dynamic workloads, Cerberus achieves better throughput than competing approaches on modern storage hierarchies especially under I/O-intensive and dynamic workloads.
+
+本文提出镜像优化存储分层 (Mirror-Optimized Storage Tiering, MOST), 面向现代存储层次结构, 将镜像的负载均衡能力与分层的空间效率结合起来. MOST 动态地在存储层之间镜像少量热点数据, 通过灵活分配请求实现负载均衡, 避免昂贵的数据迁移. 因而, 它既能保持接近传统分层的空间效率, 又能在 I/O 密集型负载下提高带宽利用率. 我们在基于 CacheLib 的用户态存储管理层 Cerberus 中实现 MOST. 对静态和动态负载的系统实验表明, Cerberus 在现代存储层次结构上的吞吐量优于对照方案, 尤其适用于 I/O 密集型和动态负载.
+
+# 1. 引言
+
+Storage hierarchies have been essential to computer system design since its inception <sup>[20]</sup>. In persistent storage systems, such hierarchies are commonplace; for example, SSDs are commonly used as a caching layer above hard drives <sup>[47]</sup>; AutoRAID uses a mirrored set of disks for performance on top of a log-structured RAID-5 layout for capacity <sup>[66]</sup>.
+
+从计算机系统诞生起, 存储层次结构就是其设计基础 <sup>[20]</sup>. 在持久化存储中, 这种结构十分常见: 例如在硬盘前使用 SSD 缓存 <sup>[47]</sup>; AutoRAID 则在面向容量的日志结构 RAID-5 之上, 使用镜像磁盘组提供性能 <sup>[66]</sup>.
+
+However, as recent work has shown <sup>[32, 69]</sup>, new device types pose challenges in the construction of storage hierarchies. Specifically, new non-volatile memories <sup>[7]</sup> and low-latency SSDs <sup>[8, 9]</sup> have performance and capacity profiles that overlap. As such, arranging devices into a strict hierarchy is difficult <sup>[32, 69]</sup>; doing so ensures that the peak potential of the storage system is not realized.
+
+然而, 最近研究 <sup>[32, 69]</sup> 表明, 新设备类型给层次结构带来了挑战. 新型非易失性内存 <sup>[7]</sup> 与低延迟 SSD <sup>[8, 9]</sup> 的性能和容量特征存在交叠, 难以严格按快慢安排层级 <sup>[32, 69]</sup>. 强行采用这样的层次结构, 会使系统无法充分发挥潜力.
+
+We are thus left with a significant challenge: how should we manage a collection of modern devices so as to maximize performance while minimizing space overheads? As we discuss in this paper, classic techniques fall short.
+
+因此, 我们面临一个问题: 如何管理一组现代设备, 在尽可能减少空间开销的同时获得最高性能? 本文将说明, 传统方法难以兼顾这两点.
+
+To understand the issues better, consider a simplified two-device system, with a faster/smaller "performance" device and a slower/larger "capacity" device. The first family of approaches we call "single copy", as they keep only a single copy of each data block in storage. One well-known single-copy approach is tiering <sup>[16, 25, 30, 38, 39, 44, 54, 56, 60, 61, 64, 67, 73, 75, 79, 80]</sup>, which (slowly) migrates blocks between tiers based on the hotness or some other optimization goal. Tiering is space-efficient, as there is one copy of each block; however, a tiering-based system cannot efficiently adapt to changes in load because data need to be migrated around the tiers. Striping <sup>[22, 59]</sup> is another single-copy approach that statically allocates blocks across devices but struggles to manage heterogeneous hierarchies or changes in workload <sup>[24]</sup>.
+
+考虑一个简化的双设备系统: 较快但较小的性能设备, 以及较慢但较大的容量设备. 第一类方法称为单副本方案, 每个数据块只保留一份. 典型方法是分层 <sup>[16, 25, 30, 38, 39, 44, 54, 56, 60, 61, 64, 67, 73, 75, 79, 80]</sup>, 根据热度或其他优化目标在层间缓慢迁移数据块. 单副本使其空间效率较高, 但负载变化时需要移动数据, 因而难以快速适应. 条带化 <sup>[22, 59]</sup> 也是单副本方案, 将数据块静态分配到各设备, 但难以应对设备异构和负载变化 <sup>[24]</sup>.
+
+The second family of approaches we call "multiple copy", as they replicate some (or all) blocks. A well-known multiple-copy approach is caching <sup>[6, 18, 27, 46, 48, 49, 53, 69, 74]</sup>, which makes copies of popular blocks in the performance device. As a result, caching wastes capacity (as all copy-based approaches do); in addition, caching does not utilize the bandwidth of the capacity layer, thus falling short of peak performance. Mirroring <sup>[19, 22]</sup>, a technique that replicates data across two devices, effectively balances the load for read requests by directing them to either device, yet also incurs a significant capacity cost.
+
+第二类方法称为多副本方案, 会复制部分或全部数据块. 常见的缓存方案 <sup>[6, 18, 27, 46, 48, 49, 53, 69, 74]</sup> 将热点块复制到性能设备. 与其他复制方案一样, 它会消耗额外容量; 而且通常未利用容量层的带宽, 无法达到最高性能. 镜像 <sup>[19, 22]</sup> 将数据复制到两台设备, 读请求可以发往任一设备, 因此能有效均衡读负载, 但容量开销也很大.
+
+The state-of-the-art approaches for handling heterogeneous memory and storage devices focus on tiering <sup>[23, 64]</sup>; at a high level, these previous works attempt to maximize the total throughput delivered by all devices by dynamically placing and migrating data across devices such that accesses to each device are proportional to their bandwidth or equalize access latency. In this paper, we introduce Mirror-Optimized Storage Tiering (MOST) and show that mirroring a small amount of hot data across devices, in combination with tiering, greatly improves performance and reduces device writes. Given these mirrored data, the host can dynamically route requests to different devices to effectively balance load instead of performing costly data migrations across devices like other approaches.
+
+现有先进的异构内存和存储管理方案主要采用分层 <sup>[23, 64]</sup>. 它们动态放置和迁移数据, 使各设备的访问量与带宽成比例, 或使访问延迟相等, 从而尽量提高总吞吐量. 本文提出 MOST, 展示在分层基础上跨设备镜像少量热点数据, 可以明显提高性能并减少设备写入. 有了这些镜像, 主机便能通过动态路由请求实现负载均衡, 而无须像其他方案那样执行昂贵的跨设备迁移.
+
+We find that adding a small amount of mirroring is advantageous to pure tiering for three primary reasons. First, mirrors enable the system to quickly react to workload changes by adjusting routing; pure tiering, on the other hand, must slowly migrate a significant amount of data to adjust load distribution. Second, mirrors reduce overall device writes when handling dynamic workloads; migration-based approaches require extensive device writes to move data across tiers. Third, mirroring is more robust to fluctuations in device performance and prevents overreacting with unnecessary migrations. This effect is particularly pronounced for storage devices that suffer from poor tail latency or write-heavy workloads that frequently trigger background activity inside the SSD.
+
+少量镜像相较纯分层有三方面优势. 第一, 修改请求路由即可快速适应负载变化, 纯分层则需要缓慢迁移大量数据. 第二, 动态负载下镜像减少了设备总写入量, 而迁移方案要为层间搬移数据执行大量写入. 第三, 镜像能更稳健地应对设备性能波动, 避免反应过度而触发无谓迁移. 对尾延迟较差的设备, 或写密集负载频繁触发 SSD 内部后台活动的场景, 这一优势尤为明显.
+
+MOST is a novel approach optimized for the modern storage hierarchy. MOST mirrors a small amount of hot data within the classic tiering system, enabling flexible load distribution control. Under low load, MOST functions similarly to a classic tiering system, routing requests for mirrored data to the performance device to maximize its utilization. Under high load, MOST dynamically routes a portion of requests to the capacity copy of the mirrored data, thereby utilizing the bandwidth of the capacity device more effectively. Key to the success of MOST are the algorithms that manage its behavior. MOST is based on a simple, robust, and self-adjusting optimization mechanism that requires no prior workload knowledge and is capable of handling the varied performance characteristics of different storage hierarchies.
+
+MOST 在传统分层系统中镜像少量热点数据, 灵活控制负载分布. 低负载时, 它像传统分层一样, 将镜像数据请求发往性能设备, 尽量利用其性能. 高负载时, 则将部分请求发往容量设备上的镜像副本, 更充分地利用容量层带宽. MOST 的关键在于管理这些行为的算法: 它采用简单, 稳健且可自行调整的优化机制, 无须预先了解负载, 就能适应不同层次结构的性能特征.
+
+We implement MOST as a storage management layer named Cerberus within the widely-used flash cache library, CacheLib <sup>[2, 18, 46]</sup>. Our experiments are conducted on two storage hierarchies using three different real device types <sup>[5, 8, 12-14]</sup>. For static cache workloads, MOST achieves up to 2.34× higher throughput and reduces P99 latency by up to 75% compared to state-of-the-art systems (Colloid <sup>[64]</sup>, HeMem <sup>[56]</sup>, and Orthus <sup>[69]</sup>). Across four production cache workloads, MOST increases throughput by up to 1.86× and reduces P99 GET latency by up to 90% compared to these systems. Overall, Cerberus enhances throughput under intensive workloads and reduces writes by up to 84% compared to Colloid under dynamic workloads through its judicious use of mirroring across storage tiers.
+
+我们在广泛使用的闪存缓存库 CacheLib <sup>[2, 18, 46]</sup> 中实现存储管理层 Cerberus, 将 MOST 用于实际系统. 实验采用三类真实设备 <sup>[5, 8, 12-14]</sup> 构成的两种层次结构. 静态缓存负载下, 相较 Colloid <sup>[64]</sup>, HeMem <sup>[56]</sup> 和 Orthus <sup>[69]</sup> 等先进系统, MOST 吞吐量最高达到 2.34 倍, P99 延迟最多降低 75%. 四种生产缓存负载中, 吞吐量最高达到 1.86 倍, P99 GET 延迟最多降低 90%. 总体而言, Cerberus 通过有选择地跨层镜像数据, 改善高强度负载吞吐量, 并在动态负载下将写入量相对 Colloid 最多降低 84%.
+
+# 2. 动机与背景
+
+In this section, we discuss some of the trends in modern memory and storage hierarchies containing multiple heterogeneous devices. We then describe existing management techniques - such as striping, tiering, mirroring, and caching - and analyze their limitations. We conclude by discussing some of the extra challenges of managing storage hierarchies, as opposed to memory hierarchies.
+
+本节介绍异构多设备内存和存储层次结构的发展趋势, 分析条带化, 分层, 镜像与缓存等管理方法的限制, 最后讨论存储层次结构相较内存层次结构面临的额外挑战.
+
+## 2.1 多设备层次结构
+
+Multiple devices <sup>[23, 39, 56, 58, 64, 69, 79]</sup> are commonly used to serve memory and storage load. Since new devices may be added incrementally over time to increase capacity or performance, these new devices are likely to exhibit different performance characteristics compared to older devices in the system. One natural approach has been to organize memory or storage devices into a hierarchy of tiers, with newer, faster devices placed as a cache above slower, possibly larger devices; such hierarchies have been essential to systems since their inception <sup>[20]</sup>.
+
+内存和存储系统经常使用多个设备承载负载 <sup>[23, 39, 56, 58, 64, 69, 79]</sup>. 随着时间推移, 系统可能逐步添加新设备以扩大容量或提高性能, 新旧设备的性能特征也可能不同. 一种自然做法是将设备分层, 用较新, 较快的设备缓存较慢且可能更大的设备. 这类层次结构从计算机诞生起就一直很重要 <sup>[20]</sup>.
+
+However, as recent work has shown <sup>[32, 69]</sup>, new device types pose challenges to ordered hierarchies. To simplify our discussion, we focus on a two-layered hierarchy containing two types of devices: a performance device and a capacity device, where the performance device is more expensive, smaller in capacity, and faster, whereas the capacity device is cheaper, larger, and slower. In a traditional hierarchy (`e.g.`, DRAM on HDD), the performance gap between the two devices is substantial and the performance of the capacity device can be ignored. However, with emerging technologies such as non-volatile memory <sup>[7]</sup>, low-latency SSDs <sup>[8]</sup>, NVMe Flash SSDs <sup>[5, 14]</sup>, SATA Flash SSDs <sup>[13]</sup>, and remote storage with NVMeoF <sup>[12]</sup>, disaggregated SSDs <sup>[35, 36]</sup>, and EBS <sup>[1, 78]</sup>, the performance and capacity devices have overlapping characteristics. As such, arranging these devices into a strict hierarchy <sup>[32, 69]</sup> limits their potential.
+
+但近期工作 <sup>[32, 69]</sup> 表明, 新设备对严格有序的层次结构提出了挑战. 为简化讨论, 本文考虑两层: 性能设备价格更高, 容量更小, 速度更快; 容量设备更便宜, 更大且更慢. 在 DRAM 与 HDD 等传统组合中, 两者性能差距很大, 容量层性能几乎可以忽略. 然而, 非易失性内存 <sup>[7]</sup>, 低延迟 SSD <sup>[8]</sup>, NVMe 闪存 SSD <sup>[5, 14]</sup>, SATA 闪存 SSD <sup>[13]</sup>, NVMeoF 远程存储 <sup>[12]</sup>, 解耦 SSD <sup>[35, 36]</sup> 和 EBS <sup>[1, 78]</sup> 等技术使两层特征发生交叠, 严格分层反而限制了潜力 <sup>[32, 69]</sup>.
+
+Table 1 shows that latency and bandwidth can be similar for the performance and capacity devices given current technology. Memory and storage systems can be composed of any pair of these devices. Importantly, the performance ratio across the two tiers may be close: the bandwidth ratio for 16KB reads is only 1.5:1 between Optane and PCIe 3.0 NVMe devices and only 1.25:1 between local and remote PCIe 4.0 NVMe devices. More subtly, the performance ratios are not static and strongly depend on workload; for example, given 4KB reads, the ratio between Optane and PCIe 3.0 NVMe devices increases to approximately 2.2:1. These performance ratios depend on access sizes, percentage of writes, and concurrency <sup>[68]</sup>.
+
+表 1 表明, 现代性能设备与容量设备的延迟和带宽可能接近, 内存或存储系统可以由这些设备中的任意两类组合而成. 例如, 16 KB 读取时 Optane 与 PCIe 3.0 NVMe 的带宽比仅 1.5:1, 本地与远程 PCIe 4.0 NVMe 仅 1.25:1. 而且性能比例随负载变化: 4 KB 读取时, Optane 与 PCIe 3.0 NVMe 的比例约为 2.2:1. 这些比例取决于访问大小, 写入比例和并发度 <sup>[68]</sup>.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 1: Device Performance. Latency measured for a single-thread read workload; bandwidth for a 32-thread workload. Remote device is connected via a 25 Gbps link.</span>
+
+| Device | 4 KB latency | 16 KB latency | 4 KB read | 16 KB read | 4 KB write | 16 KB write |
+|:---|---:|---:|---:|---:|---:|---:|
+| Optane SSD | 11 | 18 | 2.2 | 2.4 | 2.2 | 2.2 |
+| PCIe 4.0 NVMe Flash SSD | 66 | 86 | 1.5 | 3.3 | 1.9 | 2.3 |
+| PCIe 3.0 NVMe Flash SSD | 82 | 90 | 1.0 | 1.6 | 1.5 | 1.6 |
+| PCIe 4.0 NVMe Flash SSD over RDMA | 88 | 114 | 1.2 | 2.7 | 1.7 | 2.3 |
+| SATA Flash SSD | 104 | 146 | 0.38 | 0.5 | 0.38 | 0.5 |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 1: 设备性能. 延迟使用单线程读负载测量, 带宽使用 32 线程负载测量. 远程设备通过 25 Gbps 链路连接.</span>
+
+| 设备 | 4 KB 延迟 (μs) | 16 KB 延迟 (μs) | 4 KB 读 (GB/s) | 16 KB 读 (GB/s) | 4 KB 写 (GB/s) | 16 KB 写 (GB/s) |
+|:---|---:|---:|---:|---:|---:|---:|
+| Optane SSD | 11 | 18 | 2.2 | 2.4 | 2.2 | 2.2 |
+| PCIe 4.0 NVMe Flash SSD | 66 | 86 | 1.5 | 3.3 | 1.9 | 2.3 |
+| PCIe 3.0 NVMe Flash SSD | 82 | 90 | 1.0 | 1.6 | 1.5 | 1.6 |
+| PCIe 4.0 NVMe Flash SSD over RDMA | 88 | 114 | 1.2 | 2.7 | 1.7 | 2.3 |
+| SATA Flash SSD | 104 | 146 | 0.38 | 0.5 | 0.38 | 0.5 |
+
+</div>
+
+</div>
+
+## 2.2 现有方法
+
+At a high level, classic approaches for managing multi-device memory and storage can be grouped into two categories: approaches that maintain a single copy of each block (`i.e.`, striping, tiering, and exclusive caching), and approaches that may maintain multiple copies of each block (`i.e.`, mirroring, caching). We describe these approaches and highlight their inefficiencies, as summarized in Table 2.
+
+经典多设备管理方法可分为两类: 条带化, 分层和排他式缓存等单副本方案, 以及镜像, 缓存等多副本方案. 下文介绍其机制与不足, 表 2 汇总比较结果.
+
+Single Copy. Striping <sup>[22, 24, 28, 51, 52, 59]</sup> allocates a single copy of each block in a predetermined static pattern across devices. Striping does not handle heterogeneous devices well: if data is striped evenly across devices, throughput is bottlenecked by the slowest device; if data is striped in a weighted pattern with more data on faster devices, the appropriate weight depends on the workload; furthermore, the ideal striping ratio for performance is unlikely to match the ratio of the devices' capacity (`i.e.`, faster devices are usually smaller). Thus, striping is not a good match for heterogeneous storage.
+
+**单副本.** 条带化 <sup>[22, 24, 28, 51, 52, 59]</sup> 按预定静态模式分配数据块, 每块一份. 它不擅长处理异构设备: 均匀分配时受最慢设备限制; 按权重给快设备更多数据时, 合适权重又取决于负载. 此外, 性能最优比例通常与设备容量比例不一致, 因为快设备往往更小. 因此条带化并不适合异构存储.
+
+Tiering <sup>[16, 25, 38, 44, 54, 60, 61, 67, 73, 79, 80]</sup> also allocates a single copy of each block; however, instead of allocating blocks in a static pattern, tiering dynamically places data blocks based on their hotness <sup>[16, 38, 43, 54, 61, 73, 79, 80]</sup> or some other optimization goal <sup>[23, 30, 75]</sup>. Table 2 summarizes the characteristics of three tiering approaches.
+
+分层 <sup>[16, 25, 38, 44, 54, 60, 61, 67, 73, 79, 80]</sup> 同样每块一份, 但不是静态分配, 而是按热度 <sup>[16, 38, 43, 54, 61, 73, 79, 80]</sup> 或其他目标 <sup>[23, 30, 75]</sup> 动态放置. 表 2 总结三种分层方案的特点.
+
+First, classic hotness-based tiering is exemplified by HeMem <sup>[56]</sup>, which manages a memory system containing DRAM and NVM. HeMem promotes hot data into the performance tier and serves hot data exclusively from the performance tier, leading to inefficient utilization of the capacity tier's bandwidth; thus, HeMem delivers low bandwidth for intensive workloads due to not effectively utilizing NVM (as shown later §4). Second, BATMAN <sup>[23]</sup> balances tier bandwidth by migrating data, but its fixed bandwidth ratio prevents it from adapting to hierarchies whose performance ratios vary with workload or evolve over time. Third, Colloid <sup>[64]</sup> also dynamically migrates data between memory tiers to utilize the bandwidth of the capacity device; however, Colloid does not handle dynamic and time-varying workloads because costly data migrations are required to adjust the load distribution when the workload changes (§4.2).
+
+第一, HeMem <sup>[56]</sup> 代表传统热度分层, 管理 DRAM 与 NVM 组成的内存系统. 它将热点数据提升到性能层, 热数据请求仅由性能层处理, 因而未有效利用 NVM 容量层带宽, 高强度负载下总带宽较低, 见原文第 4 节. 第二, BATMAN <sup>[23]</sup> 通过迁移平衡各层带宽, 但固定带宽比例使其无法适应性能比随负载或时间变化的系统. 第三, Colloid <sup>[64]</sup> 也通过动态迁移利用容量层带宽, 但每次负载变化都要昂贵迁移, 因而难以处理动态, 时变负载, 见原文第 4.2 节.
+
+Other tiering systems, such as AutoTiering <sup>[75]</sup> and EDTDTM <sup>[30]</sup>, also balance data placement to utilize the bandwidth of all tiers, but since they rely solely on data migration to adjust load distribution, their adaptability and responsiveness to workload changes is limited. Exclusive caching <sup>[29]</sup> maintains only a single copy of data within the hierarchy: when hot data is promoted or demoted between tiers, the original copy is discarded. At a high level, exclusive caching is similar to hotness-based tiering but moves data at smaller time intervals; consequently, it behaves similarly. In summary, as shown in Table 2, single-copy approaches may partially utilize the bandwidth of the capacity device by migrating data across tiers. However, this migration-based strategy struggles to adapt to dynamic workloads, as migration is both costly and slow. In addition to limited responsiveness, migration-based approaches also suffer from excessive device write and performance degradation due to migration-induced traffic (see §2.3 for further discussion).
+
+AutoTiering <sup>[75]</sup> 和 EDT-DTM <sup>[30]</sup> 等其他系统也调整放置以利用全部层的带宽, 但只依赖迁移, 对负载变化的响应能力有限. 排他式缓存 <sup>[29]</sup> 在层次结构中也只保留一份数据, 提升或降级后丢弃原副本, 本质上类似热度分层, 只是移动间隔更短, 因而表现相近. 表 2 中, 单副本方案可以靠迁移部分利用容量层带宽, 但迁移昂贵且缓慢, 难以适应动态负载, 还会增加设备写入和额外流量, 损害性能, 详见原文第 2.3 节.
+
+Multiple Copies. To utilize both devices, other approaches maintain two copies of at least some data blocks across both the performance and capacity devices. Mirroring <sup>[19, 22]</sup> simply replicates all data on both devices. Mirroring delivers high read bandwidth since reads can be dynamically load balanced across both devices to account for performance differences; however, mirroring delivers low write bandwidth since both copies must be updated and bandwidth is limited by the slower device. Mirroring also has low capacity utilization since each block is stored on both devices.
+
+**多副本.** 这类方法在性能设备与容量设备上为至少一部分数据保留两份副本. 镜像 <sup>[19, 22]</sup> 直接复制全部数据, 读请求可按两台设备的性能差异动态分流, 因而读带宽较高. 写入却必须更新两份, 受慢设备限制, 写带宽较低; 每块存储两份也降低了容量利用率.
+
+Inclusive caching allocates all items on the capacity device, but replicates only frequently-accessed items on the performance device <sup>[6, 18, 27, 46, 48, 49, 53, 69, 74]</sup>; inclusive caching inherently wastes the capacity of the performance device and fails to exploit the performance of the capacity device <sup>[17, 34]</sup>. To utilize the performance of the capacity device, Orthus <sup>[69]</sup> introduces Non-Hierarchical Caching (NHC). Orthus dynamically redirects read traffic from the performance device to the capacity device when the performance device is overloaded. However, Orthus is built on a traditional caching model, which introduces two fundamental limitations. First, it is space-inefficient -- NHC uses the entire capacity of the performance device to store duplicate copies of data from the capacity tier, wasting the performance tier's storage capacity. Second, Orthus struggles with write-intensive workloads, requiring clean copies for routing read requests: writes that hit in the cache can be handled with write-through or writeback/write-around. With write-through, both copies remain clean, but additional writes are incurred, and performance is constrained by the write bandwidth of the capacity device. With write-back/write-around to only one of the block's copies, Orthus can only route subsequent reads to the dirty block. Thus, Orthus performs poorly with writes (§4.1).
+
+包含式缓存将全部数据放在容量设备, 只将高频访问项复制到性能设备 <sup>[6, 18, 27, 46, 48, 49, 53, 69, 74]</sup>. 这会占用性能设备的容量, 又无法充分利用容量设备的性能 <sup>[17, 34]</sup>. Orthus <sup>[69]</sup> 提出非层次化缓存 (NHC), 在性能设备过载时将读流量转向容量设备. 但其传统缓存模型存在两个限制. 第一, 性能设备全部用于保存容量层数据的副本, 空间效率低. 第二, 写密集负载下表现不佳: 读请求分流需要干净副本, 缓存命中的写入可采用写穿或写回/绕写. 写穿使两份副本都保持有效, 但增加写入, 且受容量设备写带宽限制; 只更新一份的写回或绕写, 则使后续读取只能发往最新副本. 因此 Orthus 的写负载表现较差, 见原文第 4.1 节.
+
+Nomad <sup>[72]</sup> proposes a variant to hotness-based tiering that maintains temporary copies of data during migration; specifically, the original copy on the capacity device can still be accessed while the data is being migrated to the performance device. While Nomad improves the performance penalty of migration, it does not maximize the bandwidth of the underlying devices in the common case.
+
+Nomad <sup>[72]</sup> 是热度分层的变体, 在迁移期间暂时保留副本: 向性能设备迁移时, 容量设备上的原副本仍可访问. 它减轻了迁移惩罚, 但在一般情况下并未最大化底层设备总带宽.
+
+Summary. Existing approaches for handling heterogeneous memory and storage fail along important metrics (Table 2). Approaches that maintain a single copy of data, such as striping, tiering (`e.g.`, HeMem, BATMAN, Colloid, AutoTiering, and EDT-DTM), and exclusive caching, fall short in handling dynamic workloads. Current approaches, such as mirroring, inclusive caching, and non-hierarchical caching, that maintain multiple copies of data items suffer from low capacity utilization and struggle with write-intensive workloads. We will show that MOST delivers high bandwidth and reduces device writes across a wide range of static and dynamic workloads with only a small amount of mirrored data.
+
+**小结.** 表 2 所列现有方案在若干关键指标上存在不足. 条带化, HeMem, BATMAN, Colloid, AutoTiering, EDT-DTM 和排他式缓存等单副本方案难以适应动态负载. 镜像, 包含式缓存和非层次化缓存等多副本方案则容量利用率低, 且难以处理写密集负载. 后文将展示, MOST 只镜像少量数据, 就能在多种静态和动态负载中获得高带宽并减少设备写入.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 2: Qualitative Comparison of Different Techniques in a Modern Storage Hierarchy. Low means no load-balancing mechanism; Medium represents limited load-balancing with restrictions under specific workloads; High indicates effective load-balancing across a wide range of workloads.</span>
+
+| Metric | Striping | HeMem | BATMAN | Colloid | Mirroring | Orthus | MOST |
+|:---|:---|:---|:---|:---|:---|:---|:---|
+| Random read-only bandwidth | Low | Low | Medium | Medium | High | High | High |
+| Random write-only bandwidth | Low | Low | Medium | Low | Low | Low | High |
+| Random RW-mixed bandwidth | Low | Low | Medium | Medium | Medium | Medium | High |
+| Sequential write bandwidth | Low | Low | Low | Low | Low | Low | High |
+| Capacity utilization | High | High | High | High | Low | Low | High |
+| Dynamic workload | Low | Low | Low | Low | Medium | Medium | High |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 2: 现代存储层次结构中不同技术的定性比较. 带宽利用率中, 低表示没有负载均衡机制, 中表示仅在特定负载下有受限的均衡能力, 高表示可在多种负载下有效均衡. 前四种为单副本, 后三种为多副本方案.</span>
+
+| 指标 | Striping | HeMem | BATMAN | Colloid | Mirroring | Orthus | MOST |
+|:---|:---|:---|:---|:---|:---|:---|:---|
+| 随机只读带宽 | 低 | 低 | 中 | 中 | 高 | 高 | 高 |
+| 随机只写带宽 | 低 | 低 | 中 | 低 | 低 | 低 | 高 |
+| 随机混合读写带宽 | 低 | 低 | 中 | 中 | 中 | 中 | 高 |
+| 顺序写带宽 | 低 | 低 | 低 | 低 | 低 | 低 | 高 |
+| 容量利用率 | 高 | 高 | 高 | 高 | 低 | 低 | 高 |
+| 动态负载适应性 | 低 | 低 | 低 | 低 | 中 | 中 | 高 |
+
+</div>
+
+</div>
+
+## 2.3 存储层次结构与内存层次结构
+
+The approaches that handle data placement in memory hierarchies <sup>[23, 39, 56, 64]</sup> versus storage hierarchies <sup>[66, 75, 79]</sup> have many similarities. In both the memory and the storage domain, strategies for data placement optimize for many of the same metrics, such as high performance (bandwidth and latency) and high capacity. In both domains, solutions share many of the same high-level approaches (`e.g.`, striping, tiering, caching), as well as similar low-level techniques (`e.g.`, attempting to balance load across heterogeneous devices by reacting to observed performance whether for memory <sup>[23, 64]</sup> or for storage <sup>[69]</sup>).
+
+内存层次结构 <sup>[23, 39, 56, 64]</sup> 与存储层次结构 <sup>[66, 75, 79]</sup> 的数据放置方法有许多相似之处. 两者都追求高性能, 即带宽和延迟, 以及高容量; 都采用条带化, 分层, 缓存等高层思路, 也使用类似底层技术, 如根据观测性能调整异构设备负载, 相关工作见内存领域 <sup>[23, 64]</sup> 和存储领域 <sup>[69]</sup>.
+
+However, storage hierarchies have characteristics that require special attention and introduce additional opportunities.
+
+但存储层次结构还有一些需要特别处理的特点, 同时也带来额外优化机会.
+
+Larger Capacity and Datasets: Storage devices manage significantly larger datasets than memory. Thus, if migration is used as the primary technique for balancing load across tiers, more data will need to be migrated leading to larger convergence times when adjusting to workload changes.
+
+**容量和数据集更大.** 存储设备管理的数据远多于内存. 若主要靠迁移均衡层间负载, 则要搬移更多数据, 适应负载变化的收敛时间更长.
+
+Limited Write Bandwidth: Storage devices have lower write bandwidth than memory; combined with the previous point, this further increases convergence time if migration is used to adjust to dynamic workloads.
+
+**写带宽有限.** 存储设备写带宽低于内存, 与更大数据量叠加后, 进一步拉长迁移方案应对动态负载的时间.
+
+Read/Write Interference: Some storage devices <sup>[68, 70]</sup> have complex performance characteristics such that write operations significantly impact the performance of read operations. Migrating data in the background introduces write traffic that can significantly degrade foreground performance.
+
+**读写干扰.** 一些存储设备 <sup>[68, 70]</sup> 的性能特征复杂, 写操作会明显影响读取. 后台迁移产生的写流量可能显著降低前台性能.
+
+Device Endurance: Frequent migrations accelerate device wear, reducing the lifespan of storage devices such as SSDs <sup>[45, 46]</sup>.
+
+**设备寿命.** 频繁迁移加速磨损, 缩短 SSD 等设备的使用寿命 <sup>[45, 46]</sup>.
+
+Software-based Indirection: Since storage devices have slower access time (10 - 500 µs) than memory (50 - 100 ns), software is used to determine the location of blocks on different devices instead of hardware. As a result, techniques such as dynamic and selective mirroring are more straightforward to implement for the storage stack.
+
+**软件间接寻址.** 存储设备访问延迟为 10-500 μs, 高于内存的 50-100 ns, 因而通常由软件而非硬件定位各设备上的数据块. 动态, 选择性镜像因此更容易在存储栈中实现.
+
+Thus, while dynamic tiering with data migration has been shown to work well for heterogeneous memory hierarchies <sup>[56, 64]</sup>, heterogeneous storage hierarchies need additional techniques that do not rely as heavily on migration.
+
+尽管动态迁移分层已在异构内存系统中取得较好效果 <sup>[56, 64]</sup>, 异构存储仍需要对迁移依赖更小的技术.
+
+# 3. 镜像优化存储分层
+
+We present Mirror-Optimized Storage Tiering (MOST), a combination of mirroring and tiering that enables flexible load balancing across tiers by mirroring a small amount of data. MOST is based on three design goals:
+
+MOST 结合镜像与分层, 通过镜像少量数据实现灵活的层间负载均衡. 它有三个设计目标.
+
+Maximized Bandwidth Utilization. MOST should dynamically balance load across all storage tiers based on workload.
+
+**最大化带宽利用率.** 根据负载动态平衡所有存储层的请求.
+
+Quick Response to Dynamic Workloads. MOST should dynamically and quickly adapt to varying workloads, including fluctuations in load and working set size.
+
+**快速适应动态负载.** 及时响应负载强度, 工作集大小等变化.
+
+Independence from Device and Workload Characteristics. MOST should operate effectively across any storage hierarchy without requiring prior knowledge of device characteristics or workload patterns.
+
+**不依赖特定设备和负载.** 无须预先了解设备特征或负载模式, 即可适用于不同存储层次结构.
+
+## 3.1 基本设计
+
+The key idea of MOST is to combine the load-balancing advantages of mirroring with the capacity benefits of classic tiering. MOST uses a hybrid data layout with two classes: the mirrored class and the tiered class (Figure 1). Data in the mirrored class is replicated across two devices to enable fast load balancing; data in the tiered class is stored as a single copy to maximize the space efficiency. In MOST, hot data, which is accessed most frequently, is moved to the mirrored class and the remaining data is stored in the tiered class. Within the tiered class, warm data is migrated to the performance device; the remaining cold data is migrated to the capacity device.
+
+MOST 将镜像的负载均衡优势与传统分层的容量优势结合, 使用镜像类和分层类两种数据布局, 如图 1 所示. 镜像类在两台设备上保留副本, 支持快速均衡负载; 分层类每块只保留一份, 尽量提高空间效率. 访问最频繁的热数据移入镜像类, 其余留在分层类. 分层类中的温数据放在性能设备, 冷数据放在容量设备.
+
+<div class="paper-shared">
+
+![MOST 图 1](/assets/images/posts/most/figure-01.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 1: MOST Data Layout. Data are logically grouped but not physically placed together on the device.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 1: MOST 数据布局. 图中按逻辑分组, 不表示数据在设备上物理相邻.</span>
+
+As desired, the performance device stores the most-accessed data: hot data in the mirrored class and warm data in the tiered class. Under light workloads, this layout maximizes the likelihood that a request can be served from the performance device. Under intense workloads, MOST dynamically increases the size of the mirrored class and routes some requests in the mirrored class to the capacity copy to balance the load across both devices.
+
+因此, 性能设备保存访问最频繁的数据, 包括镜像类热数据与分层类温数据. 轻负载时, 这种布局尽量让请求由性能设备处理. 高强度负载下, MOST 动态扩大镜像类, 将部分请求路由到容量设备副本, 均衡两台设备负载.
+
+## 3.2 设计细节
+
+Figure 2 shows the basic architecture of MOST. Blocks are placed in the mirrored or tiered class depending on their frequency of access: the goal is to place the hottest data in the mirrored class, warm data in the tiered class on the performance device, and cold data in the tiered class on the capacity device. When handling a request, MOST first determines if the request is to the tiered or mirrored class. Requests to tiered data are straightforward since the data resides strictly in either the performance or capacity device; those reads and writes are simply forwarded to the appropriate location. Requests to mirrored data involve more complexity: a load switch (or balancer) sends some percentage of these requests to each device, where the percentage depends upon the current workload performance and whether the request is a read or write. Other components of the architecture calculate this percentage (`i.e.`, Optimizer) and migrate data between the classes and devices (`i.e.`, Migrator).
+
+图 2 给出 MOST 架构. 数据块按访问频率归入镜像类或分层类: 热数据进入镜像类, 温数据进入性能设备的分层类, 冷数据进入容量设备的分层类. 处理请求时先判断所属类别. 分层类只有一个位置, 直接转发读写即可. 镜像类则由负载切换器或均衡器按一定比例分流, 比例取决于当前性能和请求是读还是写. Optimizer 负责计算比例, Migrator 负责类别与设备间的数据迁移.
+
+<div class="paper-shared">
+
+![MOST 图 2](/assets/images/posts/most/figure-02.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 2: MOST Architecture.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 2: MOST 架构.</span>
+
+We address key questions of MOST's design. For reads to the hottest data, which data copy in the mirrored class should be read to balance traffic across devices? On which device should newly written data be allocated? What data should be migrated between mirrored and tiered classes, and between devices? For writes to mirrored data, which copy should be updated? At what granularity should clean copies be tracked? When should copies be cleaned? How to protect the tail latency of mirrored data?
+
+MOST 需要回答以下设计问题: 如何选择热点数据的镜像副本以均衡读取? 新写入数据应放在哪台设备? 哪些数据应在类别或设备间迁移? 写入镜像数据时更新哪份副本? 用什么粒度跟踪干净副本? 何时同步副本? 如何保护镜像数据的尾延迟?
+
+### 3.2.1 镜像类的读流量均衡
+
+For simplicity, we begin by focusing on reads that are to the hottest data and thus in the mirrored class. We later show how MOST allocates data, moves data to and from the mirrored class, and handles writes. The full algorithm is shown above.
+
+先考虑最热数据, 即镜像类数据的读取. 后文再介绍分配, 类别间迁移和写入处理. 完整流程见算法 1.
+
+<div class="paper-shared">
+
+Algorithm 1: MOST Optimizer.
+
+算法 1: MOST 优化器. L_P 与 L_C 分别为性能设备与容量设备的端到端延迟, θ 为容差.
+
+```text
+ 1: while true do
+ 2:   sleep(tuningInterval); Measure end-to-end latency.
+ 3:   if L_P > (1 + θ) * L_C
+ 4:     if offloadRatio = offloadRatioMax
+ 5:       if Mirrored class is not maximized
+ 6:         Enlarge the mirrored class
+ 7:       else
+ 8:         Improve hotness of the mirrored class
+ 9:       only migrate to capacity device
+10:     else offloadRatio += ratioStep
+11:   else if L_P < (1 - θ) * L_C
+12:     if offloadRatio = 0
+13:       only migrate to performance device
+14:     else offloadRatio -= ratioStep
+15:   else stop all migration
+```
+
+每个周期测量两台设备的延迟. 性能设备较慢时先增加向容量设备的分流; 已达分流上限则扩大镜像类, 或替换其中较冷的数据, 并仅允许向容量设备迁移. 容量设备较慢时减少分流, 降至零后仅允许向性能设备迁移. 延迟接近时停止迁移.
+
+</div>
+
+At a high level, reads to mirrored data should be routed to the device that delivers the best performance. To achieve this, MOST employs probability-based routing to determine which copy to read <sup>[69]</sup>. Specifically, MOST routes an incoming read with probability offloadRatio to the capacity device, and otherwise, to the performance device. OffloadRatio is the key variable controlling load distribution, as well as write traffic and allocation. OffloadRatio is tuned by a simple yet efficient feedback-driven dynamic optimization algorithm within the Optimizer; offloadRatio is adjusted such that the measured end-to-end latency of the devices is equalized.
+
+镜像读请求应发往性能更好的设备. MOST 使用概率路由 <sup>[69]</sup>: 以 offloadRatio 概率发往容量设备, 否则发往性能设备. 这一变量不仅控制负载分布, 也控制写流量和空间分配. Optimizer 使用基于反馈的动态优化算法调整 offloadRatio, 使两台设备测得的端到端延迟接近.
+
+Specifically, assuming L<sub>P</sub> is the latency of the performance device and L<sub>C</sub> is the latency of the capacity device, then
+
+设性能设备延迟为 L<sub>P</sub>, 容量设备延迟为 L<sub>C</sub>, 则:
+
+When L<sub>P</sub> < L<sub>C</sub>, accessing the performance device is faster than accessing the capacity device, and so more traffic should be routed to the performance device (see Lines 11-14); thus, offloadRatio is decreased.
+
+当 L<sub>P</sub> < L<sub>C</sub> 时, 性能设备更快, 应向其分配更多流量, 因而减小 offloadRatio, 见算法第 11-14 行.
+
+When L<sub>P</sub> > L<sub>C</sub>, accessing the capacity device is faster than accessing the performance device, and so more traffic should be routed to the capacity device (see Lines 3-10); thus, offloadRatio is increased.
+
+当 L<sub>P</sub> > L<sub>C</sub> 时, 容量设备更快, 应向其分配更多流量, 因而增大 offloadRatio, 见算法第 3-10 行.
+
+When L<sub>P</sub> = L<sub>C</sub>, the two access latencies are approximately equal, and therefore, no further action is required (Line 15).
+
+当 L<sub>P</sub> = L<sub>C</sub> 时, 两者延迟近似相等, 无须进一步调整, 见第 15 行.
+
+MOST efficiently adapts to both high-load and low-load scenarios. Under low load, the latency of accessing the performance device is lower than that of the capacity device, and so traffic is routed to the performance device; in these conditions, MOST operates like classic tiering, directing as many requests as possible to the performance device. In contrast, under high load, all hot and warm data reside on the performance device, causing its access latency to increase -- due to queuing and internal resource contention -- and eventually exceed that of the capacity device; consequently, MOST offloads requests to the capacity device which improves throughput. Under high load, MOST offloads traffic from the performance device to the capacity device until the end-to-end latency between the two devices is equalized.
+
+低负载时, 性能设备访问更快, MOST 像传统分层一样尽量将请求发往性能设备. 高负载时, 热数据与温数据都位于性能设备, 排队和内部资源竞争会推高其延迟, 最终超过容量设备. MOST 此时将请求分流到容量设备以提高吞吐量, 直到两者端到端延迟接近. 因而它能同时适应高, 低负载.
+
+### 3.2.2 动态写入分配
+
+When a data block is first written, MOST allocates its location. MOST divides both mirrored and tiered storage into fixed-sized segments (`e.g.`, 2MB) and maintains in-memory data structures to track the metadata for the segment. All data are initially allocated into the tiering class. In classic tiering, the allocation policy is load-unaware, meaning that it always allocates newly-created blocks on the performance device, even when that device is saturated. MOST introduces a probability-based write allocation policy: similar to load balancing within the mirrored class, the newly allocated data is placed on the capacity device with offloadRatio probability. As a result, when the performance device is under high load (higher latency), more data is allocated on the capacity device; when the performance device is under light load (lower latency), all data is allocated on the performance device, as desired and as in classic tiering <sup>[56, 64]</sup>. After a block has been allocated to the tiered class, it may later be promoted to the mirrored class, as described next.
+
+数据块首次写入时, MOST 为其选择位置. 镜像类与分层类都划分为固定大小的段, 如 2 MB, 并在内存中维护段元数据. 新数据先进入分层类. 传统分层不考虑负载, 即使性能设备已饱和也仍将新块放在那里. MOST 则按概率分配: 以 offloadRatio 概率将新数据放在容量设备. 性能设备高负载, 高延迟时, 更多数据进入容量设备; 轻负载, 低延迟时, 则全部进入性能设备, 与传统分层 <sup>[56, 64]</sup> 一致. 分层类中的块以后还可提升到镜像类.
+
+### 3.2.3 镜像类迁移
+
+To meet the basic goal of placing the hottest data in the mirrored class, MOST migrates data between classes such that it minimizes the amount of movement between devices. To identify hot/warm/cold data, MOST tracks read and write counters for each segment, similar to HeMem <sup>[56]</sup>; thus, hotness is based on access frequency.
+
+为了将最热数据放入镜像类, MOST 在类别间迁移数据, 同时尽量减少设备间搬移. 与 HeMem <sup>[56]</sup> 类似, 它为每个段维护读写计数, 用访问频率区分热, 温, 冷数据.
+
+When the amount of mirrored data is insufficient to effectively balance traffic (Line 4), MOST increases the size of the mirrored class up to a configured maximum. Our experiments (§4) show that devoting 20% of the total capacity to the mirrored class is sufficient for our workloads. To migrate data into the mirrored class, MOST selects the hottest segment from the tiered class on the performance device; this hottest data is simply duplicated onto the mirrored class on the capacity device. If the mirrored class reaches its maximum size and the hottest segment in the tiered class has a higher access frequency than the coldest segment in the mirrored class, MOST swaps those segments. Space within the mirrored class is reclaimed when the available system capacity drops below a predefined watermark (2.5% of the total capacity). During reclamation, MOST reclaims the coldest segment in the mirrored class: if a valid copy of this segment exists on the performance device, the capacity copy is discarded; otherwise, the copy on the performance device is discarded.
+
+当镜像数据不足以均衡流量时, 即算法第 4 行, MOST 扩大镜像类直到配置上限. 原文第 4 节表明, 对实验负载, 总容量的 20% 已足够. 提升时选择性能设备分层类中最热的段, 将其复制到容量设备镜像类. 若镜像类已满, 且分层类最热段比镜像类最冷段更热, 则交换两者. 当可用空间低于预设水位, 即总容量的 2.5%, 系统回收镜像类最冷段的冗余副本: 若性能设备副本有效, 就丢弃容量设备副本; 否则丢弃性能设备副本.
+
+Migration Regulation. In classic tiering, hot data is always migrated to the performance device and cold data to the capacity device; however, with MOST and its mirrored class, hot segments may be migrated to the capacity device. MOST dynamically manages this bidirectional migration, adhering to a principle of migrating exclusively away from the device experiencing higher end-to-end latency. Precisely, when the performance device has higher latency, migration to the performance device is stopped and migration to the capacity device is enabled; when the capacity device exhibits higher latency, the opposite is performed; if the latencies of both devices are approximately equal, all migration is stopped.
+
+**迁移控制.** 传统分层总将热数据移向性能设备, 冷数据移向容量设备; MOST 则可能将热段复制到容量设备. 它按一个原则控制双向迁移: 只从端到端延迟较高的设备向外迁移. 性能设备延迟较高时, 停止向其迁入, 允许迁往容量设备; 反之亦然. 两者延迟近似相等时, 停止全部迁移.
+
+### 3.2.4 写入均衡与干净子页跟踪
+
+Our previous discussion focused on reads; writes need special consideration. Writes to the tiered class remain straightforward since there is only one copy to update. However, writes to the mirrored class have a new property: if the write is performed to both copies, then the system is not performing any write load-balancing; however, if the write updates only one copy, then future reads must be directed only to that clean, valid copy. In order to perform load-balancing of writes, MOST updates only one copy and carefully tracks which portions of each segment are valid.
+
+写入需要单独考虑. 分层类只有一份副本, 更新即可. 镜像类若同时写两份, 就无法均衡写负载; 若只更新一份, 后续读取则只能访问该有效副本. 因此 MOST 每次只更新一份, 并精确跟踪每个段中哪些部分仍有效.
+
+Writes to the mirrored class are balanced as follows. If both copies of the mirrored data are valid, the write request is probabilistically sent to either the capacity or performance device based on offloadRatio. However, if only one copy in the mirror is valid, a naive implementation based only on segments must direct later write traffic only to the valid segment (or overwrite the entire invalid segment, making it valid).
+
+如果两份镜像副本都有效, 写请求按 offloadRatio 概率发往任一设备. 若只有一份有效, 仅按段管理的朴素实现就只能继续写有效段, 或完整覆盖无效段使其重新有效.
+
+Mirrored Data Subpages. To enable better load balancing of writes, MOST manages segments in the mirrored class at a finer granularity: an invalid bit and a location bit are tracked for each subpage corresponding to the device's unit of access (`e.g.`, 4KB). Each subpage exists in one of three states: clean (both copies are valid), invalid on the performance device, or invalid on the capacity device. Thus, given an aligned subpage write to the mirrored class, MOST can route the write to either device without having to update the entire segment; that is, a 4KB-aligned write can be load balanced through simple routing, similar to reads. Subpages in the mirrored class slightly increase metadata overhead (2 bits of metadata), but since the mirrored class is relatively small, the overall overhead remains minimal; for instance, in a 2TB hierarchy in the extreme case where all performance device data is mirrored (50% mirroring), the metadata overhead is only 128MB, which is negligible.
+
+**镜像数据子页.** 为提高写入均衡能力, MOST 按设备访问单元, 如 4 KB, 细分镜像段, 为每个子页跟踪一个无效位和一个位置位. 子页有三种状态: 两份都有效, 性能设备副本无效, 或容量设备副本无效. 对齐子页的写入因此可以发往任一设备, 无须更新整个段; 4 KB 对齐写可像读取一样通过路由均衡. 每个子页额外使用 2 位元数据, 而镜像类较小, 总开销有限. 例如 2 TB 层次结构中, 即使性能设备全部镜像, 镜像比例为 50%, 元数据也仅占 128 MB.
+
+Selective Cleaning in the Mirror Class. Data blocks with only one valid copy are selectively cleaned by a background thread. This cleaning thread selects blocks with a large rewrite distance, the average number of reads between two writes for a given block. We have observed that when a block has a small rewrite distance, it is likely to be rewritten soon, making cleaning ineffectual.
+
+**镜像类的选择性同步.** 后台线程有选择地同步仅一份副本有效的块, 使另一份恢复有效. 它优先处理重写距离较大的块, 重写距离指同一块两次写入之间的平均读取次数. 距离较小时, 块很可能很快再次被写入, 此时同步副本收益有限.
+
+### 3.2.5 尾延迟保护
+
+The description thus far has focused on maximizing total bandwidth from the performance and capacity devices; however, MOST allows users to protect the tail latency of mirrored (hot) data by setting a maximum offloadRatio which limits the traffic offloaded to the capacity device in the mirrored class when the capacity device shows significantly worse tail latency than the performance device.
+
+前述机制侧重最大化两台设备的总带宽. 用户还可设置 offloadRatio 上限: 当容量设备尾延迟明显较差时, 限制镜像类向其分流的比例, 从而保护热点数据的尾延迟.
+
+## 3.3 实现: Cerberus
+
+We introduce Cerberus, a user-level storage management system that integrates MOST into CacheLib. CacheLib is a generic flash cache library used extensively in data center infrastructures <sup>[11, 18, 26, 46, 62, 63]</sup>. As shown in Figure 3, CacheLib consists of three layers: a DRAM cache layer, a flash cache layer, and a storage management layer. CacheLib provides two default flash cache layers: a Large Object Cache (LOC) employs a log with a DRAM index for items 2KB or larger; a Small Object Cache (SOC) stores key-value pairs in a 4KB bucket hash table. Users can also implement custom flash caches in this flash cache layer (`e.g.`, Kangaroo <sup>[46]</sup> and Fairy-WREN <sup>[45]</sup>).
+
+Cerberus 是将 MOST 集成至 CacheLib 的用户态存储管理系统. CacheLib 是数据中心广泛使用的通用闪存缓存库 <sup>[11, 18, 26, 46, 62, 63]</sup>, 包含 DRAM 缓存, 闪存缓存和存储管理三层, 如图 3 所示. 默认闪存缓存包括大对象缓存 LOC 和小对象缓存 SOC. LOC 用日志加 DRAM 索引保存至少 2 KB 的项; SOC 用 4 KB 桶哈希表保存键值对. 用户还可实现 Kangaroo <sup>[46]</sup>, Fairy-WREN <sup>[45]</sup> 等自定义闪存缓存.
+
+<div class="paper-shared">
+
+![MOST 图 3](/assets/images/posts/most/figure-03.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 3: CacheLib Architecture. This figure shows CacheLib's architecture and the lookup workflow. A lookup first checks the DRAM cache ( 1 ) and immediately returns the object on a hit ( 2 ). On a miss, it checks the flash cache ( 3 ), issuing a read to the underlying storage devices ( 4a ); if the object is found, it returns the result ( 4b ). A flash cache hit promotes the item to DRAM and may evict an existing DRAM entry ( 5a , 5b ). A miss in the flash cache ( 6 ) leads to a backend access ( 7 ).</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 3: CacheLib 架构与查找流程. 先查 DRAM 缓存 (1), 命中即返回 (2); 否则查闪存缓存 (3), 向底层设备读取 (4a), 找到后返回 (4b). 闪存命中项提升到 DRAM, 可能淘汰已有项 (5a, 5b). 闪存也未命中 (6), 则访问后端 (7).</span>
+
+By default, the storage management layer in CacheLib only provides striping across devices. Cerberus is our storage management layer between the flash cache engine and the storage hierarchy employing MOST; Cerberus transparently manages the underlying performance and capacity devices, providing a block interface and a large address space. In addition to MOST, we have implemented other tiering and caching approaches within the CacheLib storage management layer.
+
+CacheLib 默认存储管理层只支持跨设备条带化. Cerberus 位于闪存缓存引擎与存储层次结构之间, 采用 MOST 透明管理性能设备和容量设备, 对外提供块接口与较大地址空间. 我们也在同一管理层实现了其他分层和缓存方案.
+
+Striping. The default implementation in CacheLib.
+
+Striping. CacheLib 默认的条带化实现.
+
+Orthus. The non-hierarchical caching implementation described and provided by Wu et al. <sup>[69]</sup> in 0.6K lines of code (LOC).
+
+Orthus. 使用 Wu 等人 <sup>[69]</sup> 描述并提供的非层次化缓存实现, 约 600 行代码.
+
+HeMem. Our implementation of the classic tiering and migration algorithm <sup>[56]</sup> in about 0.7k LOC. The original HeMem uses a quantum of 10ms which is appropriate for memory latency, but not storage; we use 200ms, the smallest interval that accurately reacts to our storage device latency.
+
+HeMem. 我们用约 700 行代码实现经典分层迁移算法 <sup>[56]</sup>. 原实现的 10 ms 调整周期适合内存, 不适合存储; 本文使用 200 ms, 这是能准确响应实验设备延迟的最短间隔.
+
+BATMAN. Our implementation of BATMAN heterogeneous tiering <sup>[23]</sup>, requiring about 0.4K LOC.
+
+BATMAN. 约 400 行代码实现的异构分层算法 <sup>[23]</sup>.
+
+Colloid. Our implementation of Colloid <sup>[64]</sup> is built on HeMem (with a 200ms quantum) in about 0.4K lines of code. Since Colloid only balances reads, we implement Colloid+ to incorporate write latency into decisions. Additionally, since Colloid is sensitive to parameters, we implement Colloid++ with θ = 0.2 and α = 0.01, which improves robustness given storage device performance fluctuations.
+
+Colloid. 在 HeMem 的 200 ms 周期实现上, 用约 400 行代码实现 Colloid <sup>[64]</sup>. 原算法只平衡读取, 因而增加 Colloid+ 将写延迟纳入决策. 考虑到参数敏感性, 又实现 θ = 0.2, α = 0.01 的 Colloid++, 提高其应对存储性能波动的稳健性.
+
+Metadata Management. MOST divides storage into 2MB segments, where each segment requires 76 bytes of metadata as shown in Table 3. Smaller segments would result in larger metadata overhead (`e.g.`, 4KB segments require 512 times more metadata) and degrade performance since they obtain lower device bandwidth (Table 1). Conversely, larger segments would lead to inefficient utilization of the performance tier, as only a small fraction of subpages might be frequently accessed. We have found that 2MB segments balance the metadata footprint while minimizing space waste on the performance tier, matching the choice of many other systems <sup>[39, 56, 64]</sup>.
+
+**元数据管理.** MOST 按 2 MB 分段, 每段需要表 3 所列的 76 字节元数据. 段更小会增大元数据开销, 如 4 KB 段需要 512 倍元数据, 还会因小访问带宽较低而降低性能, 见表 1. 段更大则可能只有少量子页频繁访问, 浪费性能层空间. 2 MB 在元数据与空间浪费之间取得较好平衡, 与许多系统的选择一致 <sup>[39, 56, 64]</sup>.
+
+Implementation Details. The MOST optimizer runs on a single pinned thread during each 200ms interval. At each interval, the optimizer estimates the access latency of each device by comparing counters from the Linux block-layer <sup>[10]</sup> to measurements from the previous interval. Similar to prior systems <sup>[64]</sup>, we apply Exponentially Weighted Moving Average (EWMA) to measured latency to smooth out short-term fluctuations and maintain long-term stability. The optimizer leverages this smoothed latency signal to guide migration decisions and adjust routing accordingly. We set θ = 0.05, a commonly used tolerance in tuning-based systems <sup>[64]</sup>, to treat values as approximately equal, striking a balance between stability and responsiveness. MOST demonstrates robust performance across diverse workloads without requiring fine-tuning, indicating low sensitivity to the specific choice of θ. We also adopt ratioStep = 0.02, following guidance from similar systems (`e.g.`, Orthus <sup>[69]</sup>), which works well across different workloads. Cerberus introduces approximately 1.5k LOC to CacheLib, leveraging and extending the core HeMem tiering logic.
+
+**实现细节.** MOST 优化器每 200 ms 在一个绑定 CPU 的线程上运行. 它比较 Linux 块层计数器 <sup>[10]</sup> 与前一周期的测量值, 估计设备访问延迟, 并像已有系统 <sup>[64]</sup> 一样用指数加权移动平均 (EWMA) 平滑短期波动, 再据此控制迁移与路由. θ 设为 0.05, 将接近的延迟视为相等, 兼顾稳定性和响应速度; 这一容差也常用于反馈调优系统 <sup>[64]</sup>. MOST 在多种负载下无须精细调参, 对 θ 不敏感. 参考 Orthus <sup>[69]</sup> 等系统, ratioStep 设为 0.02, 各负载下均表现良好. Cerberus 基于 HeMem 核心分层逻辑扩展, 为 CacheLib 增加约 1500 行代码.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 3: In-Memory Metadata per Segment.</span>
+
+| Member | Type | Size |
+|:---|:---|---:|
+| id | uint64_t | 8 |
+| addr\[2\] | uint64_t\[\] | 16 |
+| invalid | bitset\<512\>* | 8 |
+| location | bitset\<512\>* | 8 |
+| clock | uint64_t | 8 |
+| readCounter | uint8_t | 1 |
+| writeCounter | uint8_t | 1 |
+| rewriteReadCounter | uint64_t | 8 |
+| rewriteCounter | uint64_t | 8 |
+| flags | uint8_t | 1 |
+| storageClass | enum class | 1 |
+| mutex | SharedMutex | 8 |
+| Total | - | 76 |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 3: 每个段的内存元数据.</span>
+
+| 成员 | 类型 | 字节 |
+|:---|:---|---:|
+| id | uint64_t | 8 |
+| addr\[2\] | uint64_t\[\] | 16 |
+| invalid | bitset\<512\>* | 8 |
+| location | bitset\<512\>* | 8 |
+| clock | uint64_t | 8 |
+| readCounter | uint8_t | 1 |
+| writeCounter | uint8_t | 1 |
+| rewriteReadCounter | uint64_t | 8 |
+| rewriteCounter | uint64_t | 8 |
+| flags | uint8_t | 1 |
+| storageClass | enum class | 1 |
+| mutex | SharedMutex | 8 |
+| 合计 | - | 76 |
+
+</div>
+
+</div>
+
+# 4. 评估
+
+We evaluate Cerberus to answer the following questions.
+
+我们通过实验回答以下问题.
+
+How does Cerberus compare to striping, caching (Orthus), and tiering (HeMem, BATMAN, and Colloid) for static workloads with different intensity levels and patterns? (§4.1)
+
+不同强度与模式的静态负载下, Cerberus 与条带化, 缓存方案 Orthus, 以及 HeMem, BATMAN, Colloid 等分层方案相比如何? 见原文第 4.1 节.
+
+How quickly does Cerberus adapt to dynamic workloads? How does the number of writes performed by MOST compare to migration-based tiering approaches with load-balancing capabilities? (§4.2)
+
+Cerberus 多快能适应动态负载? 相较具有负载均衡能力的迁移分层方案, MOST 的写入量如何? 见原文第 4.2 节.
+
+How effective are Cerberus's techniques for mirror class sizing, subpage management, and selective cleaning? (§4.3)
+
+镜像类大小控制, 子页管理和选择性同步有多大作用? 见原文第 4.3 节.
+
+How does CacheLib with Cerberus perform on static workloads? How does it perform on dynamic workloads? (§4.4)
+
+使用 Cerberus 的 CacheLib 在静态和动态负载下表现如何? 见原文第 4.4 节.
+
+Storage Configurations. We evaluate two storage hierarchies: Optane (performance) / NVMe (capacity), and NVMe (performance) / SATA (capacity). The latency and bandwidth of these three storage devices (750GB Intel Optane SSD P4800X, 1TB Samsung 960 NVMe SSD, 1TB Samsung 870 SATA SSD) are shown in Table 1. The server has a 40-core Intel Xeon Gold 5218R CPU @ 2.1GHz (Ubuntu 20.04) and 64GB DRAM.
+
+**存储配置.** 两种层次结构分别为 Optane 性能层 / NVMe 容量层, 以及 NVMe 性能层 / SATA 容量层. 三台设备为 750 GB Intel Optane SSD P4800X, 1 TB Samsung 960 NVMe SSD 和 1 TB Samsung 870 SATA SSD, 性能见表 1. 服务器为 40 核 Intel Xeon Gold 5218R, 2.1 GHz, 64 GB DRAM, 运行 Ubuntu 20.04.
+
+## 4.1 与现有方案比较
+
+We begin with a high-level comparison of Cerberus to other approaches for handling heterogeneous devices: striping, Orthus (caching), HeMem (classic tiering), BATMAN (with a static ratio matching the read bandwidth of the devices), and three versions of Colloid (a state-of-the-art tiering approach). To focus on the basic performance of these algorithms, we isolate the storage management layer from CacheLib and exercise that layer with controlled workloads; we begin with a static micro-benchmark in which multiple threads perform synchronous random reads and writes, given a skewed access pattern where a 20% hotset is accessed with 90% probability. Figure 4 compares steady-state throughput for read-only, write-only, sequential write, and read-latest workloads with varying intensities; 1.0× represents the minimum load at which the bandwidth of the performance device is saturated. We show that on static workloads Cerberus performs as well as or better than all other approaches.
+
+先比较条带化, Orthus 缓存, HeMem 传统分层, 按读取带宽比例静态配置的 BATMAN, 以及三个 Colloid 版本. 为隔离算法效果, 实验直接对 CacheLib 的存储管理层施加受控负载. 静态微基准由多个线程同步执行随机读写, 20% 的热点数据承载 90% 访问. 图 4 比较不同强度的只读, 只写, 顺序写和读取最新数据负载; 1.0× 表示刚好使性能设备带宽饱和的最小负载. 静态负载下, Cerberus 达到或超过所有对照方案.
+
+Random Read-only. Even on this simple static workload, the other approaches do not match Cerberus. Striping delivers suboptimal performance, since it is bottlenecked by the slower device. Orthus delivers similar throughput to Cerberus, but Orthus achieves this by mirroring 690GB of data compared to only 50GB in Cerberus. HeMem (classic tiering) reaches its performance limit when the load intensity is 1.0× because HeMem does not offload traffic to the capacity device once the performance device's bandwidth is saturated; consequently, further load increases do not improve throughput. For BATMAN, no static allocation ratio works well for all load levels: BATMAN performs relatively well under high load because its allocation ratio is configured to match this bandwidth ratio for the hierarchy; however, at low load, this ratio causes traffic to be sent to the capacity device, reducing throughput. Colloid experiences significant performance degradation at intensity 2.0× due to migrations triggered by latency spikes arising from background activity; Colloid++ improves this throughput, showing that Colloid is sensitive to parameter choice. As a result, Colloid and Colloid++ incur 2.68× and 1.24× more migration traffic than Cerberus (as shown in the caption). In summary, Cerberus delivers high throughput at both low and high load and also reduces device writes compared to migration-based approaches that attempt to balance the load.
+
+**随机只读.** 即使这一简单负载, 其他方案也未能全面匹敌 Cerberus. 条带化受慢设备限制; Orthus 吞吐量相近, 但镜像了 690 GB 数据, Cerberus 仅 50 GB. HeMem 在 1.0× 强度时已达上限, 不向容量设备分流, 再提高负载也无益. BATMAN 没有一个静态比例能适应所有强度: 匹配带宽比的配置在高负载下较好, 低负载下却因向容量设备分流而降低吞吐量. Colloid 在 2.0× 下因后台活动引起延迟尖峰, 触发迁移而明显变慢; Colloid++ 有所改善, 说明参数影响较大. 两者迁移量分别为 Cerberus 的 2.68 倍和 1.24 倍, 见图注. Cerberus 在高低负载下都保持高吞吐量, 并比依赖迁移的均衡方案写入更少.
+
+Random Write-only. We focus on those results that are noticeably different for writes versus reads. Orthus has a static write-back policy, and so does not balance write traffic or scale under high load. BATMAN no longer performs well at high load because a different allocation ratio is required to match the performance of write traffic versus read traffic across the two devices. Colloid does not perform write balancing and therefore exhibits performance similar to HeMem; Colloid+ balances write traffic but suffers from migration overhead triggered by latency spikes, resulting in suboptimal throughput; Colloid++ demonstrates improved performance, but still incurs migration overhead. For write-intensive workloads, Cerberus performs significantly better than other approaches, since it balances writes in the mirrored class and is robust to latency spikes.
+
+**随机只写.** Orthus 固定采用写回策略, 无法均衡写流量, 高负载下难以扩展. BATMAN 的读取比例不适合设备间的写性能比, 高负载表现也不佳. Colloid 不平衡写入, 与 HeMem 相近; Colloid+ 能平衡写入, 但延迟尖峰触发迁移, 吞吐量受损; Colloid++ 有所改善, 仍有迁移开销. Cerberus 能均衡镜像类写入, 又能稳健应对延迟尖峰, 因而明显更好.
+
+Sequential Write. Sequential writes emulate popular applications with log-structured data (`e.g.`, flash caches, file systems, and databases). As with random writes, Orthus cannot efficiently balance write traffic. Colloid behaves similarly to HeMem because it doesn't take write latency into account when balancing. Interestingly, Colloid+ and Colloid++ perform worse due to additional interfering migrations when balancing write latency; in a sequential workload, demoted blocks are not re-accessed, which makes these migrations ineffective. As desired, Cerberus dynamically allocates new writes proportionally across devices: when the performance device becomes saturated, writes are allocated directly on the capacity device.
+
+**顺序写.** 该负载模拟闪存缓存, 文件系统和数据库等日志结构应用. Orthus 同样难以均衡写流量; Colloid 忽略写延迟, 表现接近 HeMem. Colloid+ 与 Colloid++ 为平衡写延迟执行额外迁移, 反而更慢; 顺序负载中降级块不会再访问, 迁移无效. Cerberus 则按比例动态分配新写入, 性能设备饱和后直接将新数据放在容量设备.
+
+Read Latest. This workload uses a 50% write ratio, where 20% of the newly-written blocks have a 90% probability of being read. Colloid performs worse than HeMem at intensities higher than 1.0× due to migration traffic; these migrations are ineffectual since the migrated blocks soon become cold as new blocks are written into the system. Colloid+ and Colloid++ perform more migration, resulting in worse performance. Cerberus efficiently balances the workload by dynamically allocating a portion of new writes to the capacity device when the performance device is saturated; as a result, Cerberus effectively uses the bandwidth of each device as the intensity increases.
+
+**读取最新数据.** 写入占 50%, 新写数据中的 20% 以 90% 概率被读取. 超过 1.0× 后, Colloid 因迁移流量而比 HeMem 更差; 随新数据写入, 已迁移块很快变冷, 迁移没有收益. Colloid+ 与 Colloid++ 迁移更多, 表现更差. Cerberus 在性能设备饱和时将部分新写入分配到容量设备, 因而随负载增强仍能有效利用每台设备带宽.
+
+Summary. For a variety of static workloads, Cerberus achieves better throughput than striping, Orthus, BATMAN, HeMem, and Colloid. We omit BATMAN in subsequent experiments since it performs worse than Colloid or its variants.
+
+**小结.** 多种静态负载下, Cerberus 吞吐量优于条带化, Orthus, BATMAN, HeMem 和 Colloid. 后续实验省略 BATMAN, 因其表现不如 Colloid 或其变体.
+
+<div class="paper-shared">
+
+![MOST 图 4](/assets/images/posts/most/figure-04.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 4: Static Workload. The workload is running on the Optane/NVMe hierarchy with 750GB working set. In (a), under intensity 2.0×, Colloid, Colloid+, Colloid++, Cerberus migrate 134GB, 122GB, 62GB, 50GB of data in total. In (b), under intensity 2.0×, Colloid, Colloid+, Colloid++, Cerberus migrate 0GB, 93GB, 80GB, 65GB of data in total.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 4: 静态负载, Optane/NVMe 层次结构, 工作集 750 GB. (a) 强度 2.0× 时, Colloid, Colloid+, Colloid++, Cerberus 总迁移量依次为 134, 122, 62, 50 GB. (b) 强度 2.0× 时依次为 0, 93, 80, 65 GB.</span>
+
+## 4.2 动态负载
+
+Dynamic time-varying workloads are challenging for previous approaches. To compare Cerberus to HeMem and Colloid++, we create a micro-benchmark modeling a bursty workload similar to those in practice <sup>[18]</sup>. After pre-warming the system with intensive load for 1000 seconds, the benchmark transitions to generating a 2-minute burst every 15 minutes. Figure 5 shows the delivered throughput and amount of data promoted and demoted as a function of load (`i.e.`, thread count) for read-only, write-only, and read-write workloads.
+
+为比较 Cerberus, HeMem 和 Colloid++ 对时变负载的适应能力, 我们建立类似实际场景 <sup>[18]</sup> 的突发微基准. 先以高强度负载预热 1000 秒, 随后每 15 分钟出现一次持续 2 分钟的突发. 图 5 展示只读, 只写和读写混合情况下, 随线程数变化的吞吐量以及提升, 降级数据量.
+
+Read-only workload. Before 1000 seconds, the systems operate under high load; in this warm-up period, Colloid demotes and Cerberus mirrors approximately 7% of the hot data to the capacity device. At 1000 seconds, when workload intensity drops, Colloid promotes the hotset back to the performance device, causing intensive promotion traffic (as shown in the second graph), which negatively impacts throughput (first graph). In contrast, within 10 seconds Cerberus efficiently rebalances traffic by routing requests to mirrored data back to the performance device. When the 2-minute load burst occurs after about 1000 seconds, the performance device is saturated, causing its latency to surpass that of the capacity device. Colloid again demotes the hotset back to the capacity device (as depicted in the third graph). Consequently, Colloid performs worse than HeMem, which simply keeps hot data on the performance device and does not conduct any load balancing. Again, during the load burst, Cerberus efficiently offloads excess traffic by redirecting requests for mirrored data back to the capacity device. Cerberus matches HeMem's performance under low load and achieves 1.53× higher throughput during workload bursts since Cerberus also utilizes the capacity device.
+
+**只读负载.** 前 1000 秒高负载预热期间, Colloid 将约 7% 热数据降级到容量设备, Cerberus 则将其镜像过去. 1000 秒后负载下降, Colloid 将热点集提升回性能设备, 产生大量迁入流量, 损害吞吐量, 见图中第二行与第一行. Cerberus 只需在 10 秒内将镜像请求重新路由到性能设备. 随后持续两分钟的突发使性能设备饱和, 延迟超过容量设备, Colloid 又将热点集降级, 见第三行. 因而它甚至不如只保留热点, 不均衡负载的 HeMem. Cerberus 再次将镜像请求分流到容量设备, 低负载下匹敌 HeMem, 突发期则借助容量层带宽达到其 1.53 倍吞吐量.
+
+Write-only and Read-Write Workloads. The other workloads in Figure 5b and Figure 5c demonstrate similar behavior. Cerberus is able to load balance aligned 4KB writes by using subpages that track the valid versus invalid portions of each 2MB segment. For the write-only workload, Cerberus achieves 1.48× higher throughput than HeMem under high load conditions.
+
+**只写和读写混合负载.** 图 5(b), 5(c) 表现类似. Cerberus 用子页记录每个 2 MB 段的有效部分, 均衡对齐的 4 KB 写入. 只写高负载下, 吞吐量达到 HeMem 的 1.48 倍.
+
+Disadvantages of Migrating Data. Colloid's reliance on migrating data has a number of disadvantages: not only does migration interfere with foreground traffic, but it also increases device writes and the time required for convergence. As shown in the caption of Figure 5, Colloid migrates on average 252 GB to the performance and 229 GB to capacity tiers across three representative workloads. In contrast, Cerberus only mirrors on average 86 GB of data to the capacity tier. For instance, under a read-only workload, Colloid issues 282 GB to the performance tier and 262 GB to the capacity tier, while Cerberus writes just 87 GB. Running this workload for one day results in 6.6 DWPD and 3.1 DWPD on the performance and capacity tiers, respectively. With a warranted endurance of 30 DWPD over 5 years <sup>[8]</sup>, the performance-tier device lasts 5.0 years with Cerberus. Colloid reduces the lifespan to 4.1 years, an 18% drop. For the 1 TB capacity-tier device rated for 0.37 DWPD over 3 years <sup>[14]</sup>, Colloid introduces 3.1 DWPD of migration writes, shortening the lifespan from 3.0 years to 129 days, an 88% reduction.
+
+**数据迁移的代价.** Colloid 的迁移不仅干扰前台, 还增加设备写入和收敛时间. 三种负载中, 平均向性能层迁入 252 GB, 向容量层迁入 229 GB; Cerberus 平均仅向容量层镜像 86 GB. 只读负载下, 两者分别为 282 GB 加 262 GB, 以及 87 GB. 持续运行一天, 前者在性能层和容量层分别产生 6.6 与 3.1 DWPD, 即每日全盘写入次数. 性能设备额定耐久性为五年, 30 DWPD <sup>[8]</sup>, Cerberus 下寿命为 5.0 年, Colloid 则缩短为 4.1 年, 下降 18%. 对额定三年, 0.37 DWPD 的 1 TB 容量设备 <sup>[14]</sup>, Colloid 额外增加 3.1 DWPD 迁移写入, 将寿命从 3.0 年缩短到 129 天, 降低 88%.
+
+<div class="paper-shared">
+
+![MOST 图 5](/assets/images/posts/most/figure-05.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 5: Dynamic Bursty Workload. Running on Optane/NVMe hierarchy with 1.2TB working set and same skewness as §4.1. Colloid++ migrates 282GB, 214GB, 260GB of data to the performance device and 262GB, 186GB, 239GB of data to the capacity device under workload (a), (b) and (c), respectively. In comparison, Cerberus migrates 87GB, 107GB and 64GB of data to the capacity device.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 5: 动态突发负载, Optane/NVMe 层次结构, 工作集 1.2 TB, 偏斜程度与原文第 4.1 节相同. 对 (a), (b), (c), Colloid++ 分别向性能设备迁入 282, 214, 260 GB, 向容量设备迁入 262, 186, 239 GB; Cerberus 分别只向容量设备迁入 87, 107, 64 GB.</span>
+
+While Colloid's migration overhead can be controlled, limiting the rate of migration increases Colloid's convergence time, which is already significantly longer than Cerberus. Figure 6a shows Colloid's convergence time on the read-only workload when transitioning from low to high load given migration limits between 100MB/s (5 DWPD) to 600MB/s (30 DWPD). With a limit of 100MB/s, Colloid requires more than 800 seconds to adapt to a load increase, making it ineffective for workloads containing shorter burst intervals. In contrast, Cerberus requires less than 10 seconds to adapt to load changes.
+
+限制迁移速率虽能控制 Colloid 的开销, 却进一步拉长本就明显慢于 Cerberus 的收敛过程. 图 6(a) 将只读负载从低强度切换为高强度, 测试 100 MB/s, 即 5 DWPD, 到 600 MB/s, 即 30 DWPD, 的迁移上限. 100 MB/s 时需要超过 800 秒才能适应, 不适用于更短突发间隔. Cerberus 则不到 10 秒即可适应变化.
+
+Relying exclusively on migration to adapt to workload changes, also causes convergence time to increase as the size of the hotset increases. Figure 6b shows that Colloid's convergence time increases with larger (read-only) hotset since more data must be demoted to offload traffic from the performance device to the capacity device. In contrast, Cerberus's convergence time is independent of the hotset size, since no migration is performed once the data is mirrored.
+
+纯迁移方案的收敛时间还随热点集增大而增长. 图 6(b) 中, 只读热点集越大, Colloid 越需要降级更多数据来分流, 收敛越慢. Cerberus 的数据一旦镜像, 就无须再次迁移, 收敛时间因此与热点集大小无关.
+
+<div class="paper-shared">
+
+![MOST 图 6](/assets/images/posts/most/figure-06.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 6: Limitation of Migration-based Approach. The same workload as Figure 5a.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 6: 依赖迁移方案的限制, 负载与图 5(a) 相同.</span>
+
+Summary. Cerberus integrates mirroring into classic tiering, allowing load adjustments without frequent migrations; this significantly enhances adaptability to bursty workloads and reduces overall write traffic. In contrast, Colloid, and other tiering approaches, lack intra-tier redundancy and rely exclusively on migration for load balancing, since data can only be accessed from one location; under bursty workloads, Colloid incurs extensive writes for migration, greatly reducing device lifespan and resulting in performance worse than HeMem.
+
+**小结.** Cerberus 将镜像融入传统分层, 不必频繁迁移即可调整负载, 更能适应突发并减少写流量. Colloid 等分层方案缺少冗余副本, 只能从单一位置访问数据, 负载均衡完全依赖迁移. 突发下大量迁移写入缩短设备寿命, 性能甚至不如 HeMem.
+
+## 4.3 Cerberus 深入分析
+
+We now perform an in-depth analysis of Cerberus's techniques for determining the size of the mirrored class, tracking the state of subpages in mirrored data, and selective cleaning.
+
+本节分析镜像类大小, 镜像子页状态跟踪和选择性同步.
+
+Mirrored Class Size. Cerberus performs efficient load balancing with a relatively small mirrored class. Figure 7a shows the amount of space needed for Cerberus' mirrored class as a function of the workload's working set size. Even when the working set size reaches 95% of the total system capacity, Cerberus only mirrors 1.8% of the total data. Figure 7b shows the corresponding throughput of Colloid+ and Cerberus. The throughput of Colloid+ is highly unstable due to interference from frequent migrations; Cerberus consistently demonstrates higher and more stable throughput due to its effective use of a small amount of mirrored data.
+
+**镜像类大小.** 图 7(a) 展示不同工作集下所需镜像空间. 即使工作集达到总容量的 95%, Cerberus 也只镜像总数据的 1.8%. 图 7(b) 中, Colloid+ 因频繁迁移干扰而吞吐量不稳定; Cerberus 通过少量镜像持续获得更高且更稳定的吞吐量.
+
+Mirrored Data Subpages. The use of subpages within the mirrored class enables Cerberus to efficiently handle write requests. Figure 7c compares the behavior of Cerberus with subpages to Cerberus without subpages on a 4KB write-only workload undergoing a sudden load drop (from 128 to 8 threads) at 400 seconds. After the load drop, Cerberus with subpages immediately redirects writes back to the performance device, quickly adapting to light load without requiring any data migrations. In contrast, Cerberus without subpages must migrate entire segments back to the performance device, as each write request is smaller than the segment size (2MB). Cerberus without subpages incurs additional migrations and significantly longer convergence times.
+
+**镜像子页.** 图 7(c) 比较启用与禁用子页管理的 Cerberus, 负载为 4 KB 只写, 400 秒时从 128 线程骤降到 8 线程. 启用子页后, 系统立即将写入转回性能设备, 无须迁移. 禁用子页时, 因单次写入小于 2 MB 段, 必须把整段迁回性能设备, 因而迁移更多, 收敛明显更慢.
+
+Selective Cleaning. Cleaning of mirrored data is rarely needed in Cerberus: cleaning is needed only for workloads containing a relatively small percentage of writes that invalidate a mirrored copy of data that is then frequently read (`e.g.`, caching for ML models where write spikes occur when model parameters are refreshed <sup>[74]</sup>). Figure 7d shows the efficiency of Cerberus's selective cleaning under a read-intensive workload with occasional write spikes. The number atop each bar represents the clean data percentage. We make two key observations. First, non-selective cleaning results in a 25% decrease in cache throughput, but only a 5% increase in the clean block percentage by cleaning those frequently written data. Second, Cerberus's selective cleaning policy effectively filters out data subject to high-frequency writing while cleaning long-term written data (writes every 30s).
+
+**选择性同步.** Cerberus 很少需要同步镜像副本. 主要需要处理的情况是少量写入使一份副本失效, 而后续读取频繁, 如更新模型参数时出现写入尖峰的机器学习模型缓存 <sup>[74]</sup>. 图 7(d) 展示读密集, 偶发写尖峰下的效果, 柱顶数字为两份副本均有效的数据比例. 有两点观察: 第一, 不加选择地同步频繁写入数据, 吞吐量下降 25%, 干净块比例却只增加 5%; 第二, 选择性同步能够过滤高频写入数据, 同时处理写入间隔较长, 如每 30 秒一次的数据.
+
+<div class="paper-shared">
+
+![MOST 图 7](/assets/images/posts/most/figure-07.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 7: In-depth Analysis. In (a), workload is random read/write mixed (50% writes) at a high load (128 threads), varying the working set size, which is shown as a fraction of the total storage system capacity. The hotset is 20% of the working set with 90% access probability. In (d), the workloads are 256 threads workload with occasional write spikes every 0.1, 1, 30 seconds.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 7: 深入分析. (a) 为 128 线程, 50% 写的随机混合负载, 改变工作集占总容量的比例; 工作集的 20% 为热点, 承载 90% 访问. (d) 使用 256 线程, 分别每 0.1, 1, 30 秒出现写入尖峰.</span>
+
+## 4.4 CacheLib
+
+We now compare the end-to-end performance of CacheLib using Cerberus for its storage management layer, as compared to striping (CacheLib's default), caching (Orthus), and tiering (HeMem, Colloid and Colloid++). For workloads, we use CacheBench <sup>[3]</sup>, a highly configurable benchmarking tool bundled with CacheLib that can model real-world production cache workloads <sup>[4]</sup>. We also extend CacheBench to support Zipfian distributions and dynamic workloads.
+
+我们比较使用 Cerberus, 默认条带化, Orthus 缓存, 以及 HeMem, Colloid, Colloid++ 分层的 CacheLib 端到端性能. 负载使用库内高度可配置的 CacheBench <sup>[3]</sup>, 可模拟真实生产缓存负载 <sup>[4]</sup>. 我们还扩展了 Zipfian 分布和动态负载支持.
+
+### 4.4.1 静态负载
+
+We examine workloads that stress CacheLib's Small Object Cache (SOC) as well as its Large Object Cache (LOC).
+
+实验分别对小对象缓存 SOC 与大对象缓存 LOC 施加压力.
+
+Small Object Cache. We begin with 1KB lookaside cache workloads varying the Get/Set ratio across the two storage hierarchies. Figure 8a shows that striping, Orthus, and HeMem continue to deliver suboptimal performance. Colloid and Colloid++ perform worse than Cerberus due to migration overhead caused by latency spikes, especially on the NVMe/SATA Flash capacity layer where NVMe and SATA exhibit more severe read/write interference than the Optane device.
+
+**小对象缓存.** 使用 1 KB 的旁路缓存负载, 在两种层次结构中改变 Get/Set 比例. 图 8(a) 中, 条带化, Orthus 和 HeMem 表现仍不理想. Colloid 与 Colloid++ 因延迟尖峰引起迁移而落后于 Cerberus, 尤其在 NVMe/SATA 组合中, 两类闪存的读写干扰比 Optane 更严重.
+
+Large Object Cache. The 16KB lookaside cache workload stresses the Large Object Cache, which stores large key-value pairs in a sequential log and an in-memory index; this results in sequential writes to the storage management layer and reads primarily to the most-recently-written blocks (`i.e.`, the log head). Figure 8b shows that HeMem and Colloid cannot utilize the capacity device bandwidth once the performance device becomes saturated. Cerberus performs optimally across all workloads, achieving up to 1.36× higher throughput on Optane/NVMe and up to 1.54× higher throughput on NVMe/SATA.
+
+**大对象缓存.** 16 KB 旁路缓存负载主要使用 LOC, 大键值对写入顺序日志并由内存索引定位, 因而存储管理层以顺序写为主, 读取主要落在最新写入块, 即日志头部. 图 8(b) 表明 HeMem 与 Colloid 在性能设备饱和后无法利用容量层带宽. Cerberus 各负载下表现最优, 在 Optane/NVMe 和 NVMe/SATA 上吞吐量分别最高达到对照的 1.36 倍和 1.54 倍.
+
+CPU Overhead. Under the 4KB random workload that stresses the mirroring mechanism most (Figure 8a), Cerberus slightly increases CPU utilization (0-1.5%) at 256 threads compared to the best-performing baseline, Colloid++, due to mirrored-page tracking and routing logic.
+
+**CPU 开销.** 对最考验镜像机制的 4 KB 随机负载, 即原文所引图 8(a), 256 线程下, 相较最佳基线 Colloid++, Cerberus 因镜像页跟踪和路由逻辑增加 0%-1.5% CPU 利用率.
+
+<div class="paper-shared">
+
+![MOST 图 8](/assets/images/posts/most/figure-08.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 8: Lookaside Cache Workload. The DRAM cache is restricted to 200MB to stress each flash cache component in CacheLib. In (a), the workloads are 256 threads get/set-mixed Zipfian with 25M keys and 1KB value. SOC is set to 100GB, one third of the total capacity (100GB/200GB hierarchy). In (b), the workloads are 256 threads get/set-mixed Zipfian with 5M keys and 16KB value.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 8: 旁路缓存负载. DRAM 限为 200 MB, 以突出闪存缓存组件性能. (a) 为 256 线程 Get/Set 混合 Zipfian 负载, 2500 万键, 值大小 1 KB; SOC 为 100 GB, 占 100 GB/200 GB 层次结构总容量的三分之一. (b) 为 256 线程混合 Zipfian 负载, 500 万键, 值大小 16 KB.</span>
+
+### 4.4.2 生产缓存负载
+
+We evaluate four long-running production cache workloads provided by Meta <sup>[4]</sup>, as detailed in Table 4. Figure 9 summarizes the results. For Workload A (lookaside cache workload) and Workload B (graph leader workload), Cerberus performs slightly better than Colloid and Colloid++, as these workloads involve small key-value pairs and stress the Small Object Cache. On Workloads C and D, Cerberus significantly outperforms others, as these stress the Large Object Cache (LOC); Cerberus effectively distributes writes through its dynamic write allocation. Cerberus demonstrates better performance across all four production workloads due to its efficient mirroring-based load balancing and dynamic allocation. Compared to Colloid, Cerberus achieves an average throughput improvement of 1.24× on the Optane/NVMe hierarchy and 1.17× on the NVMe/SATA hierarchy.
+
+我们测试 Meta <sup>[4]</sup> 提供的四种长期运行生产缓存负载, 分布见表 4, 结果见图 9. A 为旁路缓存, B 为 graph-leader 负载, 键值对较小, 主要考验 SOC, Cerberus 略优于 Colloid 和 Colloid++. C, D 主要考验 LOC, Cerberus 通过动态分配写入明显领先. 得益于镜像均衡与动态分配, 它在四项负载上均更好; 相较 Colloid, Optane/NVMe 平均吞吐量达到 1.24 倍, NVMe/SATA 达到 1.17 倍.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 4: Production Trace Distributions from CacheBench. Flat-kvcache and graph-leader are from an application cache with small value sizes, resulting in mostly random traffic; kvcache-reg and kvcache-wc are from a storage cache with large value sizes, leading to log-structured traffic. LoneGet and LoneSet are requests for a key not present in the cache.</span>
+
+| Name | Get | Set | LoneGet | LoneSet | Key size | Avg value size |
+|:---|---:|---:|---:|---:|:---|---:|
+| A (flat-kvcache) | 0.98 | 0 | 0.02 | 0 | 16-255 | 335 |
+| B (graph-leader) | 0.82 | 0 | 0.18 | 0 | 8-16 | 860 |
+| C (kvcache-reg) | 0.87 | 0.12 | 1.04e-05 | 0.003 | 8-16 | 33112 |
+| D (kvcache-wc) | 0.6 | 0 | 8.2e-06 | 0.21 | 8-16 | 92422 |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 4: CacheBench 生产轨迹分布. flat-kvcache 和 graph-leader 来自小值应用缓存, 主要产生随机流量; kvcache-reg 和 kvcache-wc 来自大值存储缓存, 主要产生日志结构流量. LoneGet 与 LoneSet 表示请求的键不在缓存中.</span>
+
+| 名称 | Get | Set | LoneGet | LoneSet | 键大小 (B) | 平均值大小 (B) |
+|:---|---:|---:|---:|---:|:---|---:|
+| A (flat-kvcache) | 0.98 | 0 | 0.02 | 0 | 16-255 | 335 |
+| B (graph-leader) | 0.82 | 0 | 0.18 | 0 | 8-16 | 860 |
+| C (kvcache-reg) | 0.87 | 0.12 | 1.04e-05 | 0.003 | 8-16 | 33112 |
+| D (kvcache-wc) | 0.6 | 0 | 8.2e-06 | 0.21 | 8-16 | 92422 |
+
+</div>
+
+</div>
+
+<div class="paper-shared">
+
+![MOST 图 9](/assets/images/posts/most/figure-09.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 9: Production Workloads. DRAM cache is set to 1GB. For flat-kvcache and graph-leader, the SOC is set to one third of the total hierarchy capacity. We use 256 threads for flatkvcache, graph-leader, and kvcache-wc and 80 threads for kvcache-reg. The cache throughput is normalized to HeMem's performance.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 9: 生产负载. DRAM 为 1 GB. flat-kvcache 与 graph-leader 的 SOC 占总容量三分之一. flat-kvcache, graph-leader, kvcache-wc 使用 256 线程, kvcache-reg 使用 80 线程. 吞吐量以 HeMem 归一化.</span>
+
+Latency. Table 5 shows that Cerberus reduces average latency by 14% and P99 latency by 19% on average compared to the best-performing baseline. Striping performs worst on workloads A and B due to bottlenecks from the slower device, while Orthus performs worst on log-heavy workloads C and D, consistent with Figures 4c and 4d. Performance gains are more substantial on the Optane/NVMe hierarchy, with 20% lower average latency and 26% lower P99 latency compared to the best-performing baseline. In comparison, the NVMe/SATA hierarchy shows smaller improvements, with 6.6% and 12% reductions respectively.
+
+**延迟.** 表 5 中, 相较各项最佳基线, Cerberus 平均延迟降低 14%, P99 延迟降低 19%. 条带化在 A, B 中因慢设备瓶颈表现最差; Orthus 在日志密集的 C, D 中最差, 与图 4(c), 4(d) 一致. Optane/NVMe 改善更大, 平均和 P99 延迟分别降低 20% 与 26%; NVMe/SATA 分别降低 6.6% 和 12%.
+
+<div class="paper-shared">
+
+<div class="paper-table paper-lang-en" lang="en">
+
+<span class="paper-caption paper-lang-en" lang="en">Table 5: Average and P99 GET Latency (ms) of Production Workloads.</span>
+
+| Devices | Workload | Metric | Striping | Orthus | HeMem | Colloid | Colloid++ | Cerberus |
+|:---|:---|:---|---:|---:|---:|---:|---:|---:|
+| Optane/NVMe | A | Avg | 0.81 | 0.67 | 0.71 | 0.56 | 0.52 | 0.50 |
+| Optane/NVMe | A | P99 | 15.76 | 18.18 | 19.24 | 9.59 | 9.00 | 7.33 |
+| Optane/NVMe | B | Avg | 0.73 | 0.61 | 0.59 | 0.45 | 0.44 | 0.43 |
+| Optane/NVMe | B | P99 | 7.00 | 14.28 | 12.83 | 4.12 | 4.12 | 3.65 |
+| Optane/NVMe | C | Avg | 0.76 | 0.86 | 0.59 | 0.67 | 0.88 | 0.47 |
+| Optane/NVMe | C | P99 | 9.53 | 10.69 | 6.50 | 7.78 | 8.85 | 5.43 |
+| Optane/NVMe | D | Avg | 9.67 | 12.38 | 8.26 | 7.15 | 8.32 | 3.16 |
+| Optane/NVMe | D | P99 | 67.68 | 272.00 | 73.63 | 72.93 | 86.32 | 27.76 |
+| NVMe/SATA | A | Avg | 2.30 | 1.76 | 1.58 | 1.35 | 1.21 | 1.15 |
+| NVMe/SATA | A | P99 | 46.43 | 27.96 | 22.98 | 25.98 | 21.31 | 20.40 |
+| NVMe/SATA | B | Avg | 1.90 | 1.41 | 1.54 | 1.48 | 1.17 | 1.10 |
+| NVMe/SATA | B | P99 | 23.40 | 16.84 | 11.59 | 14.15 | 9.34 | 8.54 |
+| NVMe/SATA | C | Avg | 1.95 | 2.00 | 1.49 | 1.40 | 1.62 | 1.23 |
+| NVMe/SATA | C | P99 | 18.18 | 18.42 | 12.35 | 16.50 | 18.50 | 12.31 |
+| NVMe/SATA | D | Avg | 27.55 | 32.15 | 26.69 | 19.98 | 16.68 | 16.09 |
+| NVMe/SATA | D | P99 | 239.86 | 364.20 | 160.10 | 158.07 | 170.29 | 101.85 |
+
+</div>
+
+<div class="paper-table paper-lang-zh" lang="zh-CN">
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">表 5: 生产负载的平均与 P99 GET 延迟, 单位为 ms.</span>
+
+| 设备 | 负载 | 指标 | Striping | Orthus | HeMem | Colloid | Colloid++ | Cerberus |
+|:---|:---|:---|---:|---:|---:|---:|---:|---:|
+| Optane/NVMe | A | 平均 | 0.81 | 0.67 | 0.71 | 0.56 | 0.52 | 0.50 |
+| Optane/NVMe | A | P99 | 15.76 | 18.18 | 19.24 | 9.59 | 9.00 | 7.33 |
+| Optane/NVMe | B | 平均 | 0.73 | 0.61 | 0.59 | 0.45 | 0.44 | 0.43 |
+| Optane/NVMe | B | P99 | 7.00 | 14.28 | 12.83 | 4.12 | 4.12 | 3.65 |
+| Optane/NVMe | C | 平均 | 0.76 | 0.86 | 0.59 | 0.67 | 0.88 | 0.47 |
+| Optane/NVMe | C | P99 | 9.53 | 10.69 | 6.50 | 7.78 | 8.85 | 5.43 |
+| Optane/NVMe | D | 平均 | 9.67 | 12.38 | 8.26 | 7.15 | 8.32 | 3.16 |
+| Optane/NVMe | D | P99 | 67.68 | 272.00 | 73.63 | 72.93 | 86.32 | 27.76 |
+| NVMe/SATA | A | 平均 | 2.30 | 1.76 | 1.58 | 1.35 | 1.21 | 1.15 |
+| NVMe/SATA | A | P99 | 46.43 | 27.96 | 22.98 | 25.98 | 21.31 | 20.40 |
+| NVMe/SATA | B | 平均 | 1.90 | 1.41 | 1.54 | 1.48 | 1.17 | 1.10 |
+| NVMe/SATA | B | P99 | 23.40 | 16.84 | 11.59 | 14.15 | 9.34 | 8.54 |
+| NVMe/SATA | C | 平均 | 1.95 | 2.00 | 1.49 | 1.40 | 1.62 | 1.23 |
+| NVMe/SATA | C | P99 | 18.18 | 18.42 | 12.35 | 16.50 | 18.50 | 12.31 |
+| NVMe/SATA | D | 平均 | 27.55 | 32.15 | 26.69 | 19.98 | 16.68 | 16.09 |
+| NVMe/SATA | D | P99 | 239.86 | 364.20 | 160.10 | 158.07 | 170.29 | 101.85 |
+
+</div>
+
+</div>
+
+
+### 4.4.3 动态负载
+
+We compare how well Colloid and Cerberus handle load changes using the CacheBench benchmark <sup>[4]</sup>. The bursts happen every 180 seconds and last for 60 seconds, matching those studied in <sup>[18]</sup> for data center workloads. Figure 10 shows that Colloid struggles to adapt to these bursty workloads, generating significant migration traffic. In contrast, Cerberus efficiently adapts to bursty workloads without incurring any migration overhead.
+
+使用 CacheBench <sup>[4]</sup> 比较 Colloid 和 Cerberus 对负载变化的适应能力. 每 180 秒出现一次持续 60 秒的突发, 与文献 <sup>[18]</sup> 的数据中心负载一致. 图 10 中 Colloid 难以适应, 产生大量迁移流量; Cerberus 则无须额外迁移即可高效应对.
+
+<div class="paper-shared">
+
+![MOST 图 10](/assets/images/posts/most/figure-10.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 10: Dynamic Cache Workload. Read-heavy workload with 95% GET and 5% SET operations on Optane/NVMe hierarchy, where 20% of keys belong to the hotset; the hotset is accessed uniformly at random with a 90% probability. 25 million key-value pairs, with value sizes ranging from 2KB to 4KB; 1 billion operations. Size of SOC is 450GB.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 10: 动态缓存负载. Optane/NVMe 上的读密集负载, 95% GET, 5% SET; 20% 的键为热点, 以 90% 概率在热点集中均匀随机访问. 共 2500 万键值对, 值大小 2-4 KB, 执行 10 亿次操作, SOC 为 450 GB.</span>
+
+### 4.4.4 YCSB
+
+We compare Cerberus to striping, tiering (HeMem), and caching (Orthus) under the YCSB benchmark across two local hierarchies shown in Figure 11. Since YCSB does not natively handle cache misses, we extended it to implement a lookaside caching pattern <sup>[18]</sup>, where cache misses trigger a fetch from the backing store (simulated with a 1.5ms delay) and re-insertion into the cache. Cerberus shows up to 1.43× higher throughput and 30% less P99 latency compared to the best-performing system.
+
+图 11 在两种本地层次结构中用 YCSB 比较 Cerberus, 条带化, HeMem 和 Orthus. YCSB 原生不处理缓存未命中, 因而我们扩展旁路缓存模式 <sup>[18]</sup>: 未命中时从后端存储读取, 用 1.5 ms 延迟模拟, 再放回缓存. 相较最佳对照系统, Cerberus 吞吐量最高达到 1.43 倍, P99 延迟最多降低 30%.
+
+<div class="paper-shared">
+
+![MOST 图 11](/assets/images/posts/most/figure-11.webp)
+
+</div>
+
+<span class="paper-caption paper-lang-en" lang="en">Figure 11: YCSB. CacheLib uses the default parameters from CacheBench with 4GB DRAM cache. All the workloads are Zipfian (θ = 0.8) with 1KB values and 16-byte keys running under 256 threads with 20M records. The cache throughput is normalized to the throughput of the default (striping) system and the number above each bar is P99 latency in microseconds. Workload E is excluded due to CacheLib's lack of support for range queries.</span>
+
+<span class="paper-caption paper-lang-zh" lang="zh-CN">图 11: YCSB. CacheLib 使用 CacheBench 默认参数, DRAM 为 4 GB. 所有负载采用 Zipfian 分布 (θ = 0.8), 1 KB 值, 16 字节键, 256 线程, 2000 万条记录. 吞吐量以默认条带化系统归一化, 柱顶数字为 P99 延迟, 单位 μs. CacheLib 不支持范围查询, 因而不含负载 E.</span>
+
+# 5. 讨论
+
+Multi-tier Extensions. MOST's mechanism naturally extends beyond the two-tier scenario. For example, data can be mirrored across multiple tiers, allowing requests to be dynamically routed to the tier with the lowest latency. This generalization calls for a more sophisticated optimization policy, which we leave as future work.
+
+**多层扩展.** MOST 可自然扩展到两层以上. 例如跨多层镜像数据, 动态将请求发往延迟最低的一层. 这需要更复杂的优化策略, 留待未来研究.
+
+Consistency. MOST can be extended to provide stronger consistency guarantees. One possible approach is to maintain a write-ahead log for mapping updates, such as those triggered by data migration. We leave a full study as future work.
+
+**一致性.** MOST 可以扩展以提供更强的一致性保证. 一种可能的方法是为映射更新维护预写日志, 包括迁移触发的更新. 完整研究留待未来.
+
+Performance Isolation. Currently, MOST transparently manages the underlying storage devices at the block level and is unaware of which tenant a given request belongs to. One potential solution is to use hints to associate each request with its corresponding tenant. With this additional metadata, MOST can be extended to support and enforce performance isolation policies, such as fairness and quality of service (QoS), across multiple tenants.
+
+**性能隔离.** MOST 当前按块透明管理底层设备, 不知道请求所属租户. 一种潜在方案是通过提示信息将请求与租户关联, 利用这些元数据在多租户间实施公平性, 服务质量 (QoS) 等性能隔离策略.
+
+# 6. 相关工作
+
+Tiered Memory/Storage Systems. Our paper shares scope with research on tiered memory and storage <sup>[15, 25, 31, 37, 39, 44, 54, 56, 61, 65, 67, 77]</sup> for managing heterogeneous hierarchies of different devices, including DRAM, NVM, CXL-enabled memory, NVMe SSD, SATA SSD, and hard drives. vTMM <sup>[60]</sup>, a tiered memory management system for virtual machines, optimizes memory-access tracking through page-modification logging. Nimble <sup>[73]</sup> is an OS-level system designed to improve page migration throughput. HeterOS <sup>[33]</sup> functions as an OS/VMM-level heterogeneous memory manager, coordinating memory placement and migration with guest OSes. Thermostat <sup>[16]</sup> identifies hot memory pages using page table sampling. All of these systems are orthogonal to MOST, as they focus on memory-access tracking, hot/cold data identification, and data migration rather than load balancing across tiers.
+
+**分层内存与存储系统.** 本文与异构层次管理研究 <sup>[15, 25, 31, 37, 39, 44, 54, 56, 61, 65, 67, 77]</sup> 关注的问题相近, 设备包括 DRAM, NVM, CXL 内存, NVMe SSD, SATA SSD 和硬盘. vTMM <sup>[60]</sup> 通过页修改日志优化虚拟机内存访问跟踪; Nimble <sup>[73]</sup> 在操作系统层提高页迁移吞吐量; HeterOS <sup>[33]</sup> 在 OS/VMM 层与客户 OS 协作管理异构内存放置和迁移; Thermostat <sup>[16]</sup> 用页表采样识别热页. 这些工作侧重访问跟踪, 冷热识别和迁移, 与 MOST 关注的层间均衡互补.
+
+Strata <sup>[38]</sup> is a cross-media file system designed to mitigate the limitations of NVM, SSD, and HDD in a traditional storage hierarchy. Ziggurat <sup>[79]</sup> migrates cold data to lower tiers in an NVM-disk tiered file system. Spitfire <sup>[80]</sup> is a three-tier caching-based buffer manager that leverages machine learning for optimal data placement. AutoRAID <sup>[66]</sup> integrates mirroring for improved write performance with RAID-5 for cost-effective capacity. hStorage-DB <sup>[42]</sup> enforces QoS policies for requests in hybrid storage systems. However, these systems are load-unaware and not able to fully utilize lower-tier bandwidth. PolyStore <sup>[58]</sup> is a meta layer built on top of storage medium-optimized file systems that maximizes cumulative storage bandwidth. However, PolyStore is optimized exclusively for file systems and does not maintain cross-tier duplication, therefore not able to efficiently adapt to dynamic workload.
+
+Strata <sup>[38]</sup> 是跨介质文件系统, 用于缓解传统 NVM, SSD, HDD 层次结构的限制. Ziggurat <sup>[79]</sup> 将冷数据迁往 NVM-磁盘系统的低层. Spitfire <sup>[80]</sup> 是三层缓存式缓冲管理器, 用机器学习优化放置. AutoRAID <sup>[66]</sup> 结合镜像写性能和 RAID-5 容量成本. hStorage-DB <sup>[42]</sup> 在混合存储中实施请求 QoS. 但这些系统不感知负载, 无法充分利用低层带宽. PolyStore <sup>[58]</sup> 位于介质优化文件系统之上, 追求总带宽, 但仅面向文件系统, 又不维护跨层副本, 因而难以高效适应动态负载.
+
+Distributed multi-tier caching systems <sup>[41, 55, 57]</sup> broadly share a similar problem space with our work. However, their approaches differ significantly from MOST in both design and objectives. For instance, EC-CACHE <sup>[55]</sup> uses erasure coding instead of mirroring and is limited to load balancing within a single tier. ELECT <sup>[57]</sup> replicates data within a single tier and lacks support for cross-tier load balancing. eMRC <sup>[41]</sup> focuses on multi-tier miss ratio approximation but does not address the load balancing problem, making its objective orthogonal to ours. In contrast, MOST introduces a novel data management model that supports selective mirroring and adaptive load balancing across a heterogeneous storage hierarchy.
+
+分布式多层缓存 <sup>[41, 55, 57]</sup> 研究的问题也相近, 但设计与目标不同. EC-CACHE <sup>[55]</sup> 使用纠删码而非镜像, 只在单层内均衡; ELECT <sup>[57]</sup> 在单层内复制, 不支持跨层均衡; eMRC <sup>[41]</sup> 近似估计多层未命中率, 不解决负载均衡. MOST 则在异构层次中同时支持选择性镜像和自适应负载均衡.
+
+Machine learning-based storage and memory tiering approaches (`e.g.`, IDT <sup>[50]</sup>, RLTiering <sup>[40]</sup>, A3C <sup>[76]</sup>, ArtMem <sup>[21]</sup>) target a similar problem space as our work. These systems typically utilize reinforcement learning to guide data placement decisions but are built on traditional single-copy tiering models. As shown in our evaluation of Colloid, such models struggle with dynamic and time-varying workloads. Like Colloid, these ML-based approaches are fundamentally constrained by the inherent limitations of single-copy designs and fail to address the critical challenge of load balancing across tiers in heterogeneous hierarchies.
+
+机器学习分层方案, 如 IDT <sup>[50]</sup>, RLTiering <sup>[40]</sup>, A3C <sup>[76]</sup>, ArtMem <sup>[21]</sup>, 通常用强化学习指导数据放置, 但仍建立在传统单副本模型上. 对 Colloid 的评估已表明, 这类模型难以处理动态时变负载. 它们同样受限于单副本设计, 未解决异构层次的跨层均衡问题.
+
+Storage Aware Caching/Tiering. Our work aligns with research on storage-aware caching and tiering <sup>[17, 34, 53, 69-71]</sup>. Wu et al. <sup>[71]</sup> identified a similar issue, where SSDs become throughput bottlenecks, and proposed migrating data to HDDs when SSD response times exceed those of HDDs. However, this migration-only approach reacts slowly to workload changes and incurs high migration overhead as Colloid. SIB <sup>[34]</sup> targets HDFS clusters with SSDs and HDDs, using SSDs as write buffers and offloading reads to HDDs. LBICA <sup>[17]</sup> implements cache load balancing by halting new allocations to performance devices under burst loads but does not balance read traffic. Like Orthus, these caching-based systems fail to fully utilize the capability of modern storage hierarchies.
+
+**感知存储特性的缓存与分层.** 相关研究见 <sup>[17, 34, 53, 69-71]</sup>. Wu 等人 <sup>[71]</sup> 也发现 SSD 吞吐瓶颈, 在 SSD 响应慢于 HDD 时向 HDD 迁移, 但同样响应慢且迁移开销大. SIB <sup>[34]</sup> 在 SSD/HDD HDFS 集群中用 SSD 缓冲写入, 向 HDD 分流读取. LBICA <sup>[17]</sup> 在突发下停止向性能设备分配新数据来均衡缓存, 但不均衡读取. 与 Orthus 类似, 这些缓存方案未充分发挥现代存储层次结构的能力.
+
+# 7. 结论
+
+We introduced Mirror-Optimized Storage Tiering, a new tier-based approach optimized for modern heterogeneous storage hierarchies. We demonstrate that with a small amount of mirrored data, MOST improves throughput, reduces latency, enhances adaptability, and decreases migration-induced writes under dynamic workloads. In the future, hybrid approaches that integrate elements of caching, tiering, and RAID may offer further benefits, potentially leading toward a "unified theory" of storage hierarchy management.
+
+本文提出 MOST, 一种面向现代异构存储的分层方案. 少量镜像数据即可提高吞吐量, 降低延迟, 增强对动态负载的适应能力, 并减少迁移写入. 未来, 结合缓存, 分层与 RAID 的混合方法可能带来更多收益, 推动形成统一的存储层次管理方法.
+
+# 8. 致谢
+
+We thank Huaicheng Li (our shepherd), the anonymous reviewers and the members of ADSL for their valuable input. This material was supported by funding from the NSF under the award number CNS-2402859 and the taxpayers of Wisconsin and the USA. We thank NetApp, Microsoft, InfluxData, and GE HealthCare for their generous support. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the authors and may not reflect the views of NSF or any other institutions.
+
+感谢指导评审 Huaicheng Li, 匿名评审和 ADSL 成员提供宝贵意见. 本文获得 NSF 项目 CNS-2402859 以及威斯康星州和美国纳税人的支持, 并感谢 NetApp, Microsoft, InfluxData 和 GE HealthCare 的资助. 文中观点, 发现, 结论与建议属于作者, 不一定代表 NSF 或其他机构.
+
+# 9. 参考文献
+
+<div class="paper-shared">
+
+[1] Amazon EBS. `https://aws.amazon.com/ebs/pricing/`
+
+[2] CacheLib. `https://cachelib.org/`
+
+[3] CacheLib Cachebench. `https://cachelib.org/docs/Cache_Library_User_Guides/Cachebench_Overview`
+
+[4] CacheLib Cachebench Real Workload. `https://cachelib.org/docs/Cache_Library_User_Guides/Cachebench_FB_HW_eval`
+
+[5] Dell 1.6TB, Enterprise, NVMe, Mixed Use Drive, U.2, Gen4 with Carrier. `https://www.dell.com/en-us/shop/dell-16tb-enterprise-nvme-mixed-use-drive-u2-gen4-with-carrier/apd/400-bkfk/storage-drives-media#support_section`
+
+[6] Intel Open Cache Acceleration Software. `https://open-cas.github.io/`
+
+[7] Intel Optane Persistent Memory. `https://www.intel.com/content/www/us/en/products/docs/memory-storage/optane-persistent-memory/overview.html`
+
+[8] Intel Optane SSD DC P4800X. `https://www.intel.com/content/www/us/en/products/sku/97154/intel-optane-ssd-dc-p4800x-series-750gb-2-5in-pcie-x4-3d-xpoint/specifications.html`
+
+[9] KIOXIA FL6 XL-FLASH SSD. `https://americas.kioxia.com/en-us/business/ssd/enterprise-ssd/fl6.html`
+
+[10] Linux Block Layer Statistics. `https://www.kernel.org/doc/Documentation/block/stat.txt`
+
+[11] Netflix Technology Blog. `https://netflixtechblog.com/application-data-caching-using-ssds-5bf25df851ef`
+
+[12] NVMe over Fabrics Specification. `https://nvmexpress.org/specification/nvme-of-specification/`
+
+[13] Samsung 870 EVO Flash SSD. `https://www.samsung.com/us/computing/memory-storage/solid-state-drives/870-evo-sata-2-5-ssd-1tb-mz-77e1t0b-am/`
+
+[14] Samsung 960 EVO Flash SSD. `https://semiconductor.samsung.com/consumer-storage/internal-ssd/960evo/`
+
+[15] Ahmed Abulila, Vikram Sharma Mailthody, Zaid Qureshi, Jian Huang, Nam Sung Kim, Jinjun Xiong, and Wen-mei Hwu. Flatflash: Exploiting the byteaccessibility of ssds within a unified memory-storage hierarchy. In Proceedings of the Twenty-Fourth International Conference on Architectural Support for Programming Languages and Operating Systems, ASPLOS '19, page 971-985, New York, NY, USA, 2019. Association for Computing Machinery.
+
+[16] Neha Agarwal and Thomas F. Wenisch. Thermostat: Application-transparent page management for twotiered main memory. `SIGPLAN Not.`, 52(4): 631-644, apr 2017.
+
+[17] Saba Ahmadian, Reza Salkhordeh, and Hossein Asadi. Lbica: A load balancer for i/o cache architectures. In 2019 Design, Automation & Test in Europe Conference & Exhibition (DATE), pages 1196-1201. IEEE, 2019.
+
+[18] Benjamin Berg, Daniel S. Berger, Sara McAllister, Isaac Grosof, Sathya Gunasekar, Jimmy Lu, Michael Uhlar, Jim Carrig, Nathan Beckmann, Mor HarcholBalter, and Gregory R. Ganger. The CacheLib caching engine: Design and experiences at scale. In 14th USENIX Symposium on Operating Systems Design and Implementation (OSDI 20), pages 753-768. USENIX Association, November 2020.
+
+[19] Dina Bitton and Jim Gray. Disk shadowing. In Proceedings of the 14th International Conference on Very Large Data Bases, VLDB '88, page 331-338, San Francisco, CA, USA, 1988. Morgan Kaufmann Publishers Inc.
+
+[20] Arthur W. Burks, Herman H. Goldstine, and John von Neumann. Preliminary discussion of the logical design of an electronic computing instrument (1946), page 39-48. Ablex Publishing `Corp.`, USA, 1989.
+
+[21] Juneseo Chang, Wanju Doh, Yaebin Moon, Eojin Lee, and Jung Ho Ahn. Idt: Intelligent data placement for multi-tiered main memory with reinforcement learning. In Proceedings of the 33rd International Symposium on High-Performance Parallel and Distributed Computing, pages 69-82, 2024.
+
+[22] Peter M. Chen, Edward K. Lee, Garth A. Gibson, Randy H. Katz, and David A. Patterson. Raid: highperformance, reliable secondary storage. `ACM Comput. Surv.`, 26(2): 145-185, jun 1994.
+
+[23] Chiachen Chou, Aamer Jaleel, and Moinuddin Qureshi. BATMAN: techniques for maximizing system bandwidth of memory systems with stacked-DRAM. In Proceedings of the International Symposium on Memory Systems, MEMSYS '17, page 268-280, New York, NY, USA, 2017. Association for Computing Machinery.
+
+[24] Toni Cortes and Jesús Labarta. A case for heterogeneous disk arrays. In Proceedings IEEE International Conference on Cluster Computing. CLUSTER 2000, pages 319-325. IEEE, 2000.
+
+[25] Subramanya R. Dulloor, Amitabha Roy, Zheguang Zhao, Narayanan Sundaram, Nadathur Satish, Rajesh Sankaran, Jeff Jackson, and Karsten Schwan. Data tiering in heterogeneous memory systems. In Proceedings of the Eleventh European Conference on Computer Systems, EuroSys '16, New York, NY, USA, 2016. Association for Computing Machinery.
+
+[26] Assaf Eisenman, Asaf Cidon, Evgenya Pergament, Or Haimovich, Ryan Stutsman, Mohammad Alizadeh, and Sachin Katti. Flashield: a hybrid key-value cache that controls flash write amplification. In 16th USENIX Symposium on Networked Systems Design and Implementation (NSDI 19), pages 65-78, Boston, MA, February 2019. USENIX Association.
+
+[27] Brian C. Forney, Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau. Storage-Aware caching: Revisiting caching for heterogeneous storage systems. In Conference on File and Storage Technologies (FAST 02), Monterey, CA, January 2002. USENIX Association.
+
+[28] Jamel Gafsi and Ernst W. Biersack. Data striping and reliability aspects in distributed video servers. Cluster Computing, 2(1): 75-91, jan 1999.
+
+[29] Binny S Gill. On multi-level exclusive caching: Offline optimality and why promotions are better than demotions. In FAST, volume 8, pages 1-17, 2008.
+
+[30] Jorge Guerra, Himabindu Pucha, Joseph Glider, Wendy Belluomini, and Raju Rangaswami. Cost effective storage using extent based dynamic tiering. In 9th USENIX Conference on File and Storage Technologies (FAST 11), 2011.
+
+[31] Morteza Hoseinzadeh. A survey on tiering and caching in high-performance storage systems. arXiv preprint `arXiv:1904.11560`, 2019.
+
+[32] Kaisong Huang, Darien Imai, Tianzheng Wang, and Dong Xie. Ssds striking back: The storage jungle and its implications on persistent indexes. In 11th Conference on Innovative Data Systems Research, CIDR, pages 9- 12, 2022.
+
+[33] Sudarsun Kannan, Ada Gavrilovska, Vishal Gupta, and Karsten Schwan. Heteroos  --  os design for heterogeneous memory management in datacenter. In 2017 ACM/IEEE 44th Annual International Symposium on Computer Architecture (ISCA), pages 521-534, 2017.
+
+[34] Jaehyung Kim, Hongchan Roh, and Sanghyun Park. Selective i/o bypass and load balancing method for write-through ssd caching in big data analytics. IEEE Transactions on Computers, 67(4): 589-595, 2018.
+
+[35] Ana Klimovic, Christos Kozyrakis, Eno Thereska, Binu John, and Sanjeev Kumar. Flash storage disaggregation. In Proceedings of the Eleventh European Conference on Computer Systems, EuroSys '16, New York, NY, USA, 2016. Association for Computing Machinery.
+
+[36] Ana Klimovic, Heiner Litz, and Christos Kozyrakis. Reflex: Remote flash ≈ local flash. In Proceedings of the Twenty-Second International Conference on Architectural Support for Programming Languages and Operating Systems, ASPLOS '17, page 345-359, New York, NY, USA, 2017. Association for Computing Machinery.
+
+[37] K.R. Krish, Ali Anwar, and Ali R. Butt. hats: A heterogeneity-aware tiered storage for hadoop. In 2014 14th IEEE/ACM International Symposium on Cluster, Cloud and Grid Computing, pages 502-511, 2014.
+
+[38] Youngjin Kwon, Henrique Fingler, Tyler Hunt, Simon Peter, Emmett Witchel, and Thomas Anderson. Strata: A cross media file system. In Proceedings of the 26th Symposium on Operating Systems Principles, SOSP '17, page 460-477, New York, NY, USA, 2017. Association for Computing Machinery.
+
+[39] Taehyung Lee, Sumit Kumar Monga, Changwoo Min, and Young Ik Eom. Memtis: Efficient memory tiering with dynamic page classification and page size determination. In Proceedings of the 29th Symposium on Operating Systems Principles, pages 17-34, 2023.
+
+[40] Mingyu Liu, Li Pan, and Shijun Liu. Rltiering: a costdriven auto-tiering system for two-tier cloud storage using deep reinforcement learning. IEEE Transactions on Parallel and Distributed Systems, 34(2): 501-518, 2022.
+
+[41] Zhang Liu, Hee Won Lee, Yu Xiang, Dirk Grunwald, and Sangtae Ha. {eMRC}: Efficient miss ratio approximation for {Multi-Tier} caching. In 19th USENIX Conference on File and Storage Technologies (FAST 21), pages 293-306, 2021.
+
+[42] Tian Luo, Rubao Lee, Michael Mesnier, Feng Chen, and Xiaodong Zhang. hstorage-db: heterogeneity-aware data management to exploit the full capability of hybrid storage systems. `Proc. VLDB Endow.`, 5(10): 1076-1087, jun 2012.
+
+[43] Adnan Maruf, Ashikee Ghosh, Janki Bhimani, Daniel Campello, Andy Rudoff, and Raju Rangaswami. Multiclock: Dynamic tiering for hybrid memory systems. In 2022 IEEE International Symposium on High-Performance Computer Architecture (HPCA'22), 2022.
+
+[44] Hasan Al Maruf, Hao Wang, Abhishek Dhanotia, Johannes Weiner, Niket Agarwal, Pallab Bhattacharya, Chris Petersen, Mosharaf Chowdhury, Shobhit Kanaujia, and Prakash Chauhan. Tpp: Transparent page placement for cxl-enabled tiered-memory. In Proceedings of the 28th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 3, ASPLOS 2023, page 742-755, New York, NY, USA, 2023. Association for Computing Machinery.
+
+[45] Sara McAllister, Benjamin Berg, Daniel S Berger, George Amvrosiadis, Nathan Beckmann, Gregory R Ganger, et al. {FairyWREN}: A sustainable cache for emerging {Write-Read-Erase} flash interfaces. In 18th USENIX Symposium on Operating Systems Design and Implementation (OSDI 24), pages 745-764, 2024.
+
+[46] Sara McAllister, Benjamin Berg, Julian Tutuncu-Macias, Juncheng Yang, Sathya Gunasekar, Jimmy Lu, Daniel S. Berger, Nathan Beckmann, and Gregory R. Ganger. Kangaroo: Caching billions of tiny objects on flash. In Proceedings of the ACM SIGOPS 28th Symposium on Operating Systems Principles, SOSP '21, page 243-262, New York, NY, USA, 2021. Association for Computing Machinery.
+
+[47] NetApp. How SSD Cache works. docs.netapp.com/ us-en/e-series-santricity/sm-storage/how-s sd-cache-works.html, 2023.
+
+[48] Yongseok Oh, Jongmoo Choi, Donghee Lee, and Sam H Noh. Caching less for better performance: Balancing cache size and update cost of flash memory cache in hybrid storage systems. In 10th USENIX Conference on File and Storage Technologies (FAST 12), San Jose, CA, February 2012. USENIX Association.
+
+[49] Elizabeth J. O'Neil, Patrick E. O'Neil, and Gerhard Weikum. The lru-k page replacement algorithm for database disk buffering. In Proceedings of the 1993 ACM SIGMOD International Conference on Management of Data, SIGMOD '93, page 297-306, New York, NY, USA, 1993. Association for Computing Machinery.
+
+[50] Nedjah Oussama, Mokhtari Omar, Boumahdi Fatima, and Mancer Yasmine. Autonomous data tiering using reinforcement learning for 3-tier hierarchical storage. In International Symposium on Modelling and Implementation of Complex Systems, pages 171-181. Springer, 2024.
+
+[51] B. Ozden, R. Rastogi, and A. Silberschatz. Disk striping in video server environments. In Proceedings of the Third IEEE International Conference on Multimedia Computing and Systems, pages 580-589, 1996.
+
+[52] David A. Patterson, Garth Gibson, and Randy H. Katz. A case for redundant arrays of inexpensive disks (raid). In Proceedings of the 1988 ACM SIGMOD International Conference on Management of Data, SIGMOD '88, page 109-116, New York, NY, USA, 1988. Association for Computing Machinery.
+
+[53] Ziyue Qiu, Juncheng Yang, Juncheng Zhang, Cheng Li, Xiaosong Ma, Qi Chen, Mao Yang, and Yinlong Xu. Frozenhot cache: Rethinking cache management for modern hardware. In Proceedings of the Eighteenth European Conference on Computer Systems, EuroSys '23, page 557-573, New York, NY, USA, 2023. Association for Computing Machinery.
+
+[54] Ashwini Raina, Jianan Lu, Asaf Cidon, and Michael J. Freedman. Efficient compactions between storage tiers with prismdb. In Proceedings of the 28th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 3, ASPLOS 2023, page 179-193, New York, NY, USA, 2023. Association for Computing Machinery.
+
+[55] KV Rashmi, Mosharaf Chowdhury, Jack Kosaian, Ion Stoica, and Kannan Ramchandran. {EC-Cache}: {LoadBalanced}, {Low-Latency} cluster caching with online erasure coding. In 12th USENIX Symposium on Operating Systems Design and Implementation (OSDI 16), pages 401-417, 2016.
+
+[56] Amanda Raybuck, Tim Stamler, Wei Zhang, Mattan Erez, and Simon Peter. Hemem: Scalable tiered memory management for big data applications and real nvm. In Proceedings of the ACM SIGOPS 28th Symposium on Operating Systems Principles, SOSP '21, page 392-407, New York, NY, USA, 2021. Association for Computing Machinery.
+
+[57] Yanjing Ren, Yuanming Ren, Xiaolu Li, Yuchong Hu, Jingwei Li, and Patrick PC Lee. {ELECT}: Enabling erasure coding tiering for {LSM-tree-based} storage. In 22nd USENIX Conference on File and Storage Technologies (FAST 24), pages 293-310, 2024.
+
+[58] Yujie Ren, David Domingo, Jian Zhang, Paul John, Rekha Pitchumani, Sanidhya Kashyap, and Sudarsun Kannan. {PolyStore}: Exploiting combined capabilities of heterogeneous storage. In 23rd USENIX Conference on File and Storage Technologies (FAST 25), pages 539-555, 2025.
+
+[59] Kenneth Salem and Hector Garcia-Molina. Disk striping. In 1986 IEEE Second International Conference on Data Engineering, pages 336-342, 1986.
+
+[60] Sai Sha, Chuandong Li, Yingwei Luo, Xiaolin Wang, and Zhenlin Wang. Vtmm: Tiered memory management for virtual machines. In Proceedings of the Eighteenth European Conference on Computer Systems, EuroSys '23, page 283-297, New York, NY, USA, 2023. Association for Computing Machinery.
+
+[61] Yongju Song, Wook-Hee Kim, Sumit Kumar Monga, Changwoo Min, and Young Ik Eom. Prism: Optimizing key-value store for modern heterogeneous storage devices. In Proceedings of the 28th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 2, ASPLOS 2023, page 588-602, New York, NY, USA, 2023. Association for Computing Machinery.
+
+[62] Zhenyu Song, Daniel S. Berger, Kai Li, and Wyatt Lloyd. Learning relaxed belady for content distribution network caching. In 17th USENIX Symposium on Networked Systems Design and Implementation (NSDI 20), pages 529-544, Santa Clara, CA, February 2020. USENIX Association.
+
+[63] Linpeng Tang, Qi Huang, Wyatt Lloyd, Sanjeev Kumar, and Kai Li. {RIPQ}: Advanced photo caching on flash for facebook. In 13th USENIX Conference on File and Storage Technologies (FAST 15), pages 373-386, 2015.
+
+[64] Midhul Vuppalapati and Rachit Agarwal. Tiered memory management: Access latency is the key! In Proceedings of the ACM SIGOPS 30th Symposium on Operating Systems Principles, pages 79-94, 2024.
+
+[65] Hui Wang and Peter Varman. Balancing fairness and Efficiency in tiered storage systems with BottleneckAware allocation. In 12th USENIX Conference on File and Storage Technologies (FAST 14), pages 229-242, Santa Clara, CA, February 2014. USENIX Association.
+
+[66] John Wilkes, Richard Golding, Carl Staelin, and Tim Sullivan. The hp autoraid hierarchical storage system. `ACM Trans. Comput. Syst.`, 14(1): 108-136, feb 1996.
+
+[67] Chenggang Wu, Vikram Sreekanti, and Joseph M. Hellerstein. Autoscaling tiered cloud storage in anna. `Proc. VLDB Endow.`, 12(6): 624-638, feb 2019.
+
+[68] Kan Wu, Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau. Towards an unwritten contract of intel optane SSD. In 11th USENIX Workshop on Hot Topics in Storage and File Systems (HotStorage 19), Renton, WA, July 2019. USENIX Association.
+
+[69] Kan Wu, Zhihan Guo, Guanzhou Hu, Kaiwei Tu, Ramnatthan Alagappan, Rathijit Sen, Kwanghyun Park, Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau. The Storage Hierarchy is Not a Hierarchy: Optimizing Caching on Modern Storage Devices with Orthus. In 19th USENIX Conference on File and Storage Technologies (FAST 21), pages 307-323. USENIX Association, February 2021.
+
+[70] Kan Wu, Kaiwei Tu, Yuvraj Patel, Rathijit Sen, Kwanghyun Park, Andrea C. Arpaci-Dusseau, and Remzi H. Arpaci-Dusseau. NyxCache: Flexible and efficient multi-tenant persistent memory caching. In 20th USENIX Conference on File and Storage Technologies (FAST 22), pages 1-16, Santa Clara, CA, February 2022. USENIX Association.
+
+[71] Xiaojian Wu and AL Narasimha Reddy. A novel approach to manage a hybrid storage system. `J. Commun.`, 7(7): 473-483, 2012.
+
+[72] Lingfeng Xiang, Zhen Lin, Weishu Deng, Hui Lu, Jia Rao, Yifan Yuan, and Ren Wang. Nomad: {NonExclusive} memory tiering via transactional page migration. In 18th USENIX Symposium on Operating Systems Design and Implementation (OSDI 24), pages 19-35, 2024.
+
+[73] Zi Yan, Daniel Lustig, David Nellans, and Abhishek Bhattacharjee. Nimble page management for tiered memory systems. In Proceedings of the Twenty-Fourth International Conference on Architectural Support for Programming Languages and Operating Systems, ASPLOS '19, page 331-345, New York, NY, USA, 2019. Association for Computing Machinery.
+
+[74] Juncheng Yang, Yao Yue, and K. V. Rashmi. A large scale analysis of hundreds of in-memory cache clusters at twitter. In 14th USENIX Symposium on Operating Systems Design and Implementation (OSDI 20), pages 191-208. USENIX Association, November 2020.
+
+[75] Zhengyu Yang, Morteza Hoseinzadeh, Allen Andrews, Clay Mayers, David Thomas Evans, Rory Thomas Bolt, Janki Bhimani, Ningfang Mi, and Steven Swanson. Autotiering: automatic data placement manager in multi-tier all-flash datacenter. In 2017 IEEE 36th International Performance Computing and Communications Conference (IPCCC), pages 1-8. IEEE, 2017.
+
+[76] Xinyue Yi, Hongchao Du, Yu Wang, Jie Zhang, Qiao Li, and Chun Jason Xue. Artmem: Adaptive migration in reinforcement learning-enabled tiered memory. In Proceedings of the 52nd Annual International Symposium on Computer Architecture, pages 405-418, 2025.
+
+[77] Gong Zhang, Lawrence Chiu, and Ling Liu. Adaptive data migration in multi-tiered storage based cloud environment. In 2010 IEEE 3rd International Conference on Cloud Computing, pages 148-155, 2010.
+
+[78] Weidong Zhang, Erci Xu, Qiuping Wang, Xiaolu Zhang, Yuesheng Gu, Zhenwei Lu, Tao Ouyang, Guanqun Dai, Wenwen Peng, Zhe Xu, Shuo Zhang, Dong Wu, Yilei Peng, Tianyun Wang, Haoran Zhang, Jiasheng Wang, Wenyuan Yan, Yuanyuan Dong, Wenhui Yao, Zhongjie Wu, Lingjun Zhu, Chao Shi, Yinhu Wang, Rong Liu, Junping Wu, Jiaji Zhu, and Jiesheng Wu. What's the story in EBS glory: Evolutions and lessons in building cloud block store. In 22nd USENIX Conference on File and Storage Technologies (FAST 24), pages 277-291, Santa Clara, CA, February 2024. USENIX Association.
+
+[79] Shengan Zheng, Morteza Hoseinzadeh, and Steven Swanson. Ziggurat: A tiered file system for Non-Volatile main memories and disks. In 17th USENIX Conference on File and Storage Technologies (FAST 19), pages 207-219, Boston, MA, February 2019. USENIX Association.
+
+[80] Xinjing Zhou, Joy Arulraj, Andrew Pavlo, and David Cohen. Spitfire: A three-tier buffer manager for volatile and non-volatile memory. In Proceedings of the 2021 International Conference on Management of Data, SIGMOD '21, page 2195-2207, New York, NY, USA, 2021. Association for Computing Machinery.
+
+</div>

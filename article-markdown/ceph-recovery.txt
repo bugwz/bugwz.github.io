@@ -1,0 +1,709 @@
+# Ceph Recovery 恢复机制详解
+
+Ceph recovery 根据 PG 日志和 missing set 恢复缺失对象. 本文分析传统 OSD 的恢复准备, 资源预留与调度, 副本池的 Pull/Push 流程, 纠删码池的 shard 重建, 以及恢复完成条件, I/O 影响和排障方法.
+
+# 1. 恢复与回填边界
+
+peering 确定各 shard 的状态后, 会判断现有 PG log 能否完整描述副本差异. 这个判断决定后续进入 recovery 还是 backfill.
+
+primary 指当前负责协调这个 PG 的主 shard, peer 指同一个 PG 中的其他 shard. 它们通常由不同的 OSD 承载, recovery 根据各 shard 的缺失情况选择数据来源和恢复目标.
+
+recovery 处理已经记录在 missing set 中的对象. primary 知道缺少哪个 oid, 需要哪个版本, 也知道哪些 shard 可能提供数据, 因此可以直接恢复这些对象, 不需要扫描整个 PG.
+
+backfill 用在 PG log 不足以描述全部差异的场景. primary 和 target 分段扫描对象集合, 比较 oid 和版本, 再补缺失对象, 替换旧对象, 删除 target 上多余的对象. backfill 扫描的范围可能很大, 但它仍然只传输比较后发现的差异; target 为空时, 传输量才会接近整个 PG.
+
+| 对比项 | recovery | backfill |
+|---|---|---|
+| 差异从哪里来 | PG log, pg_missing_t, MissingLoc | primary/target 的对象范围扫描 |
+| 开始前是否知道 oid | 知道 | 不一定, 需要扫描发现 |
+| 是否扫描对象集合 | 否 | 是, 按 hobject_t 范围分段扫描 |
+| 实际数据传输 | 只恢复 missing 对象或执行 delete | 只向 target 推送缺失或旧版本对象, 并删除 target 上多余的对象 |
+| 进度记录 | missing, last_complete | last_backfill |
+
+```mermaid
+flowchart TD
+    A[peering 汇总各 shard 的 PG log 和 pg_info_t] --> B{现有 PG log 能否完整描述差异}
+    B -->|能| C[构造 local missing 和 peer missing]
+    C --> D[recovery]
+    D --> E[按已知 oid 执行 Pull / Push / Delete]
+    B -->|不能| F[加入 backfill_targets]
+    F --> G[backfill]
+    G --> H[扫描并比较对象范围]
+    H --> I[向 target 推送缺失或旧版本对象, 删除多余对象]
+```
+
+## 1.1 PG 日志范围
+
+当前 PG 日志保留的是 `log_tail` 之后, 直到 `last_update` 为止的版本, 通常记为 `(log_tail, last_update]`. `log_tail` 是左边界, 表示已经裁掉的最后一个版本; `last_update` 是右边界, 表示当前最新版本.
+
+| 边界 | 含义 | 如何推进 | 是否包含在当前日志中 |
+|---|---|---|---|
+| log_tail | 已被裁剪日志的截止版本 | 日志安全裁剪后向前移动 | 不包含 |
+| last_update | 当前已应用的最新日志版本 | 新日志条目提交后向前移动 | 包含 |
+
+左边界使用圆括号, 因为版本小于等于 `log_tail` 的日志已经被删除. 右边界使用方括号, 因为 `last_update` 对应的最新日志仍然保留.
+
+例如, PG 原有版本 101 至 105, 最新版本是 105. 裁剪到 102 后, 101 和 102 被删除, `log_tail` 变为 102, 剩余日志是 103, 104, 105, 因此保留范围是 `(102, 105]`.
+
+如果另一个 shard (peer) 最后同步到 102, primary 就可以根据保留的 103, 104, 105 三条日志找出它缺少的对象. 一般来说, 只要 peer 的最后版本不早于 `log_tail`, primary 就能找到从这个版本之后开始的连续日志, 并据此完成恢复.
+
+如果 peer 的最后版本早于 `log_tail`, 它落后期间的一部分日志已经被裁掉, primary 无法只靠当前 PG 日志判断完整差异, 通常需要改用 backfill. 版本比较只能判断某个 peer 能否按日志追赶, Peering 还要把所有 shard 放在一起检查日志是否能连续衔接, 当前 acting set 是否可用. 日志接不上的 shard 会被列入 backfill target, `choose_acting()` 负责做这个选择, `last_backfill` 则记录 backfill 已经处理到哪里.
+
+同一个 PG 可以先做 recovery, 再做 backfill. `start_recovery_ops()` 会先处理缺失对象集合中已经明确列出的对象. 等这些对象都恢复完成后, 如果仍有 backfill target, 状态机才转入 backfill.
+
+### 1.1.1 右边界
+
+右边界会随着写入向前移动, 因为每次新的对象更新都会在当前 PG 的版本序列中取得下一个版本. 代码里的 `version + 1` 就是这个 PG 级别的递增: 同一 PG 中所有对象的更新共用这条序列, 不同 PG 各自维护自己的序列.
+
+日志条目加入 PG log 后, `last_update` 和 `log.head` 一起指向这条最新日志, 因此右边界随写入不断向前移动.
+
+关键函数:
+
+- `PG::get_next_version()`: 根据当前 PG 的 `projected_last_update` 生成下一个版本.
+- `PrimaryLogPG::issue_repop()`: 事务交给 backend 提交前, 先把本次写入的版本记入 `projected_last_update`, 并把日志放入 `projected_log`. 这两个是内存中的预留状态, 不代表数据已经落盘.
+- `PeeringState::add_log_entry()`: 处理新的日志条目时, 将 `info.last_update` 更新为该条目的版本, 并调用 `PGLog::add()` 继续追加日志.
+- `PGLog::IndexedLog::add()`: 追加日志条目并更新 `log.head`.
+
+正式的 `last_update` 要等日志条目真正追加后才会更新. 但如果每次都等事务完成后才推进它, 那么前一个写入尚未完成期间, 后续写入仍可能读到旧值并重复取得同一个版本. 因此, Ceph 在正式的 `last_update` 之外引入了内存态的 `projected_last_update`, 用于记录当前 PG 已经分配出去的最大版本, 包括仍在处理, 尚未追加到 PG log 的写入. 例如 `last_update` 当前是 10, 写入 A 取得版本 11 后, `projected_last_update` 会先推进到 11. 此时写入 A 即使尚未完成, 随后到达的写入 B 也会取得版本 12, 不会再次使用版本 11.
+
+`projected_last_update` 暂时大于正式的 `last_update` 是正常的, 表示有写入还在提交过程中. 写操作如果在执行阶段失败, `PrimaryLogPG::record_write_error()` 会为这次失败分配一个 PG 版本, 并追加 `ERROR` 类型的日志, 用于记录结果和处理重复请求. 这个失败操作不会产生对象数据, 但 PG log 会留下对应的错误记录, 说明这个版本表示一次失败操作. 若 PG 在事务完成前发生状态切换, Ceph 会取消或重新排队未完成的写入, 并在下一次激活时用持久化的 `last_update` 重新初始化 projected 状态.
+
+`last_update` 表示 PG log 中最新一条日志的版本, `ERROR` 日志也算在内, 并不只记录成功写入对象的版本. 例如当前版本是 11, 下一次写入失败并把版本 12 记录为 `ERROR`, 日志提交后 `last_update` 会变成 12; 后面的成功写入再使用版本 13. PG 版本号主要用于标记更新顺序, 不要求每个整数都对应一次成功的对象写入. 正常提交后, 正式的 `last_update` 会逐步追上 `projected_last_update`; 如果事务被取消, projected 状态会随 PG 状态重置, 之后重新分配版本.
+
+### 1.1.2 左边界
+
+左边界由日志裁剪推进. Ceph 根据 OSD 的日志预算和 PG 数量计算每个 PG 应保留的条目数; 日志超过目标长度后, 再从最旧的条目开始裁剪.
+
+裁剪前需要确定一个安全位置:
+
+- `min_last_complete_ondisk` 适用于 replicated 和 EC pool. 每个 shard 都会上报一个版本, 表示自己已经把这个版本及以前的状态完整写入磁盘. primary 取所有相关 shard 中最慢的那个版本作为 `min_last_complete_ondisk`. 只要还有一个 shard 没有完整持久化后续更新, 相关日志就必须保留.
+- `can_rollback_to` 主要用于 EC pool. 一次 EC 写入会同时修改多个 shard; 如果写入中途只有部分 shard 成功, Ceph 需要保留旧数据和操作日志, 以便撤销已经写入的部分, 让各 shard 回到写入前的状态. 等这次写入在所有相关 shard 上完成后, 这些回滚信息才可以清理. `can_rollback_to` 表示在保留回滚能力的前提下, 日志最多可以裁剪到哪个版本.
+
+普通裁剪不能超过 `min_last_complete_ondisk` 和 `can_rollback_to` 中较小的版本. 例如三个 shard 分别持久化到 105, 102 和 104, primary 只能把日志裁剪到 102. 版本 103 之后的更新还没有在所有 shard 上写完, 所以对应日志需要继续保留.
+
+确定安全位置后, `PGLog::trim()` 删除裁剪位置及其以前的条目, 然后把 `log_tail` 更新到该位置.
+
+关键函数:
+
+- `OSDService::get_target_pg_log_entries()`: 根据 OSD 的日志预算和 PG 数量计算每个 PG 的目标日志长度.
+- `PeeringState::calc_min_last_complete_ondisk()`: 汇总各 shard 已经完整持久化到的最小版本.
+- `PeeringState::calc_trim_to()`: 根据日志长度和安全边界选择普通裁剪位置.
+- `PeeringState::calc_trim_to_aggressive()`: 日志超过目标长度时, 在不超过 `pg_committed_to` 和 `can_rollback_to` 的前提下, 尽量多删除一批旧日志.
+- `PGLog::trim()`: 执行 PG 级裁剪并同步 `info.log_tail`.
+- `PGLog::IndexedLog::trim()`: 删除版本小于等于裁剪位置的条目, 并推进 `log.tail`.
+
+# 2. Peering 阶段的恢复准备
+
+OSD 短暂离线, acting set 变化和写入中断, 都可能让同一个 PG 的各 shard 出现差异. Peering 会整理这些 shard 的日志, 并为 primary 和各 peer 建立 missing 信息. scrub repair 发现损坏对象后, 也会把对应 shard 加入 missing. 后面的 Pull, Push 和 EC 重建都依赖这些信息.
+
+## 2.1 PG 映射历史
+
+OSDMap 每变化一次, 就会产生一个新的 epoch. 如果一段连续 epoch 内, 某个 PG 的 up set, acting set 和 primary 等映射都没有变化, 这段 epoch 就是一个 peering interval. 映射发生变化后, 旧 interval 结束, 新 interval 开始.
+
+例如:
+
+| OSDMap epoch | acting set | primary |
+|---|---|---|
+| 100 至 110 | [1, 2, 3] | OSD.1 |
+| 111 开始 | [2, 3, 4] | OSD.2 |
+
+这两个 acting set 对应两个 interval. OSD.1 虽然不在新的 acting set 中, 但它可能保存着 epoch 110 以前已经完成的写入; 新加入的 OSD.4 则可能没有这些数据. 因此, Peering 不能只查询当前 acting set, 还要回看过去哪些 OSD 参与过这个 PG.
+
+只要 OSD.2, OSD.3 已包含所需的最新版本, 并被确认为可靠 source, OSD.4 就可以直接从它们恢复. 但 Peering 必须先收集信息, 确认当前 acting set 是否包含完整历史. 以下是假设的时序:
+
+1. 在 epoch 100 至 110, acting set 是 `[1, 2, 3]`. 某段时间 OSD.2 和 OSD.3 不可用, 而 pool 的配置允许 OSD.1 单独完成一次写入, 因此这个版本已经在 OSD.1 上持久化.
+2. 从 epoch 111 开始, acting set 变为 `[2, 3, 4]`. OSD.2 和 OSD.3 可能仍只保存到更早的版本, 刚加入的 OSD.4 则还没有这次写入; 此时 OSD.1 反而可能是唯一保存该版本的 OSD.
+3. 如果 Peering 只查询 `[2, 3, 4]`, 它看不到这次已经完成的写入, 可能把它误判为不存在. 查询历史上的 OSD.1 后, Peering 才能发现该版本, 并把 OSD.1 纳入候选 source.
+
+查询历史 OSD 是为了确认过去完成过哪些写入, 不一定由它直接向 OSD.4 传输数据. 如果 OSD.2 或 OSD.3 也有该版本, 仍可从它们恢复; 当前副本都缺失时, 历史 OSD 才可能成为实际数据来源.
+
+`PastIntervals` 保存这些历史映射, 记录每段 interval 的 epoch 范围, up set, acting set, primary 以及该 interval 是否可能接收过写入. 它不保存对象内容, 也不替代 PG log.
+
+Peering 根据 `PastIntervals` 构造 `PriorSet`, 决定本轮需要查询哪些 OSD. 当前仍在线的 OSD 会被请求提供 `pg_info_t` 和 PG log; 过去参与过该 PG, 但现在已经 down 的 OSD 可能仍保存需要的数据, 因此 Peering 可能等待它. Recovery 查找 unfound 对象时, 也会使用这些历史 OSD 作为候选 source.
+
+关键函数:
+
+- `PastIntervals::check_new_interval()`: 判断 PG 映射是否变化, 并记录刚结束的 interval.
+- `PastIntervals::get_prior_set()`: 根据历史 interval 生成 Peering 需要查询或等待的 OSD 集合.
+- `PeeringState::build_prior()`: 结合当前 OSD 状态构造本轮 Peering 使用的 `PriorSet`.
+- `PeeringState::build_might_have_unfound()`: 找出过去可能保存过 unfound 对象的 OSD.
+
+## 2.2 日志与缺失集合
+
+Peering 先根据当前 up/acting set 和 `PastIntervals` 确定需要查询的 OSD, 再收集这些 OSD 的 `pg_info_t` 与 PG log. 这个历史集合的作用是扩大日志和数据来源的查询范围, 避免只看当前 acting set.
+
+收到这些信息后, Peering 选择本轮作为日志基准的 `auth_log_shard`. 如果 primary 自己的日志不完整, 就向这个 shard 请求缺少的日志; 随后合并日志, 处理 divergent entries, 并据此构造各 shard 的 missing set. 完成后, primary 才得到本轮 recovery 使用的 PG log.
+
+每个 shard 的 `pg_missing_t` 记录对象的恢复要求:
+
+- `need`: 根据当前 PG log, 该 shard 需要达到的对象版本;
+- `have`: 该 shard 当前已知持有的版本;
+- `is_delete`: 当前 PG log 表明对象应当不存在, 需要执行删除.
+
+`pg_missing_t` 同时维护两种索引: 一张按对象查找缺口, 另一张把对象的 `need.version` 映射回对象名. 例如, 某个对象需要版本 105, 就会在反向索引中记录 `105 -> oid`. 由于反向索引按版本排序, 恢复可以先找到需要最旧版本的对象, 再逐步处理更新版本, 而不必按对象名顺序查找. `recover_primary()` 使用 `last_requested` 从上次处理的位置继续遍历; `recover_replicas()` 则对每个 replica 从反向索引的最旧版本开始遍历, 并跳过已经处于恢复中的对象.
+
+primary 激活时形成两类 missing set:
+
+| 数据结构 | 记录内容 |
+|---|---|
+| pg_log.get_missing() | primary 本地缺失的对象 |
+| `peer_missing[pg_shard_t]` | 各 peer 缺失的对象 |
+
+scrub/repair 发现损坏副本后, 也会通过 `force_object_missing()` 把对应 shard 加入 missing, 再交给相同的 recovery 路径处理.
+
+## 2.3 可用数据来源
+
+`MissingLoc` 把各 shard 的 missing 信息汇总成对象级视图:
+
+| 数据结构 | 记录内容 |
+|---|---|
+| needs_recovery_map | 每个 oid 对应的目标版本和当前版本 |
+| missing_loc | 每个 oid 可从哪些 pg_shard_t 读取数据 |
+| missing_loc_sources | 已纳入 source 搜索的 shards |
+
+replicated pool 只要找到一份正确副本就满足 recoverable 条件. EC pool 则把可用位置交给 EC backend 的 recoverable predicate, 只有 shard 组合满足 plugin 的最小解码条件, 才能恢复该对象.
+
+primary 不只检查当前 acting set. peering 还会根据 past intervals 建立 `might_have_unfound`, 继续查询历史上可能保存过对象的 OSD.
+
+## 2.4 无可用来源
+
+对象出现在 missing set 中, 但当前没有足够 source 时, Ceph 将它记为 unfound:
+
+- replicated pool 找不到任何包含目标版本的副本;
+- EC pool 找不到可解码的 shard 组合;
+- 可能的 source OSD 仍处于 down 状态;
+- 历史 source 已被销毁或标记 lost.
+
+unfound 只表示当前无法恢复, 不等于对象已经永久丢失. down OSD 重新上线后仍可能提供数据; 所有可能位置都无法找回时, 才需要管理员决定 mark lost 的处理方式.
+
+# 3. 恢复调度
+
+副本池和纠删码池都先经过同一套状态机, 资源预留和 OSD 恢复队列. 进入 `PGBackend::recover_object()` 后, 才分别执行各自的数据恢复方式.
+
+```mermaid
+flowchart TD
+    A[peering / activation] --> B[建立 local missing, peer missing 和 MissingLoc]
+    B --> C{needs_recovery}
+    C -->|是| D[WaitLocalRecoveryReserved]
+    D --> E[WaitRemoteRecoveryReserved]
+    E --> F[Recovering]
+    F --> G[PG::queue_recovery]
+    G --> H[OSDService::_maybe_queue_recovery]
+    H --> I[PGRecovery 进入 mClock / WPQ]
+    I --> J[OSD::do_recovery]
+    J --> K[PrimaryLogPG::start_recovery_ops]
+    K --> L[recover_replicas / recover_primary]
+    L --> M[PGBackend::recover_object]
+    M --> N[backend 传输或重建对象]
+    N --> O[on_local / on_peer / on_global_recover]
+```
+
+状态机和队列控制恢复的启动时机, 并发数量与 PG 状态推进, backend 负责读取, 传输或重建对象.
+
+## 3.1 资源预留
+
+一个 OSD 可能同时参与多个 PG 的恢复. `OSDService` 使用两组 reservation 限制同时活跃的 PG:
+
+- `local_reserver`: 本 OSD 作为 PG primary 协调并执行恢复的名额;
+- `remote_reserver`: 本 OSD 作为其他 primary 所属 PG 的远端参与者所占的名额. 它可能提供 source 数据, 也可能接收缺失副本.
+
+`osd_max_backfills` 是每个 OSD 的 reservation 上限, 同时控制 recovery 和 backfill; local 与 remote 名额分开计算. 设置为 1 时, 同一个 OSD 最多可以同时持有 1 个 local reservation 和 1 个 remote reservation: 它可以作为一个 PG 的 primary 负责恢复, 同时作为另一个 PG 的数据源或接收端参与恢复. 这里限制的是 PG 级 reservation, 不是单个 recovery-op; 对象级并发还会受到 `osd_recovery_max_active_*` 等配置限制.
+
+primary 先申请 local reservation. 获得 local reservation 后, 它会按固定顺序遍历远端 OSD (内部使用有序的 `std::set<pg_shard_t>`) , 逐个申请 remote reservation: 向下一个远端 OSD 发送请求, 并等待该 OSD 返回 `GRANT` 后再申请下一个. 这里的串行只发生在 reservation 获取阶段; 全部 reservation 就绪并进入 `Recovering` 后, 实际 recovery-op 仍可以并发执行:
+
+```mermaid
+sequenceDiagram
+    participant P as Primary PG
+    participant L as local_reserver
+    participant R as Remote OSD reserver
+
+    P->>L: 申请 local reservation
+    L-->>P: LocalRecoveryReserved
+    loop 每个远端 OSD
+        P->>R: MRecoveryReserve::REQUEST
+        R-->>P: MRecoveryReserve::GRANT
+    end
+    Note over P: AllRemotesReserved
+    P->>P: 进入 Recovering
+```
+
+普通 recovery 不做 backfill 那种目标空间增量估算. `WaitLocalRecoveryReserved` 会调用 `OSDMap::check_full(acting_recovery_backfill)`; 检查失败时设置 `recovery_toofull`, 等待 `osd_recovery_retry_interval` 后重试.
+
+recovery 完成, PG reset, acting set 变化或 reservation 被抢占时, 状态机会释放 remote reservation, 并取消 local reservation.
+
+## 3.2 OSD 恢复队列
+
+进入 `Recovering` 后, `PG::queue_recovery()` 先检查 PG 成员 `recovery_queued`:
+
+- 值为 `false`: 将它设为 `true`, 按 PG 平均对象大小计算 cost, 并把这个 PG 放入 OSD 的 recovery 等待队列;
+- 值为 `true`: 说明这个 PG 已经在等待队列中, 函数直接返回, 不再重复创建 `PGRecovery` 调度项.
+
+OSD scheduler 取出该 PG 后调用 `start_recovery_ops()`, 函数入口处会先把 `recovery_queued` 设回 `false`, 这样本轮处理过程中如果又发现需要继续 recovery, PG 才能重新入队. PG 状态变化或关闭时, `on_change()`, `on_shutdown()` 会从 OSD 等待队列移除该 PG, 并清除这个标记.
+
+```mermaid
+sequenceDiagram
+    participant PG as PG
+    participant S as OSDService
+    participant Q as Recovery 等待队列
+    participant Sch as OSD scheduler
+
+    PG->>PG: queue_recovery()
+    alt recovery_queued == false
+        PG->>PG: recovery_queued = true
+        PG->>S: queue_for_recovery(cost, priority)
+        S->>Q: 加入等待队列
+    else recovery_queued == true
+        PG-->>PG: 忽略重复入队
+    end
+
+    S->>S: _maybe_queue_recovery()
+    S->>Sch: 创建 PGRecovery
+    Sch->>PG: OSD::do_recovery()
+    PG->>PG: start_recovery_ops()
+    PG->>PG: recovery_queued = false
+
+    alt 仍有恢复工作
+        PG->>PG: 再次调用 queue_recovery()
+        PG->>S: 重新进入等待队列
+    else 本轮工作已结束
+        PG-->>Sch: 返回本轮结果
+    end
+```
+
+`OSDService::_recover_now()` 根据以下状态计算可用 recovery-op 槽位:
+
+- recovery 是否被 `norecover` 或 delay 暂停;
+- `recovery_ops_active + recovery_ops_reserved` 是否达到设备对应的上限;
+- 本轮最多能按 `osd_recovery_max_single_start` 预留多少槽位.
+
+条件允许时, `_maybe_queue_recovery()` 为本轮工作预留 recovery-op 槽位, 并创建 `PGRecovery` 调度项. scheduler 随后调用 `OSD::do_recovery()` 和 `start_recovery_ops()`. 本轮启动结束后, 尚未使用的预留槽位由 `release_reserved_pushes()` 归还.
+
+源码中的 `reserved_pushes` 和 `release_reserved_pushes()` 是历史命名. `pushes` 表示本轮预留的 recovery-op 槽位数, 不代表 Push 消息数量或数据传输方向. `OSD::do_recovery()` 会把这些预留槽位交给 `start_recovery_ops()`; 本轮实际启动多少个对象恢复操作, 再由 PG 的 missing 集合和恢复逻辑决定. 普通对象恢复通常占用一个 active op; backfill scan 和 FINISH ACK 等待也会用 `hobject_t::get_max()` 建立合成 op.
+
+所分析版本的默认 scheduler 是 mClock. `PGRecovery` 是代表本轮 PG recovery 的一个调度项. `PG::queue_recovery()` 先用 PG 的平均对象大小作为单个 recovery-op 的估算 cost; 使用 mClock 时, `OSDService::_queue_for_recovery()` 再将这个估算值乘以本轮预留的 recovery-op 槽位数, 作为整个 `PGRecovery` 调度项的 cost. 例如平均对象大小为 4 MiB, 本轮预留 2 个槽位时, 调度 cost 约为 8 MiB. 这个值只是调度工作量的估算, 不是实际网络传输字节数; 对象大小不一, 以及删除, scan, ACK 等工作, 都会使实际开销有所不同. 使用旧的 WeightedPriorityQueue 时, 则使用 `osd_recovery_cost`, 不采用上述乘法. Pull, Push, PushReply, Scan 和 Backfill 消息则以 `PGRecoveryMsg` 进入 scheduler. 启用 mClock 时, OSD 会把 `osd_recovery_sleep*` 重置为 0, 负载控制主要依赖 mClock profile 和 recovery active/backfill 上限.
+
+## 3.3 单轮恢复顺序
+
+`PrimaryLogPG::start_recovery_ops()` 是每轮 recovery 的入口, 一次最多启动 `max` 个 recovery op. primary 和 replica 的处理顺序取决于本地 missing 状态:
+
+- primary 没有 missing, 或者本地 missing 全部是 unfound 时, 先调用 `recover_replicas()`, 把 primary 已经持有且 source 可用的对象补到 replica.
+- 如果 `recover_replicas()` 返回 0, 表示本轮没有实际安排任何 replica recovery-op; 这不表示函数失败, 候选对象也可能只是因为仍是 unfound, 已经在恢复, 或暂时拿不到对象锁而被跳过. 此时再调用 `recover_primary()`, 处理 primary 本地的 Pull, delete 或 `LOST_REVERT`.
+- 如果 `recover_primary()` 也返回 0, 但 unfound 数量发生了变化, 代码会再次调用 `recover_replicas()`. 例如, primary 可以直接使用本地旧版本完成 `LOST_REVERT`, 随后成为 replica 的恢复来源.
+
+这些分支在一次 `start_recovery_ops()` 调用内按条件执行, 两个函数不会互相递归调用. 通常先尝试 replica, 再尝试 primary; 只有 primary 的处理改变了 unfound 数量, 本轮才会再尝试一次 replica. 当前调用返回后, 如果仍有恢复工作, OSD scheduler 会在后续调度轮次再次调用 `start_recovery_ops()`.
+
+函数只有在 `recovering` 为空, active op 已结束, `work_in_progress` 为 false, backfill 没有被 flag 暂停, 并且没有 unfound 时, 才会进入完成分支. 普通 missing 已清空后, 有 backfill target 就发送 `RequestBackfill`, 否则发送 `AllReplicasRecovered`.
+
+## 3.4 后端与完成回调
+
+`recover_primary()` 与 `recover_replicas()` 都通过 `PGBackend::RecoveryHandle` 聚合本轮消息, 随后调用 `run_recovery_op()` 发送. 具体实现由 pool backend 决定:
+
+| backend | primary 本地缺失 | 其他 shard 缺失 |
+|---|---|---|
+| ReplicatedBackend | prepare_pull() 从 source 拉取完整对象 | start_pushes() 从 primary 推送完整对象 |
+| ECCommon::RecoveryBackend | 读取 source shards 并重建 primary shard | 读取 source shards, 解码后推送目标 shard |
+
+对象准备阶段先调用 `PG::start_recovery_op()` 增加 `recovery_ops_active`, 再把 oid 放入 `recovering`:
+
+- primary 缺对象时, `recover_missing()` 先调用 `start_recovery_op()`, 再插入 `recovering[soid]`;
+- replica 缺对象时, `prep_object_replica_pushes()` 或 `prep_object_replica_deletes()` 做同样的处理;
+- backfill 推送对象时, `prep_backfill_object_push()` 先记录 `backfills_in_flight`, 再调用 `start_recovery_op()` 和插入 `recovering[oid]`.
+
+backfill scan 和 FINISH 等待使用 `hobject_t::get_max()` 作为合成 recovery op, 这些 op 代表扫描或完成确认工作. backend 完成后通过三层回调更新状态:
+
+- `on_local_recover()` 更新本地 missing 和可能的 `last_complete`;
+- `on_peer_recover()` 清除指定 peer 的 missing entry, 并把该 peer 加入可用位置;
+- `on_global_recover()` 表示该对象在所有目标 shard 上都已满足, 随后移除 `recovering`, 释放对象锁和 backoff, 并递减 active op.
+
+# 4. 副本池恢复
+
+副本池的每个 PG shard 都保存完整对象. primary 和 replica 是这个 PG 内部的角色, 分别由承载对应 PG shard 的 OSD 执行. primary 缺对象时, 先向持有该对象的 source OSD 请求数据; replica 缺对象时, primary 直接把本地对象发送给 replica. 两条路径都用 `PushOp` 携带对象数据, 属性和 omap.
+
+## 4.1 PG primary 缺对象
+
+`recover_primary()` 负责把缺失对象恢复到当前 PG 的 primary shard. 它使用按 `need.version` 排序的 missing 辅助索引, 从 `last_requested` 记录的位置继续处理对象. 已经在 `recovering` 中的对象会跳过, 其他对象根据类型进入不同路径:
+
+- 普通对象, head 或需要拉取旧版本的对象, 进入 `recover_missing()`;
+- `is_delete` 为 true 的对象走删除路径;
+- `LOST_REVERT` 按日志记录的旧版本执行回滚或拉取;
+- snapshot clone 依赖同一对象的 head. head 仍在 missing 集合中时先恢复 head; 如果 head 已经在恢复, 就暂缓 clone, 等 head 可用后再根据 SnapSet 恢复 clone.
+
+普通对象进入 `recover_missing()` 后, `ReplicatedBackend::prepare_pull()` 从 `MissingLoc` 取得可用 source, 并随机选择一个 source 发送 `MOSDPGPull`. `osd_debug_feed_pullee` 可以在调试时指定 source.
+
+snapshot clone 是同一个对象的历史快照版本, `hobject_t::snap` 小于 `CEPH_NOSNAP`; head 是该对象的当前版本, `snap` 等于 `CEPH_NOSNAP`. head 上的 SnapSet 保存 clone 的快照号, 大小和数据重叠范围, 恢复 clone 时需要这些信息来计算 `copy_subset` 和 `clone_subset`.
+
+当 head 和某个 clone 同时缺失时, 代码先递归恢复 head. head 恢复后, primary 才能取得对应的 `ObjectContext` 和 SnapSet, 再调用 `prepare_pull()` 恢复 clone. `copy_subset` 表示仍需从 source 读取的数据, `clone_subset` 表示可以从已有 clone 复用的数据.
+
+```mermaid
+sequenceDiagram
+    participant PG as PrimaryLogPG
+    participant PB as Primary ReplicatedBackend
+    participant SB as Source ReplicatedBackend
+    participant SS as Source ObjectStore
+    participant PS as Primary ObjectStore
+
+    PG->>PB: recover_missing(oid, need)
+    PB->>PB: prepare_pull()
+    PB->>SB: MOSDPGPull(PullOp)
+    SB->>SS: fiemap / readv / getattrs / omap
+    SS-->>SB: data, attrs, omap
+    SB->>SB: build_push_op()
+    SB-->>PB: MOSDPGPush(PushOp)
+    PB->>PB: handle_pull_response()
+    alt 当前 chunk 后仍有 data 或 omap 未完成
+        PB->>PS: 写 temporary recovery object
+        PS-->>PB: transaction complete
+        PB->>SB: 下一条 MOSDPGPull
+    else 当前 chunk 已完成整个对象
+        PB->>PG: on_local_recover()
+        PB->>PS: 提交最终对象和 missing 更新
+        PS-->>PB: transaction complete
+        PB->>PG: 继续 replica Push 或 on_global_recover()
+    end
+```
+
+图中的判断依据是 `ObjectRecoveryProgress`: `data_complete` 和 `omap_complete` 是否都为 true. 前者表示对象 data 已传完, 后者表示 omap entries 已传完. 只要其中一项未完成, primary 就继续请求下一个 chunk; 两项都完成后, 才把本地对象恢复标记为完成. 如果其他 replica 也缺少这个对象, backend 还会继续从 primary 向它们 Push, 最后调用 `on_global_recover()`.
+
+## 4.2 PG replica 缺对象
+
+PG 的 replica shard 缺少对象, 而 primary 已经持有目标版本时, 承载 primary shard 的 OSD 会直接向 replica 所在的 OSD 推送本地对象.
+
+`recover_replicas()` 准备 Push 时, 先按 peer 的 missing 数量排序: acting replica 在 async recovery target 前; 每组内 missing 少的 peer 先处理; 同一个 peer 内按 need version 从旧到新遍历.
+
+```mermaid
+sequenceDiagram
+    participant PG as PrimaryLogPG
+    participant PB as Primary ReplicatedBackend
+    participant TB as Target ReplicatedBackend
+    participant TS as Target ObjectStore
+
+    PG->>PB: recover_replicas()
+    PB->>PB: start_pushes() / build_push_op()
+    PB->>TB: MOSDPGPush
+    TB->>TB: handle_push()
+    TB->>TS: queue ObjectStore::Transaction
+    TS-->>TB: transaction complete
+    TB-->>PB: MOSDPGPushReply
+    PB->>PB: handle_push_reply()
+    alt 对象尚未完成
+        PB->>TB: 下一条 MOSDPGPush
+    else 当前 target 完成
+        PB->>PG: on_peer_recover()
+        opt 所有 target 均已完成
+            PB->>PG: on_global_recover()
+        end
+    end
+```
+
+`MOSDPGPushReply` 注册在 target transaction 的 completion 上. primary 收到 reply 后才会发送下一 chunk, 或者把该 target 的 missing entry 清除.
+
+## 4.3 分块与临时对象
+
+`build_push_op()` 使用 `ObjectRecoveryProgress` 记录对象内进度:
+
+| 字段 | 含义 |
+|---|---|
+| data_recovered_to | data 已恢复到的逻辑偏移 |
+| omap_recovered_to | omap 已遍历到的 key |
+| first | 当前是否为第一个 chunk |
+| data_complete / omap_complete | data 或 omap 是否已经完成 |
+| error | 当前恢复是否遇到错误 |
+
+分块由以下配置控制:
+
+- `osd_recovery_max_chunk` 是 data 与 omap key/value 共用的 payload 预算, 默认 8 MiB;
+- `osd_recovery_max_omap_entries_per_chunk` 限制一个 chunk 中的 omap entry 数;
+- `osd_max_push_cost` 和 `osd_max_push_objects` 控制一条消息聚合多少个 `PushOp`.
+
+`osd_recovery_max_chunk` 不是严格的消息大小上限. 为了保证 omap 迭代可以前进, 第一个 omap entry 即使超过剩余预算, 也会放进当前 chunk; `osd_max_push_cost` 同样是组包阈值, 单个 `PushOp` 的 cost 可以超过它.
+
+第一个 chunk 同时完成全部 data 和 omap 时, target 可以在一个 transaction 中写最终 oid. 多 chunk 恢复先写 temporary recovery object, 最后一个 chunk 再通过 `collection_move_rename` 替换正式对象, 客户端只会看到完整对象.
+
+## 4.4 对象删除
+
+missing item 的 `is_delete` 为 true 时, 不传输空对象. `PGBackend::recover_delete_object()` 按 peer 聚合删除请求:
+
+```mermaid
+sequenceDiagram
+    participant P as Primary PGBackend
+    participant R as Replica PGBackend
+    participant S as Replica ObjectStore
+
+    P->>R: MOSDPGRecoveryDelete(oid, version)
+    R->>S: remove_missing_object transaction
+    S-->>R: transaction complete
+    R-->>P: MOSDPGRecoveryDeleteReply
+    P->>P: on_peer_recover()
+    opt 所有缺少 delete 的 peer 均已完成
+        P->>P: on_global_recover()
+    end
+```
+
+删除请求也使用 `osd_max_push_cost` 和 `osd_max_push_objects` 控制组包.
+
+## 4.5 快照数据复用
+
+恢复 snapshot clone 时, replicated backend 会通过 `calc_head_subsets()` 和 `calc_clone_subsets()` 检查 target 已有的 head/clone 与 SnapSet overlap:
+
+- target 本地可以复用的范围进入 `clone_subset`;
+- 仍需从 source 读取的范围进入 `copy_subset`;
+- target 通过 `clone_range` 重建共享范围, 再写实际传输的数据.
+
+`osd_recover_clone_overlap` 默认启用. overlap interval 数超过 `osd_recover_clone_overlap_limit` 时, 代码放弃该优化, 避免大量零碎的 clone 操作.
+
+## 4.6 数据源失效
+
+`ReplicatedBackend::check_recovery_sources()` 发现当前 Pull source 在新 OSDMap 中变为 down 后, 会取消相关 Pull, 清理 `pulling` 和 `pull_from_peer`. PG 随后可以从更新后的 `MissingLoc` 重新选择 source. 旧 interval 的回复经过 epoch/min_epoch 检查后会被丢弃, 已经 reset 的 PG 不会处理这些回复.
+
+# 5. 纠删码池恢复
+
+EC backend 面对的是 shard, 而不是完整副本. 一个对象可以同时缺少多个 shard, `ECCommon::RecoveryBackend` 会尽量用同一批 source read 结果重建多个输出.
+
+## 5.1 恢复链路
+
+每个对象对应一个 `RecoveryOp`, 其中 `missing_on` 记录需要写入的目标 `pg_shard_t`, `missing_on_shards` 记录对应 shard id. 每个 chunk 的处理顺序如下:
+
+1. `get_recovery_chunk_size()` 选择本轮逻辑对象范围.
+2. `ro_range_to_shard_extent_set_with_parity()` 把逻辑范围转换成各 data/parity shard 的 extent.
+3. 只保留 missing shards 需要重建的范围.
+4. `ReadPipeline::get_min_avail_to_read_shards()` 收集 acting, backfill target 和 `MissingLoc` 中可用的 shard.
+5. EC plugin 的 `minimum_to_decode()` 选择本轮需要读取的 source shards 或 subchunks.
+6. source read 完成后, `shard_extent_map_t::decode()` 重建缺失 shard.
+7. `get_sparse_buffer()` 取出每个 target 对应的数据, 通过 `MOSDPGPush` 写入.
+
+```mermaid
+sequenceDiagram
+    participant PG as PrimaryLogPG
+    participant EC as ECCommon::RecoveryBackend
+    participant RP as ReadPipeline
+    participant S as Source shard OSDs
+    participant T as Target shard OSDs
+    participant TS as Target ObjectStore
+
+    PG->>EC: recover_object(oid, version)
+    EC->>RP: get_min_avail_to_read_shards()
+    RP->>S: MOSDECSubOpRead
+    S-->>RP: shard extents / attrs
+    RP-->>EC: recovery read complete
+    EC->>EC: decode() / get_sparse_buffer()
+    EC->>T: MOSDPGPush(reconstructed shard)
+    T->>TS: 写 shard transaction
+    TS-->>T: transaction complete
+    T-->>EC: MOSDPGPushReply
+    EC->>PG: on_peer_recover() / on_global_recover()
+```
+
+恢复一个 shard 往往需要读取多个 source shards, 因此 EC recovery 的 source 网络流量通常大于最终写入一个 target shard 的数据量.
+
+一个 EC chunk 可以再切成多个 subchunk. 支持 subchunk 的 plugin 会告诉 `ReadPipeline`: 每个 source shard 只需要读取其中哪些 subchunk, 就能完成当前缺失 shard 的重建. Ceph 随后把这些 subchunk 范围放进 `MOSDECSubOpRead`, 不再读取整个 chunk. 以 Clay 为例, 修复某个 shard 时通常只需要每个 source chunk 的一部分数据, 因此可以减少 source OSD 的磁盘读取和网络传输. 实际范围仍取决于 k, m, plugin, 对象尾部 padding 和可用 shard 分布.
+
+## 5.2 恢复状态
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> READING: 选择 logical range 和 source shards
+    IDLE --> [*]: source 丢失且无法 decode
+    READING --> WRITING: read 完成, decode 并构造 PushOp
+    WRITING --> IDLE: 所有 PushReply 返回, 当前 chunk 未完成
+    WRITING --> COMPLETE: 所有 PushReply 返回, 对象完成
+    COMPLETE --> [*]
+```
+
+target 写入同样使用 temporary recovery object. 第一个 chunk 已经完成整个 shard 时可以直接写正式对象; 多 chunk 恢复在最后通过 rename 替换正式 shard 对象.
+
+## 5.3 元数据与局部写入
+
+primary 本地缺少 `ObjectContext` 时, 第一次 recovery read 会请求 attrs. backend 从 `OI_ATTR` 得到对象逻辑大小后, 重新计算 read mask 和 zero mask, 避免读取或写入对象尾部 padding 以外的数据.
+
+optimized EC partial write 允许不同 shard 对同一 oid 处于不同版本. 恢复 non-primary shard 时, backend 使用 `object_info_t::get_version_for_shard()` 选择该 shard 的版本; 需要时重写目标 OI, 并处理 `shard_versions`, 避免恢复完成后 scrub 看到错误版本.
+
+# 6. 完成条件
+
+一个对象恢复完成, 表示该 oid 的所有目标 shard 都已满足要求. PG 是否完成恢复, 还要检查其他 missing, in-flight op 和 backfill target.
+
+对象进入 `on_global_recover()` 后, primary 会:
+
+- 从 `recovering` 移除 oid;
+- 递减 `recovery_ops_active`;
+- 释放 recovery read 标记和对象 backoff;
+- 唤醒等待 degraded/unreadable object 的客户端 op;
+- 更新 recovery objects/bytes 统计.
+
+普通 recovery 进入完成分支前, 需要同时满足以下条件:
+
+- primary 和 `acting_recovery_backfill` 中的 peer 都没有普通 missing;
+- `recovering` 为空, `recovery_ops_active` 为 0;
+- 当前没有异步工作, `work_in_progress` 为 false;
+- unfound 数量为 0.
+
+```mermaid
+flowchart TD
+    A[对象进入 on_global_recover] --> B[移除 recovering 并释放 recovery op]
+    B --> C{还有可执行的 recovery 或 in-flight 工作}
+    C -->|有| D[继续 queue_recovery]
+    C -->|没有| E{存在 unfound}
+    E -->|有| F[进入 recovery_unfound]
+    E -->|没有| G{存在 backfill target}
+    G -->|有| H[RequestBackfill]
+    G -->|没有| I[AllReplicasRecovered]
+    I --> J[Recovered]
+    J --> K{acting set full-sized, replicas activated / committed 且无 async target}
+    K -->|是| L[Clean]
+```
+
+满足这些条件后:
+
+- 没有 backfill target: 发送 `AllReplicasRecovered`, 进入 `Recovered`;
+- 仍有 backfill target: 释放 recovery reservation, 再发送 `RequestBackfill` 申请 backfill reservation;
+- `Recovered` 等待所有 replica activated and committed, 并确认没有 async recovery target; `try_mark_clean()` 只在 acting set 达到 pool size 时设置 `PG_STATE_CLEAN`.
+
+进入 `Clean` 时, `Clean::Clean()` 调用 `PG::on_clean()`, 并把它返回的 Context 注册到当前 transaction 的 commit 回调. `PG::on_clean()` 随即调用 `PG::finish_recovery()`; 后者要求 `last_complete == last_update`, 清理内存中的 recovery 状态, 并返回 `C_PG_FinishRecovery`. transaction commit 后才执行 `_finish_recovery()`, 此时如果 PG 仍为 clean, 才会清理 stray, 发布统计并通知 scrubber.
+
+repair 触发的 recovery 也在这段收尾中清除 repair 状态, 并根据 scrubber 状态决定是否安排下一次 scrub.
+
+# 7. 客户端 I/O
+
+primary 从已有对象生成恢复数据前, 会通过 `get_recovery_read()` 取得该对象的 recovery read 标记, 并与客户端对象操作协调. 客户端访问 degraded 或 unreadable 对象时可能等待恢复, 收到 RADOS backoff, 或者在条件满足后继续执行.
+
+`active+degraded` 不表示整个 PG 停止服务. Ceph 会继续处理不受影响的对象; 对 unreadable 对象, 需要写顺序保证的对象或正在持有 recovery read 标记的对象, 相关操作可能被延迟. replica-read 遇到不稳定写时也可能返回 `-EAGAIN`, 让客户端回到 primary.
+
+PG 低于 `min_size`, 对象 unfound 或 PG inactive 时, 受影响的范围会更大.
+
+# 8. 配置与调度
+
+| 配置 | 所分析版本的默认值 | 作用 |
+|---|---:|---|
+| osd_max_backfills | 1 | 每个 OSD 的 local/remote recovery/backfill reservation 上限, 各自计算 |
+| osd_recovery_max_active_hdd | 3 | HDD OSD active recovery-op 槽位上限 |
+| osd_recovery_max_active_ssd | 10 | SSD OSD active recovery-op 槽位上限 |
+| osd_recovery_max_single_start | 1 | 一次调度最多预留的 recovery-op 槽位数 |
+| osd_recovery_max_chunk | 8 MiB | 单个 recovery chunk 的 payload 预算 |
+| osd_recovery_max_omap_entries_per_chunk | 8096 | 每 chunk 最大 omap entries |
+| osd_max_push_cost | 8 MiB | Push/Delete 组包的累计 cost 阈值 |
+| osd_max_push_objects | 10 | 单条 Push/Delete 消息对象数上限 |
+| osd_recovery_retry_interval | 30 秒 | full 检查失败后的重试间隔 |
+| osd_recovery_delay_start | 0 | peering 完成后延迟 recovery |
+| osd_recovery_op_priority | 3 | recovery cluster message 的默认 op priority |
+| osd_recovery_priority | 5 | PGRecovery 调度项的 queue priority, 与 pool recovery priority 无关 |
+
+使用 mClock 时, 还要检查当前 profile, background recovery 的 reservation/weight/limit, 以及 `osd_mclock_override_recovery_settings`. 设备, 网络或 CPU 已经饱和时, 提高 active recovery 上限通常只会增加排队和前台 I/O 延迟.
+
+集群 flag 的作用范围:
+
+- `norecover` 调用 `OSDService::pause_recovery()`, 停止从 `awaiting_throttle` 生成新的 `PGRecovery` 调度项. 已经进入 scheduler 的任务, 在途消息和 transaction 仍可能完成;
+- `nobackfill` 只推迟 `start_recovery_ops()` 中的 backfill 分支;
+- `norebalance` 推迟非 degraded PG 的 rebalancing backfill, degraded PG 的 backfill 仍可继续;
+- `ceph pg force-recovery` 提高指定 PG 的优先级, 不跳过 reservation, full 检查和并发上限.
+
+# 9. 性能和流量
+
+## 9.1 副本池
+
+primary 缺失时, 对象 data 从 source OSD 流向 primary; replica 缺失时, 从 primary 流向 target replica. 对象 data 之外还会传输 attrs, `object_info_t`, omap header/entries, SnapSet, sparse interval 和协议元数据.
+
+snapshot overlap 可以减少网络 data, 但 target 需要执行本地 `clone_range`. 大对象或 omap 较多的对象会产生多轮 Pull/Push/Reply.
+
+## 9.2 纠删码池
+
+EC recovery 包含两段网络流量: source shard OSDs 先把解码输入发给 recovery coordinator, coordinator 完成重建后, 再把输出发送给缺失 shard 所在的 OSD.
+
+重建一个 shard 需要的 source 流量由 EC plugin 决定. CPU 还要承担 checksum, shard extent 处理和 decode; 目标 OSD 则负责 shard data 与 attrs 的 transaction.
+
+## 9.3 前台 I/O 竞争
+
+恢复任务与客户端 I/O 会争用以下资源:
+
+- OSD scheduler queue;
+- data device read/write;
+- DB device 的 attrs/omap/metadata;
+- OSD cluster network;
+- checksum, compression 和 EC decode CPU;
+- BlueStore cache 和主机内存带宽.
+
+# 10. 观测与排障
+
+## 10.1 PG 状态
+
+```bash
+ceph -s
+ceph health detail
+ceph pg <pgid> query
+ceph pg <pgid> list_missing
+ceph pg map <pgid>
+```
+
+重点字段:
+
+- `state`: `recovery_wait`, `recovering`, `recovery_unfound`, `recovery_toofull`;
+- `acting`, `up`, `backfill_targets`, `async_recovery_targets`;
+- local missing, peer missing, `might_have_unfound`;
+- `recovery_state`, `last_requested`, `recovering` oid;
+- `last_update`, `last_complete`, `log_tail`.
+
+## 10.2 队列与资源预留
+
+```bash
+ceph daemon osd.<id> dump_recovery_reservations
+ceph daemon osd.<id> dump_ops_in_flight
+ceph daemon osd.<id> dump_historic_ops
+ceph daemon osd.<id> counter dump
+```
+
+| Counter | 含义 |
+|---|---|
+| osd.recovery_ops | start_recovery_ops() 启动工作的累计数, 包含 backfill scan, 不等于对象数 |
+| osd.recovery_bytes | 已恢复数据字节 |
+| osd.pull | 发出的 Pull 数 |
+| osd.push / osd.push_out_bytes | Push 数和数据量 |
+| osd.subop_pull / osd.subop_push | 收到的 Pull/Push 子操作 |
+| l_osd_recovery_*_queue_latency | Push/Pull/Backfill/Scan 在 scheduler 中的等待时间 |
+| bluestore.read_lat | source ObjectStore read 延迟 |
+| bluestore.txc_commit_lat | target transaction commit 延迟 |
+
+## 10.3 停滞点定位
+
+| 现象 | 优先检查 |
+|---|---|
+| recovery_wait 长时间不动 | local/remote reservation, osd_max_backfills |
+| recovery_toofull | acting OSD 的 full 状态, OSDMap, retry timer |
+| recovery_unfound | list_missing, might_have_unfound, 历史 source OSD |
+| replicated Pull 反复失败 | source down, 对象版本不符, source read EIO |
+| replicated PushReply 很慢 | target scheduler, ObjectStore transaction, 设备延迟 |
+| EC read 阶段很慢 | source shard 分布, cluster network, source device latency |
+| EC decode 后 Push 很慢 | target commit, decode CPU, network |
+| recovery bytes 很低但 CPU 高 | EC decode, checksum, 压缩, 碎片 omap |
+
+# 11. 源码索引
+
+| 阶段 | 文件 | 关键函数/类型 |
+|---|---|---|
+| recovery/backfill 选择 | src/osd/PeeringState.cc | choose_acting(), needs_recovery(), needs_backfill() |
+| reservation 状态机 | src/osd/PeeringState.cc, PeeringState.h | WaitLocalRecoveryReserved, WaitRemoteRecoveryReserved, Recovering |
+| recovery 入队 | src/osd/PG.cc, src/osd/OSD.cc | queue_recovery(), _maybe_queue_recovery(), do_recovery() |
+| 对象选择 | src/osd/PrimaryLogPG.cc | start_recovery_ops(), recover_primary(), recover_replicas() |
+| missing 定位 | src/osd/MissingLoc.h, MissingLoc.cc | MissingLoc, needs_recovery(), is_unfound() |
+| 公共 backend | src/osd/PGBackend.cc, PGBackend.h | RecoveryHandle, recover_delete_object() |
+| replicated recovery | src/osd/ReplicatedBackend.cc, ReplicatedBackend.h | prepare_pull(), start_pushes(), build_push_op() |
+| EC recovery | src/osd/ECBackend.cc, ECCommon.cc | ECCommon::RecoveryBackend, continue_recovery_op(), handle_recovery_read_complete() |
+| recovery 协议结构 | src/osd/osd_types.h | ObjectRecoveryInfo, ObjectRecoveryProgress, PullOp, PushOp |
+| recovery 消息 | src/messages/ | MOSDPGPull, MOSDPGPush, MOSDPGPushReply, MOSDPGRecoveryDelete |
+| scheduler item | src/osd/scheduler/OpSchedulerItem.* | PGRecovery, PGRecoveryContext, PGRecoveryMsg |
+
+# 12. 排障顺序
+
+```mermaid
+flowchart TD
+    A{PG 需要 recovery 还是 backfill} -->|recovery| B{缺失发生在哪里}
+    A -->|backfill| C[转到 backfill 的扫描与游标检查]
+    B --> D[检查 PG 状态和 reservation]
+    D --> E[检查 recovery-op 槽位]
+    E --> F{MissingLoc 是否有可用 source}
+    F -->|没有| G[检查 unfound 和历史 source OSD]
+    F -->|有| H{pool 类型}
+    H -->|副本池| I[确认处于 Pull, Push 或 Delete 哪一阶段]
+    H -->|纠删码池| J[确认处于读取, 解码或写入哪一阶段]
+    I --> K[检查 scheduler, 网络和 ObjectStore]
+    J --> K
+    K --> L[确认 missing, recovering 和 last_complete 是否推进]
+```

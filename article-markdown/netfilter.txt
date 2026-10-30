@@ -1,0 +1,25 @@
+# Linux 内核软件框架-Netfilter 概述
+
+# 1. 简述
+
+[Netfilter](https://www.netfilter.org/)是 Linux 内核中的一个软件框架, 用于管理网络数据包. 不仅具有网络地址转换 (NAT) 的功能, 也具备数据包内容修改, 以及数据包过滤等防火墙功能. 利用运作于用户空间的应用软件, 如[iptables](https://www.netfilter.org/projects/iptables/index.html)等, 来控制 Netfilter, 系统管理者可以管理通过 Linux 操作系统的各种网络数据包. 1990 年代, Netfilter 在 Linux 2.3.15 版时进入 Linux 内核, 正式应用于 Linux 2.4 版.
+
+现今许多市面上许多的 IP 分享器或无线网络路由器 (Wireless router), 多是嵌入式 Linux 平台, 并利用 Netfilter 的数据包处理能力, 提供 NAT 以及防火墙的功能. 此外, Netfilter 平台的模块化设计使得功能具可扩展性, 以及 Linux 核心本身属于开放的源代码, 能够免费获取源代码进行修改与扩展. Netfilter 平台中制定了五个数据包的挂载点 (Hook), 分别是 PRE_ROUTING, INPUT, OUTPUT, FORWARD 与 POST_ROUTING.
+
+
+
+# 2. 原理
+
+Linux 网络内核中存在 5 条内置 chain, 针对于每条 chain, Netfilter 都有与之对应的 hook, 他们的对应关系如下所示 (左为 chain, 右为 hook):
+
+- `PREROUTING`: 由 `NF_IP_PRE_ROUTING` 触发;
+- `INPUT`: 由 `NF_IP_LOCAL_IN` 触发;
+- `FORWARD`: 由 `NF_IP_FORWARD` 触发;
+- `OUTPUT`: 由 `NF_IP_LOCAL_OUT` 触发;
+- `POSTROUTING`: 由 `NF_IP_POST_ROUTING` 触发; 
+
+Netfilter 通过在内核中嵌入的这五个 NF_HOOK 函数的位置上注册相关函数, 截断数据包的流动, 从而完成对数据包的过滤和转换.
+
+
+
+![Packet flow in Netfilter and General Networking](/assets/images/posts/netfilter/netfilter-1.webp)
